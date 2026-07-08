@@ -27,7 +27,9 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - **Insurance**: dedicated section for GIT, Motor–Truck, Motor–Trailer, Green Card, Public Liability (PL) and Employers' Liability (EL) policies — insurer, policy number, cover, start/expiry, certificate upload; surfaced in dashboard alerts/KPI + calendar.
 - **AI Insurance Import**: bulk-upload insurance PDFs/photos → AI (OpenAI vision for images, Gemini for PDFs) classifies policy type, extracts insurer/number/dates/cover, auto-creates records; low-confidence flagged "Review".
 - **UK & Ireland support**: account-wide region setting (UK=DVSA / IE=RSA) switching terminology (MOT↔CVRT, Annual Test↔CVRT, £↔€) via sidebar switcher.
-- **Tacho Portal**: tachograph download tracking — Driver Card (28d) & Vehicle Unit (90d) schedules with auto next-due, "Log Download" reschedule, infringement counts, and tacho data file uploads (.ddd/.tgd etc.). Reference is a dropdown from Drivers/Vehicles. **Auto-read**: parses uploaded .ddd (binary TimeReal heuristic) or PDF/report (AI) to fill last-download date + infringements. Wired into dashboard alerts/KPI + calendar.
+- **Tacho Portal**: Driver Cards / Vehicle Units folder tabs, grouped by driver/vehicle showing the latest download (older ones collapsed). Compliance now evaluates only the LATEST download per driver/vehicle (fixed false "expired" from historical records). Auto next-due, Log Download, infringements, dropdown references, .ddd/report auto-read. Dashboard alerts/KPI + calendar.
+- **Calendar**: month grid of PMI/defects/training/insurance/tacho events + manual custom events (add/delete).
+- **Insurance**: folder filters (Truck/Trailer/GIT/PL/EL/Green Card/Other) + AI bulk import.
 - Defects: report + AI summary + status workflow + photo uploads.
 - PMI Inspections: recurring schedules + completed-inspection records (auto next-due) + history.
 - Calendar: month grid combining PMI due/done, defects and training expiries.
