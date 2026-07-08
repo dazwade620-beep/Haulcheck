@@ -82,6 +82,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Log CPC shortcut + IE brake-test rule (2026-07-08)**: added a "+ Log" button on each driver card's CPC bar opening a compact dialog (course, hours, date, provider) that creates a Driver-CPC training record so the progress bar updates without leaving the page (verified 0→7h). Also: the PMI completion "Laden?" brake-test field is now hidden for Ireland/RSA region accounts (not required under RSA).
 
+- **Office Links tab + region tax term (2026-07-08)**: added a dedicated "Links" tab in the Office folder — a reference-bookmarks manager (`/api/links` CRUD, `db.links`): title, URL (auto-prefixed https://), category (Government/Authority, Legislation, Portal, Training, Supplier, General) and notes; grouped by category, opens in new tab. New files `frontend/src/pages/Links.js`. Region pass: added `roadTax` term (UK "Vehicle Tax" / IE "Motor Tax") applied to the Fleet vehicle table + form (complements existing CVRT/MOT, currency, O-licence terms and the IE laden-brake-test hide).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

@@ -81,7 +81,7 @@ function VehiclesPanel() {
                 <th className="px-5 py-3 font-semibold">Vehicle</th>
                 <th className="px-5 py-3 font-semibold">{terms.vehicleTest}</th>
                 <th className="px-5 py-3 font-semibold">Service</th>
-                <th className="px-5 py-3 font-semibold">Tax</th>
+                <th className="px-5 py-3 font-semibold">{terms.roadTax}</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
@@ -116,7 +116,7 @@ function VehiclesPanel() {
             <Field label={`${terms.vehicleTest} Due`}><Input data-testid="veh-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Service Due"><Input data-testid="veh-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></Field>
-              <Field label="Tax Due"><Input data-testid="veh-tax" type="date" value={form.tax_due} onChange={(e) => setForm({ ...form, tax_due: e.target.value })} /></Field>
+              <Field label={`${terms.roadTax} Due`}><Input data-testid="veh-tax" type="date" value={form.tax_due} onChange={(e) => setForm({ ...form, tax_due: e.target.value })} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Tacho Calibration Due"><Input data-testid="veh-tachocal" type="date" value={form.tacho_calibration_due} onChange={(e) => setForm({ ...form, tacho_calibration_due: e.target.value })} /></Field>

@@ -283,6 +283,23 @@ class LetterGenerateInput(BaseModel):
     signoff_role: str = ""
 
 
+class WebLink(BaseModel):
+    id: str = Field(default_factory=lambda: f"link_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    title: str
+    url: str
+    category: str = "General"
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class WebLinkInput(BaseModel):
+    title: str
+    url: str
+    category: str = "General"
+    notes: str = ""
+
+
 class FuelRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"fuel_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -873,6 +890,40 @@ async def update_document(docid: str, data: DocInput, user: User = Depends(get_c
 @api_router.delete("/documents/{docid}")
 async def delete_document(docid: str, user: User = Depends(get_current_user)):
     await db.documents.delete_one({"id": docid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Web links (reference bookmarks) ----------
+@api_router.get("/links")
+async def list_links(user: User = Depends(get_current_user)):
+    docs = await db.links.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return docs
+
+
+@api_router.post("/links")
+async def create_link(data: WebLinkInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    if payload["url"] and not payload["url"].startswith(("http://", "https://")):
+        payload["url"] = "https://" + payload["url"]
+    link = WebLink(**payload, user_id=user.user_id)
+    await db.links.insert_one(link.model_dump())
+    return link.model_dump()
+
+
+@api_router.put("/links/{lid}")
+async def update_link(lid: str, data: WebLinkInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    if payload["url"] and not payload["url"].startswith(("http://", "https://")):
+        payload["url"] = "https://" + payload["url"]
+    res = await db.links.update_one({"id": lid, "user_id": user.user_id}, {"$set": payload})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Link not found")
+    return {"ok": True}
+
+
+@api_router.delete("/links/{lid}")
+async def delete_link(lid: str, user: User = Depends(get_current_user)):
+    await db.links.delete_one({"id": lid, "user_id": user.user_id})
     return {"ok": True}
 
 
