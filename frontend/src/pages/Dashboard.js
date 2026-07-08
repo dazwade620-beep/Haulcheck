@@ -117,7 +117,7 @@ export default function Dashboard() {
         ) : (
           <div className="divide-y divide-slate-100">
             {alerts.map((a, i) => (
-              <div key={i} data-testid="alert-row" className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors">
+              <div key={`${a.type}-${a.name}-${a.item}-${i}`} data-testid="alert-row" className="flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold w-20 shrink-0">{a.type}</span>
                   <div className="min-w-0">
