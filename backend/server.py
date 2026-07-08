@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import asyncio
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
@@ -1408,8 +1409,97 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
     return {"score": score, "insight": insight, "checklist": gaps}
 
 
-app.include_router(api_router)
+# ---------- Email reminders (Resend) ----------
+class ReminderSettingsInput(BaseModel):
+    recipients: List[EmailStr] = []
 
+
+@api_router.get("/reminders/settings")
+async def get_reminder_settings(user: User = Depends(get_current_user)):
+    doc = await db.reminder_settings.find_one({"user_id": user.user_id}, {"_id": 0})
+    return {"recipients": (doc or {}).get("recipients", [])}
+
+
+@api_router.put("/reminders/settings")
+async def update_reminder_settings(data: ReminderSettingsInput, user: User = Depends(get_current_user)):
+    payload = {"user_id": user.user_id, "recipients": data.recipients, "updated_at": now_iso()}
+    await db.reminder_settings.update_one({"user_id": user.user_id}, {"$set": payload}, upsert=True)
+    return {"ok": True, "recipients": data.recipients}
+
+
+def build_reminder_html(company: str, alerts: list, authority: str) -> str:
+    if alerts:
+        rows = ""
+        for a in alerts:
+            if a["status"] == "expired":
+                status_txt, color = "EXPIRED", "#dc2626"
+            elif a.get("days") is not None:
+                status_txt, color = f"Due in {a['days']} day(s)", "#d97706"
+            else:
+                status_txt, color = "Action needed", "#d97706"
+            rows += (
+                f"<tr>"
+                f"<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;text-transform:capitalize;'>{a['type']}</td>"
+                f"<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#0f172a;font-weight:600;'>{a['name']}</td>"
+                f"<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#334155;'>{a['item']}</td>"
+                f"<td style='padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:700;color:{color};'>{status_txt}</td>"
+                f"</tr>"
+            )
+        table = (
+            "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse;margin-top:18px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;'>"
+            "<tr style='background:#0f172a;'>"
+            "<th style='padding:10px 12px;text-align:left;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#cbd5e1;'>Area</th>"
+            "<th style='padding:10px 12px;text-align:left;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#cbd5e1;'>Item</th>"
+            "<th style='padding:10px 12px;text-align:left;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#cbd5e1;'>Detail</th>"
+            "<th style='padding:10px 12px;text-align:left;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#cbd5e1;'>Status</th>"
+            f"</tr>{rows}</table>"
+        )
+        intro = f"The following <strong>{len(alerts)}</strong> compliance item(s) are expired or due within the next 30 days and need attention:"
+    else:
+        table = ""
+        intro = "Good news — no compliance items are expired or due within the next 30 days."
+
+    return (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='600' align='center' cellpadding='0' cellspacing='0' style='background:#ffffff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        "<tr><td>"
+        "<p style='margin:0;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck · " + authority + " compliance</p>"
+        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Compliance reminder</h1>"
+        "<p style='margin:4px 0 0;font-size:14px;color:#475569;'>" + company + "</p>"
+        "<p style='margin:20px 0 0;font-size:14px;color:#334155;line-height:1.6;'>" + intro + "</p>"
+        + table +
+        "<p style='margin:24px 0 0;font-size:12px;color:#94a3b8;line-height:1.6;'>This is an automated reminder from your HaulCheck fleet-compliance dashboard. Log in to review and clear these items.</p>"
+        "</td></tr></table></div>"
+    )
+
+
+@api_router.post("/reminders/send")
+async def send_reminders(user: User = Depends(get_current_user)):
+    settings = await db.reminder_settings.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    recipients = settings.get("recipients", [])
+    if not recipients:
+        raise HTTPException(status_code=400, detail="No recipient emails configured. Add at least one in Settings.")
+    stats = await gather_stats(user.user_id)
+    upcoming = [a for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    company = operator.get("company_name") or "Your fleet"
+    udoc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA" if udoc.get("region") == "IE" else "DVSA"
+    html = build_reminder_html(company, upcoming, authority)
+    subject = f"HaulCheck reminder — {len(upcoming)} compliance item(s) need attention" if upcoming else "HaulCheck compliance reminder — all clear"
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        params = {"from": os.environ['SENDER_EMAIL'], "to": recipients, "subject": subject, "html": html}
+        result = await asyncio.to_thread(resend.Emails.send, params)
+    except Exception as e:
+        logging.error(f"Reminder email failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+    email_id = result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
+    return {"ok": True, "sent_to": recipients, "item_count": len(upcoming), "email_id": email_id}
+
+
+app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

@@ -16,6 +16,7 @@ import Tacho from "@/pages/Tacho";
 import Defects from "@/pages/Defects";
 import Documents from "@/pages/Documents";
 import Operator from "@/pages/Operator";
+import Reminders from "@/pages/Reminders";
 import { Truck } from "lucide-react";
 
 function Protected({ children }) {
@@ -50,6 +51,7 @@ function AppRouter() {
       <Route path="/tacho" element={<Protected><Tacho /></Protected>} />
       <Route path="/defects" element={<Protected><Defects /></Protected>} />
       <Route path="/documents" element={<Protected><Documents /></Protected>} />
+      <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
