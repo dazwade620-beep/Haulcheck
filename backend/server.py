@@ -285,6 +285,10 @@ class TachoInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class TachoParseInput(BaseModel):
+    file_id: str
+
+
 class PMISchedule(BaseModel):
     id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -875,6 +879,76 @@ async def log_tacho_download(tid: str, payload: dict, user: User = Depends(get_c
 async def delete_tacho(tid: str, user: User = Depends(get_current_user)):
     await db.tacho.delete_one({"id": tid, "user_id": user.user_id})
     return {"ok": True}
+
+
+def parse_ddd_last_timestamp(data: bytes):
+    # Digital tacho TimeReal = uint32 seconds since 1970-01-01 UTC. Scan for the
+    # most recent plausible timestamp (best-effort read of last activity/download).
+    lo = int(datetime(2005, 1, 1, tzinfo=timezone.utc).timestamp())
+    hi = int(datetime.now(timezone.utc).timestamp()) + 2 * 86400
+    scan = data[:5_000_000]
+    best = None
+    for i in range(0, len(scan) - 3):
+        val = int.from_bytes(scan[i:i + 4], "big")
+        if lo <= val <= hi and (best is None or val > best):
+            best = val
+    if best:
+        return datetime.fromtimestamp(best, tz=timezone.utc).date().isoformat()
+    return None
+
+
+async def ai_extract_tacho(file_bytes: bytes, mime: str, ext: str):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
+    system = (
+        "You read tachograph analysis reports and driver-card/vehicle-unit printouts. Extract: "
+        "last_download (the most recent download date or card-read/print date, YYYY-MM-DD or null) and "
+        "infringements (integer count of infringements/violations/offences noted, else 0). "
+        "Return ONLY minified JSON {\"last_download\": ..., \"infringements\": ..., \"confidence\": 0-1}. No prose."
+    )
+    tmp_path = None
+    try:
+        if (mime or "").startswith("image/"):
+            b64 = base64.b64encode(file_bytes).decode("utf-8")
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tac_{uuid.uuid4().hex[:8]}", system_message=system).with_model("openai", "gpt-4o")
+            msg = UserMessage(text="Extract tacho details from this report.", file_contents=[ImageContent(b64)])
+        else:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+            tmp.write(file_bytes)
+            tmp.flush()
+            tmp.close()
+            tmp_path = tmp.name
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tac_{uuid.uuid4().hex[:8]}", system_message=system).with_model("gemini", "gemini-2.5-flash")
+            msg = UserMessage(text="Extract tacho details from this report.", file_contents=[FileContentWithMimeType(mime or "application/pdf", tmp_path)])
+        resp = await chat.send_message(msg)
+        text = (resp if isinstance(resp, str) else str(resp)).strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        s, e = text.find("{"), text.rfind("}")
+        return json.loads(text[s:e + 1])
+    except Exception as ex:
+        logging.error(f"AI tacho extract failed: {ex}")
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@api_router.post("/tacho/parse")
+async def parse_tacho(payload: TachoParseInput, user: User = Depends(get_current_user)):
+    rec = await db.files.find_one({"id": payload.file_id, "user_id": user.user_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    data, ct = get_object(rec["storage_path"])
+    ct = rec.get("content_type") or ct
+    ext = (rec.get("original_filename") or "").rsplit(".", 1)[-1].lower()
+    ai_types = (ct or "").startswith("image/") or (ct or "").startswith("text/") or ct == "application/pdf"
+    if ai_types or ext in ("pdf", "txt", "csv"):
+        extracted = await ai_extract_tacho(data, ct, ext) or {}
+        return {"last_download": extracted.get("last_download"), "infringements": extracted.get("infringements"), "method": "ai"}
+    last = parse_ddd_last_timestamp(data)
+    return {"last_download": last, "infringements": None, "method": "binary"}
 
 
 # ---------- Defects ----------

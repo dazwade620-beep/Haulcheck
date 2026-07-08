@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu } from "lucide-react";
+import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -22,6 +22,7 @@ export default function Tacho() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [reading, setReading] = useState(false);
 
   const load = async () => {
     setItems((await api.get("/tacho")).data);
@@ -57,6 +58,24 @@ export default function Tacho() {
       toast.success("Download logged · next due rescheduled");
       load();
     } catch { toast.error("Could not log download"); }
+  };
+
+  const autoRead = async () => {
+    const att = form.attachments[form.attachments.length - 1];
+    if (!att) { toast.error("Upload a tacho file first"); return; }
+    setReading(true);
+    try {
+      const res = await api.post("/tacho/parse", { file_id: att.file_id });
+      const upd = {};
+      if (res.data.last_download) upd.last_download = res.data.last_download;
+      if (res.data.infringements != null) upd.infringements = res.data.infringements;
+      setForm((f) => ({ ...f, ...upd }));
+      toast.success(res.data.last_download ? `Read last download: ${res.data.last_download}` : "No date found in file — please enter manually");
+    } catch {
+      toast.error("Could not read the file");
+    } finally {
+      setReading(false);
+    }
   };
 
   return (
@@ -134,6 +153,11 @@ export default function Tacho() {
               <Field label="Infringements"><Input data-testid="tacho-infringements" type="number" min="0" value={form.infringements} onChange={(e) => setForm({ ...form, infringements: e.target.value })} /></Field>
             </div>
             <Field label="Upload Tacho Data (download files)"><FileUpload testid="tacho-upload" label="Upload tacho files (.ddd / .tgd / .c1b / .v1b / image / PDF)" accept="image/*,application/pdf,.ddd,.tgd,.c1b,.v1b,.dtc,.esm,.tgz" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
+            {form.attachments.length > 0 && (
+              <Button type="button" data-testid="tacho-autoread-button" onClick={autoRead} disabled={reading} variant="outline" className="w-full gap-2 border-slate-300">
+                {reading ? <><Loader2 size={15} className="animate-spin" /> Reading file…</> : <><Sparkles size={15} /> Auto-read dates from file</>}
+              </Button>
+            )}
             <Field label="Notes"><Textarea data-testid="tacho-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Infringement details, analysis notes…" /></Field>
             <DialogFooter><Button data-testid="save-tacho-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Record"}</Button></DialogFooter>
           </form>

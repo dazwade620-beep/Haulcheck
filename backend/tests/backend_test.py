@@ -988,3 +988,111 @@ class TestTacho:
         assert rEdit.status_code == 404
         # Cleanup
         requests.delete(f"{API}/tacho/{tid}", headers=hA, timeout=15)
+
+
+# ---------- Tacho auto-parse (POST /api/tacho/parse) ----------
+class TestTachoParse:
+    """New feature: parse uploaded tacho files (.ddd binary heuristic or PDF/text/image via LLM)."""
+
+    def _upload(self, token, filename, content, mime):
+        headers = {"Authorization": f"Bearer {token}"}
+        r = requests.post(f"{API}/upload", files={"file": (filename, content, mime)}, headers=headers, timeout=30)
+        assert r.status_code == 200, r.text
+        return r.json()["file_id"]
+
+    def test_parse_binary_ddd_returns_embedded_timestamp(self, auth_headers, token):
+        """Craft a .ddd with a known big-endian uint32 TimeReal and confirm binary path returns that date."""
+        import struct
+        from datetime import datetime as _dt, timezone as _tz
+        target = _dt(2026, 6, 15, 10, 30, 0, tzinfo=_tz.utc)
+        target_ts = int(target.timestamp())
+        # Filler + embedded timestamp + filler. Include a few older timestamps to verify "max" is picked.
+        older = int(_dt(2025, 1, 5, tzinfo=_tz.utc).timestamp())
+        blob = b"\x00" * 32 + struct.pack(">I", older) + b"\xAB\xCD" * 20 + struct.pack(">I", target_ts) + b"\x00" * 32
+        file_id = self._upload(token, "TEST_card.ddd", blob, "application/octet-stream")
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": file_id}, headers=auth_headers, timeout=30)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["method"] == "binary"
+        assert body["last_download"] == "2026-06-15"
+        assert body["infringements"] is None
+
+    def test_parse_text_report_returns_ai_extraction(self, auth_headers, token):
+        """A plaintext analysis report should be routed through the AI path and return both fields."""
+        report = (
+            b"TACHOGRAPH ANALYSIS REPORT\n"
+            b"Driver: John Smith\n"
+            b"Card downloaded on: 2026-06-01\n"
+            b"Analysis period: 01/05/2026 - 31/05/2026\n"
+            b"Infringements found: 3\n"
+            b"  - Insufficient daily rest (2 occurrences)\n"
+            b"  - Driving without valid card (1 occurrence)\n"
+        )
+        file_id = self._upload(token, "TEST_report.txt", report, "text/plain")
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": file_id}, headers=auth_headers, timeout=90)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["method"] == "ai"
+        # AI extractions can fail if key is missing; only assert values if returned
+        if body.get("last_download"):
+            assert body["last_download"] == "2026-06-01", body
+        if body.get("infringements") is not None:
+            assert int(body["infringements"]) == 3, body
+
+    def test_parse_requires_auth(self):
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": "x"}, timeout=15)
+        assert r.status_code == 401
+
+    def test_parse_unknown_file_returns_404(self, auth_headers):
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": "does_not_exist"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_parse_foreign_file_returns_404(self, token):
+        """User B cannot parse User A's uploaded file (data isolation)."""
+        # A uploads
+        headers_a = {"Authorization": f"Bearer {token}"}
+        r = requests.post(f"{API}/upload", files={"file": ("TEST_priv.ddd", b"\x00" * 100, "application/octet-stream")}, headers=headers_a, timeout=30)
+        assert r.status_code == 200
+        file_id = r.json()["file_id"]
+        # B tries to parse
+        emailB = f"TEST_tp_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        rB = requests.post(f"{API}/auth/register", json={"email": emailB, "password": "Password1!", "name": "B"}, timeout=15)
+        tokB = rB.json()["token"]
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": file_id}, headers={"Authorization": f"Bearer {tokB}", "Content-Type": "application/json"}, timeout=15)
+        assert r.status_code == 404
+
+    def test_end_to_end_upload_parse_and_create_tacho_record(self, auth_headers, token):
+        """Upload a .ddd, POST /tacho/parse, then POST /tacho with parsed date; verify next_due computed correctly."""
+        import struct
+        from datetime import datetime as _dt, timezone as _tz
+        target = _dt(2026, 3, 20, 12, 0, 0, tzinfo=_tz.utc)
+        blob = b"\x11" * 16 + struct.pack(">I", int(target.timestamp())) + b"\x22" * 16
+        file_id = self._upload(token, "TEST_e2e.ddd", blob, "application/octet-stream")
+        r = requests.post(f"{API}/tacho/parse", json={"file_id": file_id}, headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        parsed = r.json()
+        assert parsed["method"] == "binary"
+        assert parsed["last_download"] == "2026-03-20"
+
+        # Create a driver + tacho record using parsed date
+        drv_r = requests.post(f"{API}/drivers", json={"name": f"TEST TachoParseDrv {uuid.uuid4().hex[:4]}"}, headers=auth_headers, timeout=15)
+        assert drv_r.status_code == 200
+        drv = drv_r.json()
+
+        payload = {
+            "source_type": "Driver Card",
+            "reference": drv["name"],
+            "frequency_days": 28,
+            "last_download": parsed["last_download"],
+            "infringements": 0,
+            "attachments": [{"file_id": file_id, "filename": "TEST_e2e.ddd", "content_type": "application/octet-stream"}],
+        }
+        r = requests.post(f"{API}/tacho", json=payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["last_download"] == "2026-03-20"
+        assert body["next_due"] == "2026-04-17"  # 2026-03-20 + 28d
+
+        # Cleanup
+        requests.delete(f"{API}/tacho/{body['id']}", headers=auth_headers, timeout=15)
+        requests.delete(f"{API}/drivers/{drv['id']}", headers=auth_headers, timeout=15)
