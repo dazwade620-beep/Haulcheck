@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2, UserCog, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Field } from "@/pages/Vehicles";
+import { FileUpload } from "@/components/FileUpload";
 
 const LICENCE_TYPES = ["Standard National", "Standard International", "Restricted"];
 
@@ -25,7 +26,7 @@ const Card = ({ icon: Icon, title, children }) => (
 const empty = {
   company_name: "", company_number: "", operator_licence_number: "", licence_type: "Standard National",
   address: "", authorised_vehicles: 0, authorised_trailers: 0,
-  tm_name: "", tm_cpc_number: "", tm_email: "", tm_phone: "", notes: "",
+  tm_name: "", tm_cpc_number: "", tm_email: "", tm_phone: "", notes: "", logo_file_id: "",
 };
 
 export default function Operator() {
@@ -77,6 +78,11 @@ export default function Operator() {
             <Field label="Authorised Trailers"><Input data-testid="op-auth-trailers" type="number" min="0" value={form.authorised_trailers} onChange={(e) => setForm({ ...form, authorised_trailers: e.target.value })} /></Field>
           </div>
           <Field label="Operating Centre Address"><Textarea data-testid="op-address" rows={3} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Full operating centre address" /></Field>
+          <Field label="Company Logo (used as letterhead on generated documents)">
+            <FileUpload testid="op-logo" accept="image/*" label="Upload logo (PNG / JPG)"
+              attachments={form.logo_file_id ? [{ file_id: form.logo_file_id, filename: "logo", content_type: "image/png" }] : []}
+              onChange={(a) => setForm({ ...form, logo_file_id: a.length ? a[a.length - 1].file_id : "" })} />
+          </Field>
         </Card>
 
         <Card icon={UserCog} title="Transport Manager">

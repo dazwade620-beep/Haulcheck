@@ -348,6 +348,7 @@ class OperatorInput(BaseModel):
     tm_cpc_number: str = ""
     tm_email: str = ""
     tm_phone: str = ""
+    logo_file_id: str = ""
     notes: str = ""
 
 
@@ -858,6 +859,7 @@ LETTER_GUIDES = {
     "Disciplinary Invite": "a formal letter inviting the employee to a disciplinary hearing: date/time/place, the matter to be discussed, right to be accompanied, and possible outcomes.",
     "Disciplinary Outcome": "a formal letter confirming the outcome of a disciplinary hearing, the decision reached, any sanction, improvement required and appeal rights.",
     "Return to Work": "a return-to-work / fitness confirmation letter after absence, confirming duties resumed and any adjustments.",
+    "PRSI Letter": "a formal PRSI (Pay Related Social Insurance, Ireland) letter for an employee driver. Cover the employee's PRSI class/contributions, their PPS number where provided, employer registration details, and confirm the employer's PRSI obligations. Use Irish employment terminology.",
 }
 
 
@@ -897,10 +899,18 @@ async def generate_document(data: LetterGenerateInput, user: User = Depends(get_
     signoff_name = data.signoff_name or op.get("tm_name") or ""
     signoff_role = data.signoff_role or ("Transport Manager" if op.get("tm_name") else "")
     date_str = datetime.now(timezone.utc).strftime("%d %B %Y")
+    logo_bytes = None
+    if op.get("logo_file_id"):
+        frec = await db.files.find_one({"id": op["logo_file_id"], "user_id": user.user_id, "is_deleted": False})
+        if frec:
+            try:
+                logo_bytes, _ = get_object(frec["storage_path"])
+            except Exception as e:
+                logging.error(f"Logo fetch failed: {e}")
     try:
         pdf_bytes = build_letter_pdf(
             op, data.recipient_name, data.recipient_address, data.subject, data.body,
-            date_str, data.template, signoff_name, signoff_role,
+            date_str, data.template, signoff_name, signoff_role, logo_bytes,
         )
     except Exception as e:
         logging.error(f"Letter PDF build failed: {e}")

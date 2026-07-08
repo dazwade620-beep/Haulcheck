@@ -62,6 +62,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Company Documents Generator (2026-07-08)**: In Office → Documents, a "Generate Document" button opens a generator: pick a template (Warning Letter, Employment Offer Letter, Contract of Employment, Reference Letter, Disciplinary Invite, Disciplinary Outcome, Return to Work), enter recipient name/address + key points, then "AI Draft Letter" (`POST /api/documents/draft`, gpt-5.4) writes an editable subject + body. "Generate & Save PDF" (`POST /api/documents/generate`) renders a branded formal letter PDF (company letterhead pulled from Operator Details, TM sign-off) via `build_letter_pdf` in pdf_export.py, uploads it to object storage, and saves it as a document in the Office Documents list with the PDF attached. Verified end-to-end (curl + UI).
 
+- **PRSI template + logo letterhead (2026-07-08)**: Added "PRSI Letter" (Ireland/RSA — Pay Related Social Insurance) to the Company Documents Generator templates with an Irish-employment AI guide. Added a **company logo upload** to Operator Details (`logo_file_id`); `build_letter_pdf` now embeds the logo as letterhead at the top of every generated document PDF (logo bytes fetched from object storage in `generate_document`). Verified end-to-end: logo uploaded → operator saved → PRSI letter PDF generated with embedded logo image + company header + body.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

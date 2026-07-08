@@ -7,7 +7,7 @@ from reportlab.lib.units import mm
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak,
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image as RLImage,
 )
 from pypdf import PdfWriter, PdfReader
 from PIL import Image
@@ -108,7 +108,7 @@ def build_report_pdf(title, subtitle, meta_pairs, sections):
     return buf.getvalue()
 
 
-def build_letter_pdf(company, recipient_name, recipient_address, subject, body, date_str, doc_type, signoff_name="", signoff_role=""):
+def build_letter_pdf(company, recipient_name, recipient_address, subject, body, date_str, doc_type, signoff_name="", signoff_role="", logo_bytes=None):
     """Formal company letter. company: dict from operator details. body: plain text, \n\n = paragraphs."""
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=18 * mm,
@@ -120,6 +120,22 @@ def build_letter_pdf(company, recipient_name, recipient_address, subject, body, 
         ss.add(ParagraphStyle("LetterMeta", fontName="Helvetica", fontSize=9, textColor=SLATE, leading=12))
         ss.add(ParagraphStyle("LetterSubject", fontName="Helvetica-Bold", fontSize=11, textColor=DARK, leading=14, spaceBefore=6, spaceAfter=10))
     story = []
+    if logo_bytes:
+        try:
+            im = Image.open(io.BytesIO(logo_bytes))
+            iw, ih = im.size
+            if im.mode not in ("RGB", "RGBA"):
+                im = im.convert("RGBA")
+            lb = io.BytesIO()
+            im.save(lb, format="PNG")
+            lb.seek(0)
+            ratio = min((48 * mm) / iw, (24 * mm) / ih)
+            logo = RLImage(lb, width=iw * ratio, height=ih * ratio)
+            logo.hAlign = "LEFT"
+            story.append(logo)
+            story.append(Spacer(1, 8))
+        except Exception:
+            pass
     cname = (company or {}).get("company_name") or "Company Name"
     story.append(Paragraph(cname, ss["LetterHead"]))
     head_bits = []
