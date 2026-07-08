@@ -16,7 +16,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const resultBadge = { pass: "bg-green-100 text-green-700", advisory: "bg-yellow-100 text-yellow-800", fail: "bg-red-100 text-red-700" };
 
-export default function Inspections() {
+export function InspectionsPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [records, setRecords] = useState([]);
   const [open, setOpen] = useState(false);
@@ -59,7 +59,12 @@ export default function Inspections() {
 
   return (
     <div data-testid="inspections-page">
-      <Header title="PMI Inspections" subtitle="Recurring maintenance schedules & inspection records" onAdd={openNew} addTestId="add-pmi-button" addLabel="New Schedule" />
+      {!embedded && <Header title="PMI Inspections" subtitle="Recurring maintenance schedules & inspection records" onAdd={openNew} addTestId="add-pmi-button" addLabel="New Schedule" />}
+      {embedded && (
+        <div className="flex justify-end mb-4">
+          <Button data-testid="add-pmi-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">New Schedule</Button>
+        </div>
+      )}
 
       {items.length === 0 ? <Empty icon={ClipboardCheck} text="No PMI schedules yet. Add a recurring inspection schedule per vehicle." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
@@ -148,4 +153,8 @@ export default function Inspections() {
       </Dialog>
     </div>
   );
+}
+
+export default function Inspections() {
+  return <InspectionsPanel />;
 }

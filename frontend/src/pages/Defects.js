@@ -16,7 +16,7 @@ const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "S
 const CATEGORY = ["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"];
 const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["resolved", "Resolved"]];
 
-export default function Defects() {
+export function DefectsPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -41,7 +41,12 @@ export default function Defects() {
 
   return (
     <div data-testid="defects-page">
-      <Header title="Defect Reports" subtitle="Driver defect reporting with AI safety triage" onAdd={() => { setForm(empty); setOpen(true); }} addTestId="add-defect-button" addLabel="Report Defect" />
+      {!embedded && <Header title="Defect Reports" subtitle="Driver defect reporting with AI safety triage" onAdd={() => { setForm(empty); setOpen(true); }} addTestId="add-defect-button" addLabel="Report Defect" />}
+      {embedded && (
+        <div className="flex justify-end mb-4">
+          <Button data-testid="add-defect-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Report Defect</Button>
+        </div>
+      )}
 
       {items.length === 0 ? <Empty icon={FileWarning} text="No defects reported. Drivers can log vehicle defects here." /> : (
         <div className="space-y-4">
@@ -108,4 +113,8 @@ export default function Defects() {
       </Dialog>
     </div>
   );
+}
+
+export default function Defects() {
+  return <DefectsPanel />;
 }

@@ -802,7 +802,10 @@ async def ai_extract_insurance(file_bytes: bytes, mime: str, ext: str):
         "You read UK & Ireland commercial vehicle insurance documents (certificates, schedules, cover notes) "
         "and extract structured data. Classify policy_type as EXACTLY one of: " + ", ".join(INSURANCE_TYPES) + ". "
         "Goods in Transit=GIT; Motor for the tractor unit=Motor — Truck; Motor for trailers=Motor — Trailer; "
-        "international motor cover=Green Card; Public Liability=PL; Employers' Liability=EL. "
+        "international motor cover=Green Card. "
+        "For liability: an Employers' Liability certificate/section (cover for employees/staff, legally required by the Employers' Liability Act) = Employers' Liability (EL); "
+        "public/third-party liability (cover for injury/damage to the public or third parties) = Public Liability (PL). "
+        "If a single document is a COMBINED liability policy covering both, choose EL if it contains an Employers' Liability certificate, otherwise PL. Do not use 'Other' for any liability document. "
         "Return ONLY minified JSON with keys: policy_type, insurer, policy_number, start_date (YYYY-MM-DD or null), "
         "expiry_date (YYYY-MM-DD or null), cover_amount (string incl currency symbol or ''), confidence (0-1), "
         "needs_review (true if you are unsure or the document is unclear). No prose, no code fences."
@@ -890,7 +893,26 @@ async def reclassify_insurance(user: User = Depends(get_current_user)):
     for d in docs:
         atts = d.get("attachments") or []
         fn = atts[0].get("filename", "") if atts else ""
-        new_type = infer_from_text(f"{fn} {d.get('policy_number', '')} {d.get('insurer', '')}")
+        new_type = "Other"
+        # 1) Re-read the actual document content with AI (most accurate, distinguishes PL vs EL)
+        if atts and atts[0].get("file_id"):
+            frec = await db.files.find_one({"id": atts[0]["file_id"], "user_id": user.user_id, "is_deleted": False}, {"_id": 0})
+            if frec:
+                try:
+                    content, ctype = await asyncio.to_thread(get_object, frec["storage_path"])
+                    ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "pdf"
+                    extracted = await ai_extract_insurance(content, frec.get("content_type") or ctype, ext)
+                    if extracted:
+                        new_type = classify_policy_type(
+                            extracted.get("policy_type"), fn,
+                            extracted.get("policy_number") or d.get("policy_number", ""),
+                            extracted.get("insurer") or d.get("insurer", ""),
+                        )
+                except Exception as e:
+                    logging.error(f"Reclassify content read failed for {d.get('id')}: {e}")
+        # 2) Fallback: filename / number / insurer heuristics
+        if new_type == "Other":
+            new_type = infer_from_text(f"{fn} {d.get('policy_number', '')} {d.get('insurer', '')}")
         if new_type != "Other":
             await db.insurance.update_one({"id": d["id"], "user_id": user.user_id}, {"$set": {"policy_type": new_type}})
             moved += 1

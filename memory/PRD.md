@@ -44,6 +44,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Insurance folder auto-sort** (2026-07-08): fixed AI-imported docs landing "loose" in Other. Added `classify_policy_type`/`infer_from_text` (filename + policy number + insurer heuristics) applied at import, plus `POST /api/insurance/reclassify` and a "Sort loose docs" button (shown when Other>0) to re-file existing Other docs into their correct folder. Verified: GIT/Trailer/Green Card auto-filed; combined-liability → PL best-effort.
 
+- **Maintenance folder** (2026-07-08): grouped PMI Inspections + Defects under a single "Maintenance" sidebar item → `/maintenance` tabbed page (mirrors Fleet/Drivers pattern). Panels refactored with an `embedded` prop; old `/inspections` and `/defects` routes redirect to `/maintenance`.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
