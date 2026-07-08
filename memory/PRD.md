@@ -24,6 +24,7 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Drivers CRUD (licence/CPC/tacho + weekly-hours over-limit flag).
 - **Driver Training records**: courses/qualifications per driver, category, completed/expiry dates, provider, certificate uploads, expiry status.
 - Documents CRUD (operator licence, insurance, audit, wheel security) with scan uploads.
+- **Insurance**: dedicated section for GIT, Motor–Truck, Motor–Trailer, Green Card, Public Liability (PL) and Employers' Liability (EL) policies — insurer, policy number, cover, start/expiry, certificate upload; surfaced in dashboard alerts/KPI + calendar.
 - Defects: report + AI summary + status workflow + photo uploads.
 - PMI Inspections: recurring schedules + completed-inspection records (auto next-due) + history.
 - Calendar: month grid combining PMI due/done, defects and training expiries.
