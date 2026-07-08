@@ -2,6 +2,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { InspectionsPanel } from "@/pages/Inspections";
 import { DefectsPanel } from "@/pages/Defects";
 import { WheelSecurityPanel } from "@/pages/WheelSecurity";
+import { WalkaroundPanel } from "@/pages/Walkaround";
 
 export default function Maintenance() {
   return (
@@ -14,10 +15,12 @@ export default function Maintenance() {
       <Tabs defaultValue="pmi">
         <TabsList className="mb-6">
           <TabsTrigger value="pmi" data-testid="tab-pmi">PMI Inspections</TabsTrigger>
+          <TabsTrigger value="walkaround" data-testid="tab-walkaround">Daily Checks</TabsTrigger>
           <TabsTrigger value="defects" data-testid="tab-defects">Defects</TabsTrigger>
           <TabsTrigger value="wheel" data-testid="tab-wheel">Wheel Security</TabsTrigger>
         </TabsList>
         <TabsContent value="pmi"><InspectionsPanel embedded /></TabsContent>
+        <TabsContent value="walkaround"><WalkaroundPanel embedded /></TabsContent>
         <TabsContent value="defects"><DefectsPanel embedded /></TabsContent>
         <TabsContent value="wheel"><WheelSecurityPanel embedded /></TabsContent>
       </Tabs>

@@ -23,7 +23,7 @@ export function InspectionsPanel({ embedded = false }) {
   const [form, setForm] = useState(emptySched);
   const [editId, setEditId] = useState(null);
   const [completeFor, setCompleteFor] = useState(null);
-  const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "" });
+  const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "" });
   const [assets, setAssets] = useState([]);
 
   const load = async () => {
@@ -49,7 +49,7 @@ export function InspectionsPanel({ embedded = false }) {
   };
   const remove = async (id) => { await api.delete(`/pmi/${id}`); toast.success("Schedule removed"); load(); };
 
-  const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "" }); };
+  const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "" }); };
   const submitComplete = async (e) => {
     e.preventDefault();
     try {
@@ -153,6 +153,30 @@ export function InspectionsPanel({ embedded = false }) {
               </Field>
             </div>
             <Field label="Inspector"><Input data-testid="complete-inspector" value={cForm.inspector} onChange={(e) => setCForm({ ...cForm, inspector: e.target.value })} /></Field>
+            <div className="border-t border-slate-100 pt-3">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Brake Test</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Brake test type">
+                  <Select value={cForm.brake_test_type} onValueChange={(v) => setCForm({ ...cForm, brake_test_type: v })}>
+                    <SelectTrigger data-testid="brake-type-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="roller">Roller brake test</SelectItem>
+                      <SelectItem value="decelerometer">Decelerometer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Laden?">
+                  <Select value={cForm.laden ? "yes" : "no"} onValueChange={(v) => setCForm({ ...cForm, laden: v === "yes" })}>
+                    <SelectTrigger data-testid="brake-laden-select"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="yes">Laden</SelectItem><SelectItem value="no">Unladen</SelectItem></SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Service brake %"><Input data-testid="brake-service" value={cForm.service_brake_pct} onChange={(e) => setCForm({ ...cForm, service_brake_pct: e.target.value })} placeholder="e.g. 52" /></Field>
+                <Field label="Secondary brake %"><Input data-testid="brake-secondary" value={cForm.secondary_brake_pct} onChange={(e) => setCForm({ ...cForm, secondary_brake_pct: e.target.value })} placeholder="e.g. 28" /></Field>
+                <Field label="Parking brake %"><Input data-testid="brake-parking" value={cForm.parking_brake_pct} onChange={(e) => setCForm({ ...cForm, parking_brake_pct: e.target.value })} placeholder="e.g. 18" /></Field>
+              </div>
+            </div>
             <Field label="Notes"><Textarea data-testid="complete-notes" rows={3} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} placeholder="Advisories, work carried out…" /></Field>
             <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> Record & Reschedule</Button></DialogFooter>
           </form>

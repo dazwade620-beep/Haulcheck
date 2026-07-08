@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, FileWarning, Sparkles } from "lucide-react";
+import { Trash2, FileWarning, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -13,7 +14,7 @@ import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
 const CATEGORY = ["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"];
-const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["resolved", "Resolved"]];
+const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["rectified", "Rectified"]];
 
 export function DefectsPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
@@ -22,6 +23,8 @@ export function DefectsPanel({ embedded = false }) {
   const [busy, setBusy] = useState(false);
   const [assets, setAssets] = useState([]);
   const [drivers, setDrivers] = useState([]);
+  const [rectifyFor, setRectifyFor] = useState(null);
+  const [rForm, setRForm] = useState({ rectified_date: new Date().toISOString().slice(0, 10), rectified_by: "", rectification_notes: "" });
 
   const load = async () => {
     const [d, v, t, dr] = await Promise.all([api.get("/defects"), api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]);
@@ -42,7 +45,18 @@ export function DefectsPanel({ embedded = false }) {
     } catch { toast.error("Could not log defect"); }
     finally { setBusy(false); }
   };
-  const setStatus = async (id, status) => { await api.put(`/defects/${id}/status?status=${status}`); load(); };
+  const setStatus = async (id, status) => {
+    if (status === "rectified") { openRectify(id); return; }
+    await api.put(`/defects/${id}/status?status=${status}`); load();
+  };
+  const openRectify = (id) => { setRectifyFor(id); setRForm({ rectified_date: new Date().toISOString().slice(0, 10), rectified_by: "", rectification_notes: "" }); };
+  const saveRectify = async () => {
+    try {
+      await api.put(`/defects/${rectifyFor}/rectify`, rForm);
+      toast.success("Defect marked rectified");
+      setRectifyFor(null); load();
+    } catch { toast.error("Could not save rectification"); }
+  };
   const remove = async (id) => { await api.delete(`/defects/${id}`); toast.success("Defect removed"); load(); };
 
   return (
@@ -74,6 +88,15 @@ export function DefectsPanel({ embedded = false }) {
                     </div>
                   )}
                   <AttachmentThumbs attachments={d.attachments} />
+                  {d.status === "rectified" && (
+                    <div className="mt-3 flex items-start gap-2 bg-green-50 border border-green-200 rounded-md p-3" data-testid="defect-rectification">
+                      <Wrench size={15} className="text-green-700 mt-0.5 shrink-0" />
+                      <p className="text-sm text-green-800">
+                        <span className="font-semibold">Rectified {d.rectified_date || ""}</span>{d.rectified_by ? ` by ${d.rectified_by}` : ""}
+                        {d.rectification_notes ? ` — ${d.rectification_notes}` : ""}
+                      </p>
+                    </div>
+                  )}
                   <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{new Date(d.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
@@ -81,6 +104,11 @@ export function DefectsPanel({ embedded = false }) {
                     <SelectTrigger data-testid="defect-status-select" className="w-36 h-9 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>{STATUS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
                   </Select>
+                  {d.status !== "rectified" && (
+                    <Button data-testid="mark-rectified-button" onClick={() => openRectify(d.id)} variant="outline" className="h-9 text-xs rounded-md gap-1.5 border-green-300 text-green-700 hover:bg-green-50">
+                      <Wrench size={14} /> Mark rectified
+                    </Button>
+                  )}
                   <button data-testid="delete-defect-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
                 </div>
               </div>
@@ -125,6 +153,23 @@ export function DefectsPanel({ embedded = false }) {
             <Field label="Photos"><FileUpload testid="defect-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-defect-button" type="submit" disabled={busy} className="bg-black hover:bg-slate-800 gap-2"><Sparkles size={15} /> {busy ? "Analysing…" : "Log & Summarise"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!rectifyFor} onOpenChange={(o) => !o && setRectifyFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Mark defect as rectified</DialogTitle>
+            <DialogDescription>Record how and when the defect was repaired (required for your maintenance records).</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Date rectified"><Input data-testid="rectify-date" type="date" value={rForm.rectified_date} onChange={(e) => setRForm({ ...rForm, rectified_date: e.target.value })} /></Field>
+              <Field label="Rectified by"><Input data-testid="rectify-by" value={rForm.rectified_by} onChange={(e) => setRForm({ ...rForm, rectified_by: e.target.value })} placeholder="Fitter / garage" /></Field>
+            </div>
+            <Field label="Work carried out"><Textarea data-testid="rectify-notes" rows={3} value={rForm.rectification_notes} onChange={(e) => setRForm({ ...rForm, rectification_notes: e.target.value })} placeholder="Describe the repair / parts replaced…" /></Field>
+          </div>
+          <DialogFooter><Button data-testid="save-rectify-button" onClick={saveRectify} className="bg-green-700 hover:bg-green-800 gap-2"><Wrench size={15} /> Confirm rectified</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

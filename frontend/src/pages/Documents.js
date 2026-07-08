@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
-const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Other"];
+const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Attestation Record", "Indoctrination Document", "Driver Infringement", "Infringement Report", "Warning Letter", "Adhoc Note", "Other"];
 const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", attachments: [] };
 
 export function DocumentsPanel({ embedded = false }) {

@@ -12,7 +12,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const CATEGORIES = ["Driver CPC", "ADR", "First Aid", "Manual Handling", "Forklift / FLT", "Tacho / Drivers' Hours", "Load Security", "HIAB / Crane", "Health & Safety", "Other"];
-const empty = { driver_id: "", driver_name: "", course_name: "", category: "Driver CPC", completed_date: "", expiry_date: "", provider: "", notes: "", attachments: [] };
+const empty = { driver_id: "", driver_name: "", course_name: "", category: "Driver CPC", completed_date: "", expiry_date: "", provider: "", hours: 0, notes: "", attachments: [] };
 
 export function TrainingPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
@@ -46,7 +46,7 @@ export function TrainingPanel({ embedded = false }) {
 
   const save = async (e) => {
     e.preventDefault();
-    const payload = { ...form, completed_date: form.completed_date || null, expiry_date: form.expiry_date || null };
+    const payload = { ...form, hours: Number(form.hours) || 0, completed_date: form.completed_date || null, expiry_date: form.expiry_date || null };
     try {
       if (editId) await api.put(`/training/${editId}`, payload);
       else await api.post("/training", payload);
@@ -129,7 +129,10 @@ export function TrainingPanel({ embedded = false }) {
               <Field label="Completed"><Input data-testid="training-completed" type="date" value={form.completed_date} onChange={(e) => setForm({ ...form, completed_date: e.target.value })} /></Field>
               <Field label="Expiry"><Input data-testid="training-expiry" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
             </div>
-            <Field label="Provider"><Input data-testid="training-provider" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} placeholder="Training company" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Provider"><Input data-testid="training-provider" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} placeholder="Training company" /></Field>
+              <Field label="CPC Hours"><Input data-testid="training-hours" type="number" step="0.5" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} placeholder="7" /></Field>
+            </div>
             <Field label="Certificate"><FileUpload testid="training-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-training-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Record"}</Button></DialogFooter>
           </form>

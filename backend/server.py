@@ -133,6 +133,9 @@ class Vehicle(BaseModel):
     mot_due: Optional[str] = None
     service_due: Optional[str] = None
     tax_due: Optional[str] = None
+    first_use_date: Optional[str] = None
+    tacho_calibration_due: Optional[str] = None
+    speed_limiter_due: Optional[str] = None
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -145,6 +148,9 @@ class VehicleInput(BaseModel):
     mot_due: Optional[str] = None
     service_due: Optional[str] = None
     tax_due: Optional[str] = None
+    first_use_date: Optional[str] = None
+    tacho_calibration_due: Optional[str] = None
+    speed_limiter_due: Optional[str] = None
     notes: str = ""
 
 
@@ -175,6 +181,10 @@ class Driver(BaseModel):
     licence_expiry: Optional[str] = None
     cpc_expiry: Optional[str] = None
     tacho_card_expiry: Optional[str] = None
+    licence_check_date: Optional[str] = None
+    licence_check_code: str = ""
+    penalty_points: int = 0
+    licence_check_due: Optional[str] = None
     weekly_hours: float = 0.0
     max_weekly_hours: float = 56.0
     notes: str = ""
@@ -187,6 +197,10 @@ class DriverInput(BaseModel):
     licence_expiry: Optional[str] = None
     cpc_expiry: Optional[str] = None
     tacho_card_expiry: Optional[str] = None
+    licence_check_date: Optional[str] = None
+    licence_check_code: str = ""
+    penalty_points: int = 0
+    licence_check_due: Optional[str] = None
     weekly_hours: float = 0.0
     max_weekly_hours: float = 56.0
     notes: str = ""
@@ -202,8 +216,17 @@ class DefectReport(BaseModel):
     description: str
     ai_summary: str = ""
     status: str = "open"
+    rectified_date: Optional[str] = None
+    rectified_by: str = ""
+    rectification_notes: str = ""
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
+
+
+class DefectRectifyInput(BaseModel):
+    rectified_date: Optional[str] = None
+    rectified_by: str = ""
+    rectification_notes: str = ""
 
 
 class DefectInput(BaseModel):
@@ -331,6 +354,11 @@ class PMICompleteInput(BaseModel):
     result: str = "pass"  # pass | advisory | fail
     inspector: str = ""
     notes: str = ""
+    brake_test_type: str = "none"  # none | roller | decelerometer
+    laden: bool = False
+    service_brake_pct: str = ""
+    secondary_brake_pct: str = ""
+    parking_brake_pct: str = ""
 
 
 class TrainingRecord(BaseModel):
@@ -343,6 +371,7 @@ class TrainingRecord(BaseModel):
     completed_date: Optional[str] = None
     expiry_date: Optional[str] = None
     provider: str = ""
+    hours: float = 0.0
     notes: str = ""
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
@@ -356,6 +385,7 @@ class TrainingInput(BaseModel):
     completed_date: Optional[str] = None
     expiry_date: Optional[str] = None
     provider: str = ""
+    hours: float = 0.0
     notes: str = ""
     attachments: List[Attachment] = []
 
@@ -381,6 +411,52 @@ class WheelAuditInput(BaseModel):
     torque_setting: str = ""
     checked_by: str = ""
     next_due: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
+class WalkaroundCheck(BaseModel):
+    id: str = Field(default_factory=lambda: f"wac_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    driver_name: str = ""
+    check_date: Optional[str] = None
+    result: str = "nil_defect"  # nil_defect | defects_found
+    mileage: str = ""
+    defects_noted: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class WalkaroundInput(BaseModel):
+    vehicle_reg: str
+    driver_name: str = ""
+    check_date: Optional[str] = None
+    result: str = "nil_defect"
+    mileage: str = ""
+    defects_noted: str = ""
+    attachments: List[Attachment] = []
+
+
+class TestHistory(BaseModel):
+    id: str = Field(default_factory=lambda: f"thr_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    event_type: str = "annual_test"  # annual_test | prohibition
+    event_date: Optional[str] = None
+    result: str = "pass"  # pass | fail | pg9 | advisory | cleared
+    reference: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TestHistoryInput(BaseModel):
+    vehicle_reg: str
+    event_type: str = "annual_test"
+    event_date: Optional[str] = None
+    result: str = "pass"
+    reference: str = ""
     notes: str = ""
     attachments: List[Attachment] = []
 
@@ -542,6 +618,8 @@ async def list_vehicles(user: User = Depends(get_current_user)):
         d["mot_status"] = compliance_status(days_until(d.get("mot_due")))
         d["service_status"] = compliance_status(days_until(d.get("service_due")))
         d["tax_status"] = compliance_status(days_until(d.get("tax_due")))
+        d["tacho_cal_status"] = compliance_status(days_until(d.get("tacho_calibration_due")))
+        d["speed_limiter_status"] = compliance_status(days_until(d.get("speed_limiter_due")))
     return docs
 
 
@@ -646,11 +724,21 @@ async def download_file(file_id: str, request: Request, auth: Optional[str] = Qu
 @api_router.get("/drivers")
 async def list_drivers(user: User = Depends(get_current_user)):
     docs = await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    training = await db.training.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=365 * 5)).isoformat()
     for d in docs:
         d["licence_status"] = compliance_status(days_until(d.get("licence_expiry")))
         d["cpc_status"] = compliance_status(days_until(d.get("cpc_expiry")))
         d["tacho_status"] = compliance_status(days_until(d.get("tacho_card_expiry")))
+        d["licence_check_status"] = compliance_status(days_until(d.get("licence_check_due")))
         d["hours_status"] = "expired" if d.get("weekly_hours", 0) > d.get("max_weekly_hours", 56) else "valid"
+        cpc_hours = sum(
+            float(t.get("hours") or 0) for t in training
+            if (t.get("driver_id") == d["id"] or t.get("driver_name") == d.get("name"))
+            and "cpc" in (t.get("category") or "").lower()
+            and (t.get("completed_date") or "9999") >= cutoff
+        )
+        d["cpc_hours"] = cpc_hours
     return docs
 
 
@@ -1144,6 +1232,16 @@ async def update_defect_status(did: str, status: str, user: User = Depends(get_c
     return {"ok": True}
 
 
+@api_router.put("/defects/{did}/rectify")
+async def rectify_defect(did: str, data: DefectRectifyInput, user: User = Depends(get_current_user)):
+    upd = {"status": "rectified", "rectified_date": data.rectified_date or now_iso()[:10],
+           "rectified_by": data.rectified_by, "rectification_notes": data.rectification_notes}
+    res = await db.defects.update_one({"id": did, "user_id": user.user_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    return {"ok": True}
+
+
 @api_router.delete("/defects/{did}")
 async def delete_defect(did: str, user: User = Depends(get_current_user)):
     await db.defects.delete_one({"id": did, "user_id": user.user_id})
@@ -1204,6 +1302,11 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "result": data.result,
         "inspector": data.inspector,
         "notes": data.notes,
+        "brake_test_type": data.brake_test_type,
+        "laden": data.laden,
+        "service_brake_pct": data.service_brake_pct,
+        "secondary_brake_pct": data.secondary_brake_pct,
+        "parking_brake_pct": data.parking_brake_pct,
         "created_at": now_iso(),
     }
     await db.pmi_records.insert_one(dict(record))
@@ -1247,6 +1350,60 @@ async def update_wheel_audit(wid: str, data: WheelAuditInput, user: User = Depen
 @api_router.delete("/wheel-audits/{wid}")
 async def delete_wheel_audit(wid: str, user: User = Depends(get_current_user)):
     await db.wheel_audits.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Daily Walkaround Checks ----------
+@api_router.get("/walkarounds")
+async def list_walkarounds(user: User = Depends(get_current_user)):
+    return await db.walkaround_checks.find({"user_id": user.user_id}, {"_id": 0}).sort("check_date", -1).to_list(2000)
+
+
+@api_router.post("/walkarounds")
+async def create_walkaround(data: WalkaroundInput, user: User = Depends(get_current_user)):
+    w = WalkaroundCheck(**data.model_dump(), user_id=user.user_id)
+    await db.walkaround_checks.insert_one(w.model_dump())
+    return w.model_dump()
+
+
+@api_router.put("/walkarounds/{wid}")
+async def update_walkaround(wid: str, data: WalkaroundInput, user: User = Depends(get_current_user)):
+    res = await db.walkaround_checks.update_one({"id": wid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Walkaround check not found")
+    return {"ok": True}
+
+
+@api_router.delete("/walkarounds/{wid}")
+async def delete_walkaround(wid: str, user: User = Depends(get_current_user)):
+    await db.walkaround_checks.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Test History / Prohibitions ----------
+@api_router.get("/test-history")
+async def list_test_history(user: User = Depends(get_current_user)):
+    return await db.test_history.find({"user_id": user.user_id}, {"_id": 0}).sort("event_date", -1).to_list(2000)
+
+
+@api_router.post("/test-history")
+async def create_test_history(data: TestHistoryInput, user: User = Depends(get_current_user)):
+    t = TestHistory(**data.model_dump(), user_id=user.user_id)
+    await db.test_history.insert_one(t.model_dump())
+    return t.model_dump()
+
+
+@api_router.put("/test-history/{tid}")
+async def update_test_history(tid: str, data: TestHistoryInput, user: User = Depends(get_current_user)):
+    res = await db.test_history.update_one({"id": tid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Test history record not found")
+    return {"ok": True}
+
+
+@api_router.delete("/test-history/{tid}")
+async def delete_test_history(tid: str, user: User = Depends(get_current_user)):
+    await db.test_history.delete_one({"id": tid, "user_id": user.user_id})
     return {"ok": True}
 
 
@@ -1317,6 +1474,20 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": w.get("torque_setting") or "Re-torque check",
                 "status": compliance_status(days_until(w["next_due"])),
             })
+    for v in await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        for label, key in [("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter Check", "speed_limiter_due")]:
+            if v.get(key):
+                events.append({
+                    "date": v[key], "type": "vehicle", "title": f"{label} — {v.get('registration')}",
+                    "subtitle": f"{v.get('make', '')} {v.get('model', '')}".strip(),
+                    "status": compliance_status(days_until(v[key])),
+                })
+    for dr in await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if dr.get("licence_check_due"):
+            events.append({
+                "date": dr["licence_check_due"], "type": "driver", "title": f"Licence Check Due — {dr.get('name')}",
+                "subtitle": "DVLA/NDLS licence check", "status": compliance_status(days_until(dr["licence_check_due"])),
+            })
     events = [e for e in events if e.get("date")]
     return events
 
@@ -1358,7 +1529,7 @@ async def gather_stats(user_id: str):
     alerts = []
     expired = due_soon = 0
     for v in vehicles:
-        for label, key in [("MOT", "mot_due"), ("Service", "service_due"), ("Tax", "tax_due")]:
+        for label, key in [("MOT", "mot_due"), ("Service", "service_due"), ("Tax", "tax_due"), ("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter", "speed_limiter_due")]:
             d = days_until(v.get(key))
             st = compliance_status(d)
             if st == "expired":
@@ -1368,7 +1539,7 @@ async def gather_stats(user_id: str):
                 due_soon += 1
                 alerts.append({"type": "vehicle", "name": v["registration"], "item": label, "status": "due_soon", "days": d})
     for dr in drivers:
-        for label, key in [("Licence", "licence_expiry"), ("CPC", "cpc_expiry"), ("Tacho Card", "tacho_card_expiry")]:
+        for label, key in [("Licence", "licence_expiry"), ("CPC", "cpc_expiry"), ("Tacho Card", "tacho_card_expiry"), ("Licence Check", "licence_check_due")]:
             d = days_until(dr.get(key))
             st = compliance_status(d)
             if st == "expired":
@@ -1496,8 +1667,15 @@ async def detect_gaps(user_id: str):
     documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     insurance = await db.insurance.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     pmi = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    pmi_records = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     tacho = await db.tacho.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     training = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    wheel = await db.wheel_audits.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    walkarounds = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    test_history = await db.test_history.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    is_ie = udoc.get("region") == "IE"
+    mot_label = "CVRT" if is_ie else "MOT"
 
     gaps = []
     operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
@@ -1520,23 +1698,50 @@ async def detect_gaps(user_id: str):
 
     pmi_regs = {p.get("vehicle_reg") for p in pmi}
     tacho_vu = {t.get("reference") for t in tacho if t.get("source_type") == "Vehicle Unit"}
+    wheel_regs = {w.get("vehicle_reg") for w in wheel}
+    walk_regs = {w.get("vehicle_reg") for w in walkarounds}
+    test_regs = {t.get("vehicle_reg") for t in test_history}
+    pmr_with_brake = {r.get("vehicle_reg") for r in pmi_records if r.get("brake_test_type") and r.get("brake_test_type") != "none"}
     for v in vehicles:
         reg = v.get("registration")
         if not v.get("mot_due"):
-            gaps.append({"area": "Fleet", "item": f"{reg}: no MOT/CVRT date recorded", "priority": "medium"})
+            gaps.append({"area": "Fleet", "item": f"{reg}: no {mot_label} date recorded", "priority": "medium"})
+        if not v.get("tacho_calibration_due"):
+            gaps.append({"area": "Fleet", "item": f"{reg}: no tachograph calibration date (2-yearly)", "priority": "medium"})
+        if not v.get("speed_limiter_due"):
+            gaps.append({"area": "Fleet", "item": f"{reg}: no speed limiter check date", "priority": "low"})
+        if not v.get("first_use_date"):
+            gaps.append({"area": "Fleet", "item": f"{reg}: no date of first use recorded", "priority": "low"})
         if reg not in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
+        if reg not in pmr_with_brake and reg in pmi_regs:
+            gaps.append({"area": "PMI", "item": f"{reg}: no laden brake test recorded at PMI", "priority": "medium"})
+        if reg not in wheel_regs:
+            gaps.append({"area": "Maintenance", "item": f"{reg}: no wheel security audit recorded", "priority": "medium"})
+        if reg not in walk_regs:
+            gaps.append({"area": "Maintenance", "item": f"{reg}: no daily walkaround checks recorded", "priority": "medium"})
+        if reg not in test_regs:
+            gaps.append({"area": "Fleet", "item": f"{reg}: no annual test/prohibition history recorded", "priority": "low"})
         if reg not in tacho_vu:
             gaps.append({"area": "Tacho", "item": f"{reg}: no vehicle-unit tacho download record", "priority": "medium"})
 
     tacho_dc = {t.get("reference") for t in tacho if t.get("source_type") == "Driver Card"}
     training_drivers = {t.get("driver_name") for t in training}
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=365 * 5)).isoformat()
     for d in drivers:
         nm = d.get("name")
         if not d.get("licence_expiry"):
             gaps.append({"area": "Drivers", "item": f"{nm}: no driving licence expiry recorded", "priority": "medium"})
         if not d.get("cpc_expiry"):
             gaps.append({"area": "Drivers", "item": f"{nm}: no Driver CPC expiry recorded", "priority": "medium"})
+        if not d.get("licence_check_due") and not d.get("licence_check_date"):
+            gaps.append({"area": "Drivers", "item": f"{nm}: no licence check recorded (DVLA/NDLS)", "priority": "medium"})
+        cpc_hours = sum(float(t.get("hours") or 0) for t in training
+                        if (t.get("driver_id") == d["id"] or t.get("driver_name") == nm)
+                        and "cpc" in (t.get("category") or "").lower()
+                        and (t.get("completed_date") or "9999") >= cutoff)
+        if cpc_hours < 35:
+            gaps.append({"area": "Training", "item": f"{nm}: Driver CPC hours behind ({cpc_hours:.0f}/35 in 5 yrs)", "priority": "low"})
         if nm not in tacho_dc:
             gaps.append({"area": "Tacho", "item": f"{nm}: no driver-card tacho download record", "priority": "medium"})
         if nm not in training_drivers:

@@ -10,7 +10,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { downloadPdf } from "@/lib/download";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
-const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
+const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
 
 export default function Drivers() {
   const [items, setItems] = useState([]);
@@ -29,14 +29,14 @@ export default function Drivers() {
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (d) => {
-    setForm({ ...empty, ...d, licence_expiry: d.licence_expiry || "", cpc_expiry: d.cpc_expiry || "", tacho_card_expiry: d.tacho_card_expiry || "" });
+    setForm({ ...empty, ...d, licence_expiry: d.licence_expiry || "", cpc_expiry: d.cpc_expiry || "", tacho_card_expiry: d.tacho_card_expiry || "", licence_check_date: d.licence_check_date || "", licence_check_due: d.licence_check_due || "" });
     setEditId(d.id); setOpen(true);
   };
 
   const save = async (e) => {
     e.preventDefault();
-    const payload = { ...form, weekly_hours: Number(form.weekly_hours), max_weekly_hours: Number(form.max_weekly_hours) };
-    ["licence_expiry", "cpc_expiry", "tacho_card_expiry"].forEach((k) => { if (!payload[k]) payload[k] = null; });
+    const payload = { ...form, weekly_hours: Number(form.weekly_hours), max_weekly_hours: Number(form.max_weekly_hours), penalty_points: Number(form.penalty_points) };
+    ["licence_expiry", "cpc_expiry", "tacho_card_expiry", "licence_check_date", "licence_check_due"].forEach((k) => { if (!payload[k]) payload[k] = null; });
     try {
       if (editId) await api.put(`/drivers/${editId}`, payload);
       else await api.post("/drivers", payload);
@@ -83,7 +83,15 @@ export default function Drivers() {
                   <Row label="Licence" status={d.licence_status} date={d.licence_expiry} />
                   <Row label="CPC" status={d.cpc_status} date={d.cpc_expiry} />
                   <Row label="Tacho Card" status={d.tacho_status} date={d.tacho_card_expiry} />
+                  <Row label="Licence Check" status={d.licence_check_status} date={d.licence_check_due} />
                 </div>
+                <div className="mt-3 flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm" data-testid="driver-cpc-hours">
+                  <span className="text-slate-500">Driver CPC hours (5 yrs)</span>
+                  <span className={`font-bold ${(d.cpc_hours || 0) >= 35 ? "text-green-700" : "text-amber-600"}`}>{(d.cpc_hours || 0).toFixed(0)} / 35h</span>
+                </div>
+                {d.penalty_points > 0 && (
+                  <div className="mt-2 text-xs text-slate-500">Licence points: <span className="font-semibold text-slate-700">{d.penalty_points}</span>{d.licence_check_code ? ` · Check code ${d.licence_check_code}` : ""}</div>
+                )}
                 <div className={`mt-4 flex items-center justify-between rounded-md px-3 py-2 text-sm ${over ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-600"}`}>
                   <span className="flex items-center gap-1.5"><Clock size={15} /> Weekly hours</span>
                   <span className="font-bold">{d.weekly_hours} / {d.max_weekly_hours}h</span>
@@ -121,6 +129,15 @@ export default function Drivers() {
               <Field label="CPC Expiry"><Input data-testid="drv-cpc-exp" type="date" value={form.cpc_expiry} onChange={(e) => setForm({ ...form, cpc_expiry: e.target.value })} /></Field>
             </div>
             <Field label="Tacho Card Expiry"><Input data-testid="drv-tacho-exp" type="date" value={form.tacho_card_expiry} onChange={(e) => setForm({ ...form, tacho_card_expiry: e.target.value })} /></Field>
+            <div className="border-t border-slate-100 pt-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">Licence Checking (DVLA / NDLS)</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Last Check Date"><Input data-testid="drv-check-date" type="date" value={form.licence_check_date} onChange={(e) => setForm({ ...form, licence_check_date: e.target.value })} /></Field>
+                <Field label="Next Check Due"><Input data-testid="drv-check-due" type="date" value={form.licence_check_due} onChange={(e) => setForm({ ...form, licence_check_due: e.target.value })} /></Field>
+                <Field label="Check Code"><Input data-testid="drv-check-code" value={form.licence_check_code} onChange={(e) => setForm({ ...form, licence_check_code: e.target.value })} placeholder="DVLA share code" /></Field>
+                <Field label="Penalty Points"><Input data-testid="drv-points" type="number" value={form.penalty_points} onChange={(e) => setForm({ ...form, penalty_points: e.target.value })} /></Field>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Weekly Hours"><Input data-testid="drv-hours" type="number" step="0.5" value={form.weekly_hours} onChange={(e) => setForm({ ...form, weekly_hours: e.target.value })} /></Field>
               <Field label="Max Weekly Hours"><Input data-testid="drv-max-hours" type="number" step="0.5" value={form.max_weekly_hours} onChange={(e) => setForm({ ...form, max_weekly_hours: e.target.value })} /></Field>

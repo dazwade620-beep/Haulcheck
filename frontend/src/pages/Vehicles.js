@@ -11,8 +11,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Truck, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
+import { TestHistoryPanel } from "@/pages/TestHistory";
 
-const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", notes: "" };
+const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", notes: "" };
 
 function VehiclesPanel() {
   const { user } = useAuth();
@@ -21,21 +22,26 @@ function VehiclesPanel() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [insurance, setInsurance] = useState([]);
 
-  const load = async () => setItems((await api.get("/vehicles")).data);
+  const load = async () => {
+    const [v, i] = await Promise.all([api.get("/vehicles"), api.get("/insurance")]);
+    setItems(v.data); setInsurance(i.data);
+  };
+  const insByType = (t) => insurance.find((p) => p.policy_type === t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (v) => {
-    setForm({ ...empty, ...v, mot_due: v.mot_due || "", service_due: v.service_due || "", tax_due: v.tax_due || "" });
+    setForm({ ...empty, ...v, mot_due: v.mot_due || "", service_due: v.service_due || "", tax_due: v.tax_due || "", first_use_date: v.first_use_date || "", tacho_calibration_due: v.tacho_calibration_due || "", speed_limiter_due: v.speed_limiter_due || "" });
     setEditId(v.id); setOpen(true);
   };
 
   const save = async (e) => {
     e.preventDefault();
     const payload = { ...form };
-    ["mot_due", "service_due", "tax_due"].forEach((k) => { if (!payload[k]) payload[k] = null; });
+    ["mot_due", "service_due", "tax_due", "first_use_date", "tacho_calibration_due", "speed_limiter_due"].forEach((k) => { if (!payload[k]) payload[k] = null; });
     try {
       if (editId) await api.put(`/vehicles/${editId}`, payload);
       else await api.post("/vehicles", payload);
@@ -48,7 +54,19 @@ function VehiclesPanel() {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex flex-wrap gap-2" data-testid="fleet-insurance-summary">
+          {[["Motor — Truck", "Truck insurance"], ["Motor — Trailer", "Trailer insurance"], ["Goods in Transit (GIT)", "GIT"]].map(([t, label]) => {
+            const p = insByType(t);
+            return (
+              <div key={t} className="flex items-center gap-2 bg-white border border-slate-200 rounded-full pl-3 pr-2 py-1 text-xs">
+                <span className="text-slate-500">{label}:</span>
+                <span className="font-semibold text-slate-800">{p?.expiry_date || "Not on file"}</span>
+                {p && <StatusBadge status={p.status} />}
+              </div>
+            );
+          })}
+        </div>
         <Button data-testid="add-vehicle-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Vehicle</Button>
       </div>
       {items.length === 0 ? (
@@ -99,6 +117,11 @@ function VehiclesPanel() {
               <Field label="Service Due"><Input data-testid="veh-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></Field>
               <Field label="Tax Due"><Input data-testid="veh-tax" type="date" value={form.tax_due} onChange={(e) => setForm({ ...form, tax_due: e.target.value })} /></Field>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Tacho Calibration Due"><Input data-testid="veh-tachocal" type="date" value={form.tacho_calibration_due} onChange={(e) => setForm({ ...form, tacho_calibration_due: e.target.value })} /></Field>
+              <Field label="Speed Limiter Check Due"><Input data-testid="veh-speedlimiter" type="date" value={form.speed_limiter_due} onChange={(e) => setForm({ ...form, speed_limiter_due: e.target.value })} /></Field>
+            </div>
+            <Field label="Date of First Use"><Input data-testid="veh-firstuse" type="date" value={form.first_use_date} onChange={(e) => setForm({ ...form, first_use_date: e.target.value })} /></Field>
             <DialogFooter><Button data-testid="save-vehicle-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Vehicle"}</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -119,9 +142,11 @@ export default function Vehicles() {
         <TabsList className="mb-6">
           <TabsTrigger value="vehicles" data-testid="tab-vehicles">Vehicles</TabsTrigger>
           <TabsTrigger value="trailers" data-testid="tab-trailers">Trailers</TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-test-history">Test History</TabsTrigger>
         </TabsList>
         <TabsContent value="vehicles"><VehiclesPanel /></TabsContent>
         <TabsContent value="trailers"><TrailersPanel /></TabsContent>
+        <TabsContent value="history"><TestHistoryPanel embedded /></TabsContent>
       </Tabs>
     </div>
   );
