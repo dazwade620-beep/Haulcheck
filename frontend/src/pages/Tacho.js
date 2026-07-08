@@ -17,20 +17,31 @@ const empty = { source_type: "Driver Card", reference: "", frequency_days: 28, l
 
 export default function Tacho() {
   const [items, setItems] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
 
-  const load = async () => setItems((await api.get("/tacho")).data);
+  const load = async () => {
+    setItems((await api.get("/tacho")).data);
+    setDrivers((await api.get("/drivers")).data);
+    setVehicles((await api.get("/vehicles")).data);
+  };
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (t) => { setForm({ ...empty, ...t, last_download: t.last_download || "", attachments: t.attachments || [] }); setEditId(t.id); setOpen(true); };
 
-  const setType = (v) => setForm({ ...form, source_type: v, frequency_days: FREQ[v] || form.frequency_days });
+  const setType = (v) => setForm({ ...form, source_type: v, frequency_days: FREQ[v] || form.frequency_days, reference: "" });
+
+  const refOptions = form.source_type === "Vehicle Unit"
+    ? vehicles.map((v) => v.registration).filter(Boolean)
+    : drivers.map((d) => d.name).filter(Boolean);
 
   const save = async (e) => {
     e.preventDefault();
+    if (!form.reference) { toast.error(form.source_type === "Vehicle Unit" ? "Select a vehicle" : "Select a driver"); return; }
     const payload = { ...form, frequency_days: Number(form.frequency_days), infringements: Number(form.infringements) || 0, last_download: form.last_download || null };
     try {
       if (editId) await api.put(`/tacho/${editId}`, payload);
@@ -107,12 +118,22 @@ export default function Tacho() {
               </Field>
               <Field label="Frequency (days)"><Input data-testid="tacho-frequency" type="number" min="1" value={form.frequency_days} onChange={(e) => setForm({ ...form, frequency_days: e.target.value })} /></Field>
             </div>
-            <Field label={form.source_type === "Vehicle Unit" ? "Vehicle Registration *" : "Driver Name *"}><Input data-testid="tacho-reference" required value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder={form.source_type === "Vehicle Unit" ? "AB12 CDE" : "John Smith"} /></Field>
+            <Field label={form.source_type === "Vehicle Unit" ? "Vehicle Registration *" : "Driver *"}>
+              <Select value={form.reference || undefined} onValueChange={(v) => setForm({ ...form, reference: v })}>
+                <SelectTrigger data-testid="tacho-reference"><SelectValue placeholder={form.source_type === "Vehicle Unit" ? "Select vehicle" : "Select driver"} /></SelectTrigger>
+                <SelectContent>
+                  {[...new Set([...(form.reference ? [form.reference] : []), ...refOptions])].map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  {refOptions.length === 0 && !form.reference && (
+                    <div className="px-3 py-2 text-xs text-slate-400">{form.source_type === "Vehicle Unit" ? "No vehicles — add one in Fleet first" : "No drivers — add one in Drivers first"}</div>
+                  )}
+                </SelectContent>
+              </Select>
+            </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Last Download"><Input data-testid="tacho-last" type="date" value={form.last_download} onChange={(e) => setForm({ ...form, last_download: e.target.value })} /></Field>
               <Field label="Infringements"><Input data-testid="tacho-infringements" type="number" min="0" value={form.infringements} onChange={(e) => setForm({ ...form, infringements: e.target.value })} /></Field>
             </div>
-            <Field label="Download File(s)"><FileUpload testid="tacho-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
+            <Field label="Upload Tacho Data (download files)"><FileUpload testid="tacho-upload" accept="image/*,application/pdf,.ddd,.tgd,.c1b,.v1b,.dtc,.esm,.tgz" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <Field label="Notes"><Textarea data-testid="tacho-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Infringement details, analysis notes…" /></Field>
             <DialogFooter><Button data-testid="save-tacho-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Record"}</Button></DialogFooter>
           </form>

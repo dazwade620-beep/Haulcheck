@@ -6,7 +6,7 @@ import { toast } from "sonner";
 const authUrl = (fileId) => `${API}/files/${fileId}?auth=${localStorage.getItem("token") || ""}`;
 const isImage = (ct) => (ct || "").startsWith("image/");
 
-export function FileUpload({ attachments = [], onChange, testid = "file-upload" }) {
+export function FileUpload({ attachments = [], onChange, testid = "file-upload", accept = "image/*,application/pdf" }) {
   const [busy, setBusy] = useState(false);
 
   const handleFiles = async (files) => {
@@ -43,7 +43,7 @@ export function FileUpload({ attachments = [], onChange, testid = "file-upload" 
           data-testid={`${testid}-input`}
           type="file"
           multiple
-          accept="image/*,application/pdf"
+          accept={accept}
           className="hidden"
           onChange={(e) => handleFiles(e.target.files)}
           disabled={busy}
