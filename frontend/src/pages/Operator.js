@@ -11,6 +11,17 @@ import { toast } from "sonner";
 import { Field } from "@/pages/Vehicles";
 
 const LICENCE_TYPES = ["Standard National", "Standard International", "Restricted"];
+
+const Card = ({ icon: Icon, title, children }) => (
+  <div className="bg-white border border-slate-200 rounded-md p-6 animate-in-up">
+    <div className="flex items-center gap-2 mb-5">
+      <Icon size={18} className="text-slate-900" />
+      <h3 className="font-heading font-bold text-lg tracking-tight">{title}</h3>
+    </div>
+    <div className="space-y-4">{children}</div>
+  </div>
+);
+
 const empty = {
   company_name: "", company_number: "", operator_licence_number: "", licence_type: "Standard National",
   address: "", authorised_vehicles: 0, authorised_trailers: 0,
@@ -36,16 +47,6 @@ export default function Operator() {
     } catch { toast.error("Could not save details"); }
     finally { setBusy(false); }
   };
-
-  const Card = ({ icon: Icon, title, children }) => (
-    <div className="bg-white border border-slate-200 rounded-md p-6 animate-in-up">
-      <div className="flex items-center gap-2 mb-5">
-        <Icon size={18} className="text-slate-900" />
-        <h3 className="font-heading font-bold text-lg tracking-tight">{title}</h3>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </div>
-  );
 
   return (
     <div data-testid="operator-page">

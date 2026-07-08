@@ -110,7 +110,7 @@ export default function Reminders() {
           <ul className="space-y-3 text-sm text-slate-600 leading-relaxed">
             <li className="flex gap-2"><span className="text-slate-900 font-bold">1.</span> Add the email addresses that should receive compliance reminders.</li>
             <li className="flex gap-2"><span className="text-slate-900 font-bold">2.</span> The reminder digest lists every item that is expired or due within the next <strong>30 days</strong> — MOT/CVRT, tax, service, driver licence, CPC, tacho, PMI, insurance and training.</li>
-            <li className="flex gap-2"><span className="text-slate-900 font-bold">3.</span> Press <strong>Send reminder now</strong> to email the current digest to all recipients.</li>
+            <li className="flex gap-2"><span className="text-slate-900 font-bold">3.</span> Reminders send <strong>automatically once a day</strong> — each item is emailed once when it enters the 30-day window. Or press <strong>Send reminder now</strong> to email the full current digest on demand.</li>
           </ul>
         </div>
       </div>

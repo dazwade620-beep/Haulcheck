@@ -1473,6 +1473,59 @@ def build_reminder_html(company: str, alerts: list, authority: str) -> str:
     )
 
 
+async def _deliver_reminder(user_id: str, recipients: list, alerts: list) -> str:
+    operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    company = operator.get("company_name") or "Your fleet"
+    udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    authority = "RSA" if udoc.get("region") == "IE" else "DVSA"
+    html = build_reminder_html(company, alerts, authority)
+    subject = f"HaulCheck reminder — {len(alerts)} compliance item(s) need attention" if alerts else "HaulCheck compliance reminder — all clear"
+    import resend
+    resend.api_key = os.environ['RESEND_API_KEY']
+    params = {"from": os.environ['SENDER_EMAIL'], "to": recipients, "subject": subject, "html": html}
+    result = await asyncio.to_thread(resend.Emails.send, params)
+    return result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
+
+
+def _alert_key(a: dict) -> str:
+    return f"{a['type']}|{a['name']}|{a['item']}"
+
+
+async def _process_scheduled_user(user_id: str, recipients: list) -> dict:
+    """Send a reminder only for items that newly entered the 30-day window (dedup)."""
+    stats = await gather_stats(user_id)
+    alerts = [a for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
+    current_keys = {_alert_key(a) for a in alerts}
+    log_doc = await db.reminder_log.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    logged = set(log_doc.get("keys", [])) & current_keys  # drop keys that renewed/were deleted
+    new_items = [a for a in alerts if _alert_key(a) not in logged]
+    email_id = None
+    if new_items:
+        email_id = await _deliver_reminder(user_id, recipients, new_items)
+        logged |= {_alert_key(a) for a in new_items}
+    await db.reminder_log.update_one(
+        {"user_id": user_id},
+        {"$set": {"user_id": user_id, "keys": list(logged), "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"new_item_count": len(new_items), "email_id": email_id}
+
+
+async def run_daily_reminders():
+    logger.info("Running daily reminder job")
+    settings_list = await db.reminder_settings.find({"recipients": {"$exists": True, "$ne": []}}, {"_id": 0}).to_list(10000)
+    for s in settings_list:
+        recipients = s.get("recipients", [])
+        if not recipients:
+            continue
+        try:
+            res = await _process_scheduled_user(s["user_id"], recipients)
+            if res["new_item_count"]:
+                logger.info(f"Daily reminder sent to {s['user_id']} ({res['new_item_count']} new items)")
+        except Exception as e:
+            logger.error(f"Daily reminder failed for {s.get('user_id')}: {e}")
+
+
 @api_router.post("/reminders/send")
 async def send_reminders(user: User = Depends(get_current_user)):
     settings = await db.reminder_settings.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
@@ -1481,22 +1534,26 @@ async def send_reminders(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No recipient emails configured. Add at least one in Settings.")
     stats = await gather_stats(user.user_id)
     upcoming = [a for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
-    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    company = operator.get("company_name") or "Your fleet"
-    udoc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA" if udoc.get("region") == "IE" else "DVSA"
-    html = build_reminder_html(company, upcoming, authority)
-    subject = f"HaulCheck reminder — {len(upcoming)} compliance item(s) need attention" if upcoming else "HaulCheck compliance reminder — all clear"
     try:
-        import resend
-        resend.api_key = os.environ['RESEND_API_KEY']
-        params = {"from": os.environ['SENDER_EMAIL'], "to": recipients, "subject": subject, "html": html}
-        result = await asyncio.to_thread(resend.Emails.send, params)
+        email_id = await _deliver_reminder(user.user_id, recipients, upcoming)
     except Exception as e:
         logging.error(f"Reminder email failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
-    email_id = result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
     return {"ok": True, "sent_to": recipients, "item_count": len(upcoming), "email_id": email_id}
+
+
+@api_router.post("/reminders/run-scheduled")
+async def run_scheduled_now(user: User = Depends(get_current_user)):
+    settings = await db.reminder_settings.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    recipients = settings.get("recipients", [])
+    if not recipients:
+        raise HTTPException(status_code=400, detail="No recipient emails configured. Add at least one in Settings.")
+    try:
+        res = await _process_scheduled_user(user.user_id, recipients)
+    except Exception as e:
+        logging.error(f"Scheduled reminder run failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to run: {e}")
+    return {"ok": True, **res}
 
 
 app.include_router(api_router)
@@ -1511,6 +1568,9 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+scheduler = AsyncIOScheduler(timezone="UTC")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -1519,8 +1579,16 @@ async def startup_event():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
+    try:
+        scheduler.add_job(run_daily_reminders, "cron", hour=7, minute=0, id="daily_reminders", replace_existing=True)
+        scheduler.start()
+        logger.info("Reminder scheduler started (daily 07:00 UTC)")
+    except Exception as e:
+        logger.error(f"Scheduler start failed: {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
     client.close()
