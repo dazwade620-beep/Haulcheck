@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
   { to: "/office", label: "Office", icon: Briefcase, id: "office" },
   { to: "/reminders", label: "Reminders", icon: Bell, id: "reminders" },
+  { to: "/team", label: "Team", icon: UserPlus, id: "team" },
 ];
 
 export default function Layout({ children }) {

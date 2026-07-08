@@ -14,6 +14,8 @@ import Maintenance from "@/pages/Maintenance";
 import Office from "@/pages/Office";
 import Operator from "@/pages/Operator";
 import Reminders from "@/pages/Reminders";
+import Team from "@/pages/Team";
+import AcceptInvite from "@/pages/AcceptInvite";
 import { Truck } from "lucide-react";
 
 function Protected({ children }) {
@@ -37,7 +39,9 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/team" element={<Protected><Team /></Protected>} />
       <Route path="/operator" element={<Protected><Operator /></Protected>} />
       <Route path="/calendar" element={<Protected><Calendar /></Protected>} />
       <Route path="/maintenance" element={<Protected><Maintenance /></Protected>} />

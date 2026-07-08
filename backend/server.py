@@ -722,7 +722,7 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
 
 @api_router.get("/invitations")
 async def list_invitations(user: User = Depends(get_current_user)):
-    return await db.invitations.find({"invited_by": user.user_id}, {"_id": 0, "token": 0}).sort("created_at", -1).to_list(500)
+    return await db.invitations.find({"invited_by": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
 @api_router.delete("/invitations/{iid}")
