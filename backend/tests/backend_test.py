@@ -270,6 +270,149 @@ class TestDashboard:
         assert "score" in body
 
 
+# ---------- PMI Inspections + Calendar ----------
+class TestPMI:
+    def test_pmi_create_auto_next_due(self, auth_headers):
+        """Create a PMI schedule with no next_due; server should auto-calc from today + frequency."""
+        reg = f"TEST-P{uuid.uuid4().hex[:4].upper()}"
+        r = requests.post(f"{API}/pmi", json={"vehicle_reg": reg, "frequency_weeks": 6, "inspector": "TEST Insp"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        p = r.json()
+        assert p["vehicle_reg"] == reg
+        assert p["frequency_weeks"] == 6
+        assert p["next_due"], "next_due should have been auto-populated"
+        # next_due should be ~42 days ahead (6 weeks)
+        expected = (date.today() + timedelta(weeks=6))
+        got = date.fromisoformat(p["next_due"])
+        assert abs((got - expected).days) <= 1
+        # Cleanup
+        requests.delete(f"{API}/pmi/{p['id']}", headers=auth_headers, timeout=15)
+
+    def test_pmi_full_lifecycle_and_complete(self, auth_headers):
+        """Create -> list -> edit -> record inspection (advance next_due) -> record persisted -> delete."""
+        reg = f"TEST-P{uuid.uuid4().hex[:4].upper()}"
+        r = requests.post(f"{API}/pmi", json={
+            "vehicle_reg": reg, "frequency_weeks": 4,
+            "next_due": FUTURE_DUE_SOON, "inspector": "TEST"
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        p = r.json(); pid = p["id"]
+        assert p["next_due"] == FUTURE_DUE_SOON
+
+        # List and verify status/days_left populated
+        r = requests.get(f"{API}/pmi", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        found = next((x for x in r.json() if x["id"] == pid), None)
+        assert found is not None
+        assert found["status"] in ("due_soon", "valid", "expired")
+        assert "days_left" in found
+
+        # Edit
+        r = requests.put(f"{API}/pmi/{pid}", json={
+            "vehicle_reg": reg, "frequency_weeks": 8,
+            "next_due": FUTURE_VALID, "inspector": "TEST Edited", "notes": "edited"
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/pmi", headers=auth_headers, timeout=15)
+        found = next(x for x in r.json() if x["id"] == pid)
+        assert found["frequency_weeks"] == 8
+        assert found["inspector"] == "TEST Edited"
+
+        # Complete inspection
+        insp_date = date.today().isoformat()
+        r = requests.post(f"{API}/pmi/{pid}/complete", json={
+            "inspection_date": insp_date, "result": "advisory",
+            "inspector": "TEST Inspector", "notes": "advisory - tyre wear"
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        expected_next = (date.today() + timedelta(weeks=8)).isoformat()
+        assert body["next_due"] == expected_next
+        assert body["record"]["result"] == "advisory"
+
+        # Confirm schedule's next_due advanced (persisted)
+        r = requests.get(f"{API}/pmi", headers=auth_headers, timeout=15)
+        found = next(x for x in r.json() if x["id"] == pid)
+        assert found["next_due"] == expected_next
+
+        # Records endpoint contains new record
+        r = requests.get(f"{API}/pmi/records", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        recs = r.json()
+        assert any(rr["pmi_id"] == pid and rr["inspection_date"] == insp_date and rr["result"] == "advisory" for rr in recs)
+
+        # Delete schedule
+        r = requests.delete(f"{API}/pmi/{pid}", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/pmi", headers=auth_headers, timeout=15)
+        assert not any(x["id"] == pid for x in r.json())
+
+    def test_pmi_complete_missing_schedule_returns_404(self, auth_headers):
+        r = requests.post(f"{API}/pmi/nonexistent/complete", json={"inspection_date": date.today().isoformat(), "result": "pass"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_pmi_edit_missing_returns_404(self, auth_headers):
+        r = requests.put(f"{API}/pmi/nonexistent", json={"vehicle_reg": "X", "frequency_weeks": 6}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_pmi_requires_auth(self):
+        assert requests.get(f"{API}/pmi", timeout=15).status_code == 401
+        assert requests.get(f"{API}/pmi/records", timeout=15).status_code == 401
+
+
+class TestCalendar:
+    def test_calendar_returns_events_and_shape(self, auth_headers):
+        # Ensure at least one PMI schedule to produce a pmi_due event
+        reg = f"TEST-C{uuid.uuid4().hex[:4].upper()}"
+        r = requests.post(f"{API}/pmi", json={
+            "vehicle_reg": reg, "frequency_weeks": 6,
+            "next_due": FUTURE_VALID, "inspector": "TEST"
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        pid = r.json()["id"]
+
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        events = r.json()
+        assert isinstance(events, list)
+        # Should contain the pmi_due event we just created
+        due_events = [e for e in events if e.get("type") == "pmi_due" and e.get("date") == FUTURE_VALID]
+        assert any(reg in (e.get("title") or "") for e in due_events)
+        # All events must have required keys
+        for e in events:
+            assert "date" in e and "type" in e and "title" in e and "status" in e
+
+        requests.delete(f"{API}/pmi/{pid}", headers=auth_headers, timeout=15)
+
+    def test_calendar_requires_auth(self):
+        assert requests.get(f"{API}/calendar", timeout=15).status_code == 401
+
+
+class TestDashboardPMI:
+    def test_dashboard_counts_include_pmi_and_alerts(self, auth_headers):
+        # Create an expired PMI schedule -> should appear in alerts and counts['pmi']
+        reg = f"TEST-D{uuid.uuid4().hex[:4].upper()}"
+        r = requests.post(f"{API}/pmi", json={
+            "vehicle_reg": reg, "frequency_weeks": 6,
+            "next_due": PAST_EXPIRED, "inspector": "TEST"
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        pid = r.json()["id"]
+
+        r = requests.get(f"{API}/dashboard", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        body = r.json()
+        assert "pmi" in body["counts"]
+        assert isinstance(body["counts"]["pmi"], int) and body["counts"]["pmi"] >= 1
+        # PMI alert should be present for the expired schedule
+        pmi_alerts = [a for a in body["alerts"] if a.get("type") == "pmi" and a.get("name") == reg]
+        assert pmi_alerts, "Expected an expired PMI alert in dashboard alerts"
+        assert pmi_alerts[0]["status"] == "expired"
+
+        requests.delete(f"{API}/pmi/{pid}", headers=auth_headers, timeout=15)
+
+
 # ---------- Data isolation ----------
 class TestIsolation:
     def test_data_scoped_per_user(self):

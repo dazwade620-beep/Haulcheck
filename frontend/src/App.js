@@ -6,6 +6,8 @@ import AuthCallback from "@/components/AuthCallback";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import Calendar from "@/pages/Calendar";
+import Inspections from "@/pages/Inspections";
 import Vehicles from "@/pages/Vehicles";
 import Drivers from "@/pages/Drivers";
 import Defects from "@/pages/Defects";
@@ -34,6 +36,8 @@ function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/calendar" element={<Protected><Calendar /></Protected>} />
+      <Route path="/inspections" element={<Protected><Inspections /></Protected>} />
       <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />
       <Route path="/drivers" element={<Protected><Drivers /></Protected>} />
       <Route path="/defects" element={<Protected><Defects /></Protected>} />

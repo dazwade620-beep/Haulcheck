@@ -164,6 +164,32 @@ class DocInput(BaseModel):
     notes: str = ""
 
 
+class PMISchedule(BaseModel):
+    id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    frequency_weeks: int = 6
+    next_due: Optional[str] = None
+    inspector: str = ""
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class PMIInput(BaseModel):
+    vehicle_reg: str
+    frequency_weeks: int = 6
+    next_due: Optional[str] = None
+    inspector: str = ""
+    notes: str = ""
+
+
+class PMICompleteInput(BaseModel):
+    inspection_date: str
+    result: str = "pass"  # pass | advisory | fail
+    inspector: str = ""
+    notes: str = ""
+
+
 # ---------- Auth ----------
 def create_jwt(user_id: str) -> str:
     payload = {"user_id": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
@@ -425,12 +451,110 @@ async def delete_defect(did: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- PMI Inspections ----------
+def advance_due(inspection_date: str, weeks: int) -> str:
+    d = datetime.fromisoformat(inspection_date)
+    return (d + timedelta(weeks=weeks)).date().isoformat()
+
+
+@api_router.get("/pmi")
+async def list_pmi(user: User = Depends(get_current_user)):
+    docs = await db.pmi_schedules.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("next_due")))
+        d["days_left"] = days_until(d.get("next_due"))
+    docs.sort(key=lambda x: x.get("next_due") or "9999")
+    return docs
+
+
+@api_router.post("/pmi")
+async def create_pmi(data: PMIInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    if not payload.get("next_due"):
+        payload["next_due"] = advance_due(now_iso(), payload.get("frequency_weeks", 6))
+    p = PMISchedule(**payload, user_id=user.user_id)
+    await db.pmi_schedules.insert_one(p.model_dump())
+    return p.model_dump()
+
+
+@api_router.put("/pmi/{pid}")
+async def update_pmi(pid: str, data: PMIInput, user: User = Depends(get_current_user)):
+    res = await db.pmi_schedules.update_one({"id": pid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="PMI schedule not found")
+    return {"ok": True}
+
+
+@api_router.delete("/pmi/{pid}")
+async def delete_pmi(pid: str, user: User = Depends(get_current_user)):
+    await db.pmi_schedules.delete_one({"id": pid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.post("/pmi/{pid}/complete")
+async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(get_current_user)):
+    sched = await db.pmi_schedules.find_one({"id": pid, "user_id": user.user_id}, {"_id": 0})
+    if not sched:
+        raise HTTPException(status_code=404, detail="PMI schedule not found")
+    record = {
+        "id": f"pmr_{uuid.uuid4().hex[:10]}",
+        "user_id": user.user_id,
+        "pmi_id": pid,
+        "vehicle_reg": sched["vehicle_reg"],
+        "inspection_date": data.inspection_date,
+        "result": data.result,
+        "inspector": data.inspector,
+        "notes": data.notes,
+        "created_at": now_iso(),
+    }
+    await db.pmi_records.insert_one(dict(record))
+    new_due = advance_due(data.inspection_date, sched.get("frequency_weeks", 6))
+    await db.pmi_schedules.update_one({"id": pid}, {"$set": {"next_due": new_due}})
+    record.pop("_id", None)
+    return {"ok": True, "next_due": new_due, "record": record}
+
+
+@api_router.get("/pmi/records")
+async def list_pmi_records(user: User = Depends(get_current_user)):
+    docs = await db.pmi_records.find({"user_id": user.user_id}, {"_id": 0}).sort("inspection_date", -1).to_list(1000)
+    return docs
+
+
+# ---------- Calendar ----------
+@api_router.get("/calendar")
+async def calendar(user: User = Depends(get_current_user)):
+    events = []
+    schedules = await db.pmi_schedules.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    for s in schedules:
+        if s.get("next_due"):
+            events.append({
+                "date": s["next_due"], "type": "pmi_due", "title": f"PMI Due — {s['vehicle_reg']}",
+                "subtitle": f"Every {s.get('frequency_weeks', 6)} weeks", "status": compliance_status(days_until(s["next_due"])),
+            })
+    records = await db.pmi_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for r in records:
+        events.append({
+            "date": r["inspection_date"], "type": "pmi_done", "title": f"PMI Completed — {r['vehicle_reg']}",
+            "subtitle": r.get("result", "pass").title(), "status": "expired" if r.get("result") == "fail" else "valid",
+        })
+    defects = await db.defects.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for d in defects:
+        events.append({
+            "date": (d.get("created_at") or "")[:10], "type": "defect", "title": f"Defect — {d['vehicle_reg']}",
+            "subtitle": f"{d.get('category', 'General')} · {d.get('severity', 'minor').replace('_', ' ')}",
+            "status": "expired" if d.get("severity") in ("major", "safety_critical") else "due_soon",
+        })
+    events = [e for e in events if e.get("date")]
+    return events
+
+
 # ---------- Dashboard + AI risk ----------
 async def gather_stats(user_id: str):
     vehicles = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     drivers = await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     defects = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    pmi_schedules = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
 
     alerts = []
     expired = due_soon = 0
@@ -467,6 +591,16 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "document", "name": doc["title"], "item": doc.get("doc_type", "Document"), "status": "due_soon", "days": d})
 
+    for p in pmi_schedules:
+        d = days_until(p.get("next_due"))
+        st = compliance_status(d)
+        if st == "expired":
+            expired += 1
+            alerts.append({"type": "pmi", "name": p["vehicle_reg"], "item": "PMI Inspection", "status": "expired", "days": d})
+        elif st == "due_soon":
+            due_soon += 1
+            alerts.append({"type": "pmi", "name": p["vehicle_reg"], "item": "PMI Inspection", "status": "due_soon", "days": d})
+
     open_defects = [d for d in defects if d.get("status") == "open"]
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
@@ -474,6 +608,7 @@ async def gather_stats(user_id: str):
         "counts": {
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
             "open_defects": len(open_defects), "major_defects": len(major_defects),
+            "pmi": len(pmi_schedules),
             "expired": expired, "due_soon": due_soon,
         },
         "alerts": alerts,
