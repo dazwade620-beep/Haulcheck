@@ -831,3 +831,160 @@ class TestRegion:
         assert any(x["id"] == iid for x in listA_after)
 
 
+
+# ---------- Tacho Portal ----------
+class TestTacho:
+    """CRUD + Log Download action + dashboard/calendar integration for /api/tacho."""
+
+    def test_create_list_edit_delete_and_statuses(self, auth_headers):
+        # Create three records with different due buckets
+        payloads = [
+            {"source_type": "Driver Card", "reference": f"TEST_Drv_{uuid.uuid4().hex[:4]}", "frequency_days": 28, "last_download": (date.today() - timedelta(days=1)).isoformat(), "infringements": 0},  # next_due ~27d -> due_soon
+            {"source_type": "Vehicle Unit", "reference": f"TEST_VU_{uuid.uuid4().hex[:4]}", "frequency_days": 90, "last_download": (date.today() - timedelta(days=10)).isoformat(), "infringements": 2},  # ~80d -> valid
+            {"source_type": "Driver Card", "reference": f"TEST_DrvOver_{uuid.uuid4().hex[:4]}", "frequency_days": 28, "last_download": (date.today() - timedelta(days=60)).isoformat(), "infringements": 5},  # -32d -> expired
+        ]
+        expected_status = ["due_soon", "valid", "expired"]
+        created_ids = []
+        for pl in payloads:
+            r = requests.post(f"{API}/tacho", json=pl, headers=auth_headers, timeout=15)
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["reference"] == pl["reference"]
+            assert body["source_type"] == pl["source_type"]
+            assert body["frequency_days"] == pl["frequency_days"]
+            assert body["next_due"]  # server-computed
+            expected_nd = (date.fromisoformat(pl["last_download"]) + timedelta(days=pl["frequency_days"])).isoformat()
+            assert body["next_due"] == expected_nd
+            assert "id" in body
+            created_ids.append(body["id"])
+
+        # List & verify statuses + days_left
+        r = requests.get(f"{API}/tacho", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        items = r.json()
+        for cid, pl, exp in zip(created_ids, payloads, expected_status):
+            item = next((x for x in items if x["id"] == cid), None)
+            assert item is not None, f"Record {cid} missing"
+            assert item["status"] == exp, f"Expected {exp} for {pl['reference']}, got {item['status']}"
+            assert "days_left" in item
+            assert item["infringements"] == pl["infringements"]
+
+        # Edit second record (change last_download; next_due must recompute)
+        vid = created_ids[1]
+        new_last = (date.today() - timedelta(days=85)).isoformat()  # ~5d -> due_soon
+        edit_payload = {**payloads[1], "last_download": new_last, "infringements": 3}
+        r = requests.put(f"{API}/tacho/{vid}", json=edit_payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True
+        expected_nd = (date.fromisoformat(new_last) + timedelta(days=90)).isoformat()
+        assert body["next_due"] == expected_nd
+        r = requests.get(f"{API}/tacho", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == vid)
+        assert item["last_download"] == new_last
+        assert item["next_due"] == expected_nd
+        assert item["infringements"] == 3
+        assert item["status"] == "due_soon"
+
+        # Delete all
+        for cid in created_ids:
+            r = requests.delete(f"{API}/tacho/{cid}", headers=auth_headers, timeout=15)
+            assert r.status_code == 200
+        r = requests.get(f"{API}/tacho", headers=auth_headers, timeout=15)
+        remaining = {x["id"] for x in r.json()}
+        for cid in created_ids:
+            assert cid not in remaining
+
+    def test_log_download_advances_next_due(self, auth_headers):
+        """POST /tacho/{id}/download sets last_download=today and next_due=today+freq."""
+        pl = {"source_type": "Driver Card", "reference": f"TEST_LogDL_{uuid.uuid4().hex[:4]}", "frequency_days": 28, "last_download": (date.today() - timedelta(days=40)).isoformat()}
+        r = requests.post(f"{API}/tacho", json=pl, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        tid = r.json()["id"]
+
+        today = date.today().isoformat()
+        r = requests.post(f"{API}/tacho/{tid}/download", json={"download_date": today}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["last_download"] == today
+        expected_next = (date.today() + timedelta(days=28)).isoformat()
+        assert body["next_due"] == expected_next
+
+        # Persisted in GET
+        r = requests.get(f"{API}/tacho", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == tid)
+        assert item["last_download"] == today
+        assert item["next_due"] == expected_next
+        assert item["status"] in ("valid", "due_soon")  # 28d out => due_soon
+
+        # Log without explicit date defaults to today too
+        r = requests.post(f"{API}/tacho/{tid}/download", json={}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        assert r.json()["last_download"] == today
+
+        # Cleanup
+        requests.delete(f"{API}/tacho/{tid}", headers=auth_headers, timeout=15)
+
+    def test_log_download_missing_record_returns_404(self, auth_headers):
+        r = requests.post(f"{API}/tacho/nonexistent/download", json={"download_date": date.today().isoformat()}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_edit_missing_returns_404(self, auth_headers):
+        r = requests.put(f"{API}/tacho/nonexistent", json={"source_type": "Driver Card", "reference": "x", "frequency_days": 28}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_requires_auth(self):
+        assert requests.get(f"{API}/tacho", timeout=15).status_code == 401
+        assert requests.post(f"{API}/tacho", json={"source_type": "Driver Card"}, timeout=15).status_code == 401
+        assert requests.post(f"{API}/tacho/x/download", json={}, timeout=15).status_code == 401
+        assert requests.delete(f"{API}/tacho/x", timeout=15).status_code == 401
+
+    def test_dashboard_and_calendar_include_tacho(self, auth_headers):
+        # Overdue tacho -> expected in dashboard alerts + counts['tacho'] and calendar
+        ref = f"TEST_TachoDash_{uuid.uuid4().hex[:4]}"
+        past = (date.today() - timedelta(days=60)).isoformat()  # 60d ago + 28 = -32d overdue
+        r = requests.post(f"{API}/tacho", json={"source_type": "Driver Card", "reference": ref, "frequency_days": 28, "last_download": past}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        tid = r.json()["id"]
+        expected_due = (date.fromisoformat(past) + timedelta(days=28)).isoformat()
+
+        # Dashboard
+        r = requests.get(f"{API}/dashboard", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        body = r.json()
+        assert "tacho" in body["counts"] and isinstance(body["counts"]["tacho"], int) and body["counts"]["tacho"] >= 1
+        tacho_alerts = [a for a in body["alerts"] if a.get("type") == "tacho" and a.get("name") == ref]
+        assert tacho_alerts, "Expected an expired tacho alert in dashboard alerts"
+        assert tacho_alerts[0]["status"] == "expired"
+
+        # Calendar
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        cal = r.json()
+        tacho_events = [e for e in cal if e.get("type") == "tacho" and e.get("date") == expected_due]
+        assert tacho_events, f"Expected a tacho calendar event on {expected_due}"
+        assert any(ref in (e.get("title") or "") for e in tacho_events)
+
+        # Cleanup
+        requests.delete(f"{API}/tacho/{tid}", headers=auth_headers, timeout=15)
+
+    def test_isolation_between_users(self):
+        emailA = f"TEST_tac_a_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        emailB = f"TEST_tac_b_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        rA = requests.post(f"{API}/auth/register", json={"email": emailA, "password": "Password1!", "name": "A"}, timeout=15)
+        rB = requests.post(f"{API}/auth/register", json={"email": emailB, "password": "Password1!", "name": "B"}, timeout=15)
+        hA = {"Authorization": f"Bearer {rA.json()['token']}", "Content-Type": "application/json"}
+        hB = {"Authorization": f"Bearer {rB.json()['token']}", "Content-Type": "application/json"}
+        r = requests.post(f"{API}/tacho", json={"source_type": "Driver Card", "reference": f"TEST_iso_{uuid.uuid4().hex[:4]}", "frequency_days": 28, "last_download": date.today().isoformat()}, headers=hA, timeout=15)
+        assert r.status_code == 200
+        tid = r.json()["id"]
+        listA = requests.get(f"{API}/tacho", headers=hA, timeout=15).json()
+        listB = requests.get(f"{API}/tacho", headers=hB, timeout=15).json()
+        assert any(x["id"] == tid for x in listA)
+        assert not any(x["id"] == tid for x in listB)
+        # B cannot edit A's record
+        rEdit = requests.put(f"{API}/tacho/{tid}", json={"source_type": "Driver Card", "reference": "hacked", "frequency_days": 28}, headers=hB, timeout=15)
+        assert rEdit.status_code == 404
+        # Cleanup
+        requests.delete(f"{API}/tacho/{tid}", headers=hA, timeout=15)

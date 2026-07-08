@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, FileWarning, FolderCheck, LogOut, Menu, X, CalendarDays, ClipboardCheck, GraduationCap, ShieldCheck, Globe } from "lucide-react";
+import { LayoutDashboard, Truck, Users, FileWarning, FolderCheck, LogOut, Menu, X, CalendarDays, ClipboardCheck, GraduationCap, ShieldCheck, Globe, Gauge } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/vehicles", label: "Fleet", icon: Truck, id: "vehicles" },
   { to: "/drivers", label: "Drivers", icon: Users, id: "drivers" },
   { to: "/training", label: "Training", icon: GraduationCap, id: "training" },
+  { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
   { to: "/insurance", label: "Insurance", icon: ShieldCheck, id: "insurance" },
   { to: "/defects", label: "Defects", icon: FileWarning, id: "defects" },
   { to: "/documents", label: "Documents", icon: FolderCheck, id: "documents" },

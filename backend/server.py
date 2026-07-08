@@ -261,6 +261,30 @@ class InsuranceInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class TachoRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"tac_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    source_type: str = "Driver Card"  # Driver Card | Vehicle Unit
+    reference: str = ""  # driver name or vehicle reg
+    frequency_days: int = 28
+    last_download: Optional[str] = None
+    next_due: Optional[str] = None
+    infringements: int = 0
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TachoInput(BaseModel):
+    source_type: str = "Driver Card"
+    reference: str = ""
+    frequency_days: int = 28
+    last_download: Optional[str] = None
+    infringements: int = 0
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class PMISchedule(BaseModel):
     id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -796,6 +820,63 @@ async def ai_import_insurance(files: List[UploadFile] = File(...), user: User = 
     return {"count": len(created), "created": created}
 
 
+# ---------- Tacho Portal ----------
+def compute_next_due(last: Optional[str], days: int) -> Optional[str]:
+    base = last or now_iso()
+    try:
+        return (datetime.fromisoformat(base) + timedelta(days=days)).date().isoformat()
+    except Exception:
+        return None
+
+
+@api_router.get("/tacho")
+async def list_tacho(user: User = Depends(get_current_user)):
+    docs = await db.tacho.find({"user_id": user.user_id}, {"_id": 0}).sort("next_due", 1).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("next_due")))
+        d["days_left"] = days_until(d.get("next_due"))
+    return docs
+
+
+@api_router.post("/tacho")
+async def create_tacho(data: TachoInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    t = TachoRecord(**payload, user_id=user.user_id)
+    t.next_due = compute_next_due(t.last_download, t.frequency_days)
+    await db.tacho.insert_one(t.model_dump())
+    return t.model_dump()
+
+
+@api_router.put("/tacho/{tid}")
+async def update_tacho(tid: str, data: TachoInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    payload["next_due"] = compute_next_due(payload.get("last_download"), payload.get("frequency_days", 28))
+    res = await db.tacho.update_one({"id": tid, "user_id": user.user_id}, {"$set": payload})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tacho record not found")
+    return {"ok": True, "next_due": payload["next_due"]}
+
+
+@api_router.post("/tacho/{tid}/download")
+async def log_tacho_download(tid: str, payload: dict, user: User = Depends(get_current_user)):
+    rec = await db.tacho.find_one({"id": tid, "user_id": user.user_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Tacho record not found")
+    dl_date = payload.get("download_date") or now_iso()[:10]
+    attachments = rec.get("attachments", [])
+    if payload.get("attachment"):
+        attachments = attachments + [payload["attachment"]]
+    next_due = compute_next_due(dl_date, rec.get("frequency_days", 28))
+    await db.tacho.update_one({"id": tid}, {"$set": {"last_download": dl_date, "next_due": next_due, "attachments": attachments}})
+    return {"ok": True, "last_download": dl_date, "next_due": next_due}
+
+
+@api_router.delete("/tacho/{tid}")
+async def delete_tacho(tid: str, user: User = Depends(get_current_user)):
+    await db.tacho.delete_one({"id": tid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Defects ----------
 async def summarise_defect(description: str, severity: str) -> str:
     try:
@@ -951,6 +1032,14 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": ins.get("insurer") or ins.get("policy_number") or "",
                 "status": compliance_status(days_until(ins["expiry_date"])),
             })
+    tacho = await db.tacho.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for tc in tacho:
+        if tc.get("next_due"):
+            events.append({
+                "date": tc["next_due"], "type": "tacho", "title": f"Tacho Download — {tc.get('reference') or tc.get('source_type')}",
+                "subtitle": tc.get("source_type", ""),
+                "status": compliance_status(days_until(tc["next_due"])),
+            })
     events = [e for e in events if e.get("date")]
     return events
 
@@ -965,6 +1054,7 @@ async def gather_stats(user_id: str):
     trailers = await db.trailers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     training = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     insurance = await db.insurance.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    tacho = await db.tacho.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
 
     alerts = []
     expired = due_soon = 0
@@ -1042,6 +1132,16 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "insurance", "name": ins.get("insurer") or ins.get("policy_type"), "item": ins.get("policy_type", "Insurance"), "status": "due_soon", "days": d})
 
+    for tc in tacho:
+        d = days_until(tc.get("next_due"))
+        st = compliance_status(d)
+        if st == "expired":
+            expired += 1
+            alerts.append({"type": "tacho", "name": tc.get("reference") or tc.get("source_type"), "item": f"{tc.get('source_type', 'Tacho')} Download", "status": "expired", "days": d})
+        elif st == "due_soon":
+            due_soon += 1
+            alerts.append({"type": "tacho", "name": tc.get("reference") or tc.get("source_type"), "item": f"{tc.get('source_type', 'Tacho')} Download", "status": "due_soon", "days": d})
+
     open_defects = [d for d in defects if d.get("status") == "open"]
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
@@ -1050,7 +1150,7 @@ async def gather_stats(user_id: str):
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
             "open_defects": len(open_defects), "major_defects": len(major_defects),
             "pmi": len(pmi_schedules), "trailers": len(trailers), "training": len(training),
-            "insurance": len(insurance),
+            "insurance": len(insurance), "tacho": len(tacho),
             "expired": expired, "due_soon": due_soon,
         },
         "alerts": alerts,

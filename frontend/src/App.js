@@ -12,6 +12,7 @@ import Vehicles from "@/pages/Vehicles";
 import Drivers from "@/pages/Drivers";
 import Training from "@/pages/Training";
 import Insurance from "@/pages/Insurance";
+import Tacho from "@/pages/Tacho";
 import Defects from "@/pages/Defects";
 import Documents from "@/pages/Documents";
 import { Truck } from "lucide-react";
@@ -44,6 +45,7 @@ function AppRouter() {
       <Route path="/drivers" element={<Protected><Drivers /></Protected>} />
       <Route path="/training" element={<Protected><Training /></Protected>} />
       <Route path="/insurance" element={<Protected><Insurance /></Protected>} />
+      <Route path="/tacho" element={<Protected><Tacho /></Protected>} />
       <Route path="/defects" element={<Protected><Defects /></Protected>} />
       <Route path="/documents" element={<Protected><Documents /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
