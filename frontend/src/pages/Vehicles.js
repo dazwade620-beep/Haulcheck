@@ -4,13 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Truck, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { TrailersPanel } from "@/pages/Trailers";
 
 const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", notes: "" };
 
-export default function Vehicles() {
+function VehiclesPanel() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -40,9 +42,10 @@ export default function Vehicles() {
   const remove = async (id) => { await api.delete(`/vehicles/${id}`); toast.success("Vehicle removed"); load(); };
 
   return (
-    <div data-testid="vehicles-page">
-      <Header title="Vehicles" subtitle="MOT, service & tax due-date tracking" onAdd={openNew} addTestId="add-vehicle-button" addLabel="Add Vehicle" />
-
+    <div>
+      <div className="flex justify-end mb-4">
+        <Button data-testid="add-vehicle-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Vehicle</Button>
+      </div>
       {items.length === 0 ? (
         <Empty icon={Truck} text="No vehicles yet. Add your first vehicle to start tracking." />
       ) : (
@@ -63,9 +66,9 @@ export default function Vehicles() {
                 <tr key={v.id} data-testid="vehicle-row" className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-3 font-bold text-slate-900">{v.registration}</td>
                   <td className="px-5 py-3 text-slate-600">{[v.make, v.model].filter(Boolean).join(" ") || "—"} <span className="text-slate-400">({v.type})</span></td>
-                  <td className="px-5 py-3"><div className="flex flex-col gap-1"><StatusBadge status={v.mot_status} /><span className="text-xs text-slate-400">{v.mot_due || "—"}</span></div></td>
-                  <td className="px-5 py-3"><div className="flex flex-col gap-1"><StatusBadge status={v.service_status} /><span className="text-xs text-slate-400">{v.service_due || "—"}</span></div></td>
-                  <td className="px-5 py-3"><div className="flex flex-col gap-1"><StatusBadge status={v.tax_status} /><span className="text-xs text-slate-400">{v.tax_due || "—"}</span></div></td>
+                  <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.mot_status} /><span className="text-xs text-slate-400">{v.mot_due || "—"}</span></div></td>
+                  <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.service_status} /><span className="text-xs text-slate-400">{v.service_due || "—"}</span></div></td>
+                  <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.tax_status} /><span className="text-xs text-slate-400">{v.tax_due || "—"}</span></div></td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
                     <button data-testid="edit-vehicle-button" onClick={() => openEdit(v)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={16} /></button>
                     <button data-testid="delete-vehicle-button" onClick={() => remove(v.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
@@ -95,6 +98,26 @@ export default function Vehicles() {
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+export default function Vehicles() {
+  return (
+    <div data-testid="vehicles-page">
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance</p>
+        <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Fleet</h1>
+        <p className="text-slate-500 text-sm mt-1">Vehicles & trailers — test, service & tax tracking</p>
+      </div>
+      <Tabs defaultValue="vehicles">
+        <TabsList className="mb-6">
+          <TabsTrigger value="vehicles" data-testid="tab-vehicles">Vehicles</TabsTrigger>
+          <TabsTrigger value="trailers" data-testid="tab-trailers">Trailers</TabsTrigger>
+        </TabsList>
+        <TabsContent value="vehicles"><VehiclesPanel /></TabsContent>
+        <TabsContent value="trailers"><TrailersPanel /></TabsContent>
+      </Tabs>
     </div>
   );
 }

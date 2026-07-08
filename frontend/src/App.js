@@ -10,6 +10,7 @@ import Calendar from "@/pages/Calendar";
 import Inspections from "@/pages/Inspections";
 import Vehicles from "@/pages/Vehicles";
 import Drivers from "@/pages/Drivers";
+import Training from "@/pages/Training";
 import Defects from "@/pages/Defects";
 import Documents from "@/pages/Documents";
 import { Truck } from "lucide-react";
@@ -40,6 +41,7 @@ function AppRouter() {
       <Route path="/inspections" element={<Protected><Inspections /></Protected>} />
       <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />
       <Route path="/drivers" element={<Protected><Drivers /></Protected>} />
+      <Route path="/training" element={<Protected><Training /></Protected>} />
       <Route path="/defects" element={<Protected><Defects /></Protected>} />
       <Route path="/documents" element={<Protected><Documents /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -10,6 +10,7 @@ from typing import List, Optional
 import uuid
 import jwt
 import httpx
+import requests
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 
@@ -23,6 +24,41 @@ db = client[os.environ['DB_NAME']]
 JWT_SECRET = os.environ['JWT_SECRET']
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# ---------- Object storage ----------
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "haulcheck"
+storage_key = None
+MIME_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif",
+    "webp": "image/webp", "pdf": "application/pdf", "heic": "image/heic",
+}
+
+
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(f"{STORAGE_URL}/objects/{path}",
+                        headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -74,6 +110,12 @@ class User(BaseModel):
     picture: Optional[str] = None
 
 
+class Attachment(BaseModel):
+    file_id: str
+    filename: str = ""
+    content_type: str = ""
+
+
 class Vehicle(BaseModel):
     id: str = Field(default_factory=lambda: f"veh_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -96,6 +138,25 @@ class VehicleInput(BaseModel):
     mot_due: Optional[str] = None
     service_due: Optional[str] = None
     tax_due: Optional[str] = None
+    notes: str = ""
+
+
+class Trailer(BaseModel):
+    id: str = Field(default_factory=lambda: f"trl_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    trailer_number: str
+    type: str = "Curtainsider"
+    mot_due: Optional[str] = None
+    service_due: Optional[str] = None
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TrailerInput(BaseModel):
+    trailer_number: str
+    type: str = "Curtainsider"
+    mot_due: Optional[str] = None
+    service_due: Optional[str] = None
     notes: str = ""
 
 
@@ -134,6 +195,7 @@ class DefectReport(BaseModel):
     description: str
     ai_summary: str = ""
     status: str = "open"
+    attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -143,6 +205,7 @@ class DefectInput(BaseModel):
     category: str = "General"
     severity: str = "minor"
     description: str
+    attachments: List[Attachment] = []
 
 
 class ComplianceDoc(BaseModel):
@@ -153,6 +216,7 @@ class ComplianceDoc(BaseModel):
     reference: str = ""
     expiry_date: Optional[str] = None
     notes: str = ""
+    attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -162,6 +226,7 @@ class DocInput(BaseModel):
     reference: str = ""
     expiry_date: Optional[str] = None
     notes: str = ""
+    attachments: List[Attachment] = []
 
 
 class PMISchedule(BaseModel):
@@ -190,18 +255,41 @@ class PMICompleteInput(BaseModel):
     notes: str = ""
 
 
+class TrainingRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"trn_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    driver_id: str = ""
+    driver_name: str = ""
+    course_name: str
+    category: str = "Driver CPC"
+    completed_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    provider: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TrainingInput(BaseModel):
+    driver_id: str = ""
+    driver_name: str = ""
+    course_name: str
+    category: str = "Driver CPC"
+    completed_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    provider: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 # ---------- Auth ----------
 def create_jwt(user_id: str) -> str:
     payload = {"user_id": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
-async def get_current_user(request: Request) -> User:
-    cookie_token = request.cookies.get("session_token")
-    auth = request.headers.get("Authorization")
-    bearer = auth.split(" ", 1)[1] if auth and auth.startswith("Bearer ") else None
+async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> Optional[User]:
     candidate = cookie_token or bearer
-
     # Google session token
     if candidate:
         session = await db.user_sessions.find_one({"session_token": candidate}, {"_id": 0})
@@ -212,11 +300,10 @@ async def get_current_user(request: Request) -> User:
             if expires_at.tzinfo is None:
                 expires_at = expires_at.replace(tzinfo=timezone.utc)
             if expires_at < datetime.now(timezone.utc):
-                raise HTTPException(status_code=401, detail="Session expired")
+                return None
             user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
             if user_doc:
                 return User(**user_doc)
-
     # JWT (email/password)
     if bearer:
         try:
@@ -226,8 +313,17 @@ async def get_current_user(request: Request) -> User:
                 return User(**user_doc)
         except jwt.PyJWTError:
             pass
+    return None
 
-    raise HTTPException(status_code=401, detail="Not authenticated")
+
+async def get_current_user(request: Request) -> User:
+    cookie_token = request.cookies.get("session_token")
+    auth = request.headers.get("Authorization")
+    bearer = auth.split(" ", 1)[1] if auth and auth.startswith("Bearer ") else None
+    user = await _authenticate(cookie_token, bearer)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
 
 
 @api_router.post("/auth/register")
@@ -342,6 +438,82 @@ async def delete_vehicle(vid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Trailers ----------
+@api_router.get("/trailers")
+async def list_trailers(user: User = Depends(get_current_user)):
+    docs = await db.trailers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    for d in docs:
+        d["mot_status"] = compliance_status(days_until(d.get("mot_due")))
+        d["service_status"] = compliance_status(days_until(d.get("service_due")))
+    return docs
+
+
+@api_router.post("/trailers")
+async def create_trailer(data: TrailerInput, user: User = Depends(get_current_user)):
+    t = Trailer(**data.model_dump(), user_id=user.user_id)
+    await db.trailers.insert_one(t.model_dump())
+    return t.model_dump()
+
+
+@api_router.put("/trailers/{tid}")
+async def update_trailer(tid: str, data: TrailerInput, user: User = Depends(get_current_user)):
+    res = await db.trailers.update_one({"id": tid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trailer not found")
+    return {"ok": True}
+
+
+@api_router.delete("/trailers/{tid}")
+async def delete_trailer(tid: str, user: User = Depends(get_current_user)):
+    await db.trailers.delete_one({"id": tid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Files (object storage) ----------
+@api_router.post("/upload")
+async def upload_file(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    file_id = uuid.uuid4().hex
+    path = f"{APP_NAME}/uploads/{user.user_id}/{file_id}.{ext}"
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 15MB)")
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    try:
+        result = put_object(path, data, content_type)
+    except Exception as e:
+        logging.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=502, detail="Upload failed")
+    await db.files.insert_one({
+        "id": file_id,
+        "user_id": user.user_id,
+        "storage_path": result["path"],
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "is_deleted": False,
+        "created_at": now_iso(),
+    })
+    return {"file_id": file_id, "filename": file.filename, "content_type": content_type,
+            "url": f"/api/files/{file_id}"}
+
+
+@api_router.get("/files/{file_id}")
+async def download_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
+    cookie_token = request.cookies.get("session_token")
+    header_auth = request.headers.get("Authorization")
+    bearer = (header_auth.split(" ", 1)[1] if header_auth and header_auth.startswith("Bearer ") else None) or auth
+    user = await _authenticate(cookie_token, bearer)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    rec = await db.files.find_one({"id": file_id, "user_id": user.user_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    data, ct = get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type") or ct,
+                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"'})
+
+
 # ---------- Drivers ----------
 @api_router.get("/drivers")
 async def list_drivers(user: User = Depends(get_current_user)):
@@ -372,6 +544,40 @@ async def update_driver(did: str, data: DriverInput, user: User = Depends(get_cu
 @api_router.delete("/drivers/{did}")
 async def delete_driver(did: str, user: User = Depends(get_current_user)):
     await db.drivers.delete_one({"id": did, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Driver Training ----------
+@api_router.get("/training")
+async def list_training(driver_id: Optional[str] = Query(None), user: User = Depends(get_current_user)):
+    q = {"user_id": user.user_id}
+    if driver_id:
+        q["driver_id"] = driver_id
+    docs = await db.training.find(q, {"_id": 0}).sort("expiry_date", 1).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("expiry_date")))
+        d["days_left"] = days_until(d.get("expiry_date"))
+    return docs
+
+
+@api_router.post("/training")
+async def create_training(data: TrainingInput, user: User = Depends(get_current_user)):
+    t = TrainingRecord(**data.model_dump(), user_id=user.user_id)
+    await db.training.insert_one(t.model_dump())
+    return t.model_dump()
+
+
+@api_router.put("/training/{tid}")
+async def update_training(tid: str, data: TrainingInput, user: User = Depends(get_current_user)):
+    res = await db.training.update_one({"id": tid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Training record not found")
+    return {"ok": True}
+
+
+@api_router.delete("/training/{tid}")
+async def delete_training(tid: str, user: User = Depends(get_current_user)):
+    await db.training.delete_one({"id": tid, "user_id": user.user_id})
     return {"ok": True}
 
 
@@ -545,6 +751,15 @@ async def calendar(user: User = Depends(get_current_user)):
             "status": "expired" if d.get("severity") in ("major", "safety_critical") else "due_soon",
         })
     events = [e for e in events if e.get("date")]
+    training = await db.training.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for t in training:
+        if t.get("expiry_date"):
+            events.append({
+                "date": t["expiry_date"], "type": "training", "title": f"Training Expiry — {t.get('driver_name') or t.get('course_name')}",
+                "subtitle": f"{t.get('category', '')} · {t.get('course_name', '')}".strip(" ·"),
+                "status": compliance_status(days_until(t["expiry_date"])),
+            })
+    events = [e for e in events if e.get("date")]
     return events
 
 
@@ -555,6 +770,8 @@ async def gather_stats(user_id: str):
     documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     defects = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     pmi_schedules = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    trailers = await db.trailers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    training = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
 
     alerts = []
     expired = due_soon = 0
@@ -601,6 +818,27 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "pmi", "name": p["vehicle_reg"], "item": "PMI Inspection", "status": "due_soon", "days": d})
 
+    for tr in trailers:
+        for label, key in [("Annual Test", "mot_due"), ("Service", "service_due")]:
+            d = days_until(tr.get(key))
+            st = compliance_status(d)
+            if st == "expired":
+                expired += 1
+                alerts.append({"type": "trailer", "name": tr["trailer_number"], "item": label, "status": "expired", "days": d})
+            elif st == "due_soon":
+                due_soon += 1
+                alerts.append({"type": "trailer", "name": tr["trailer_number"], "item": label, "status": "due_soon", "days": d})
+
+    for t in training:
+        d = days_until(t.get("expiry_date"))
+        st = compliance_status(d)
+        if st == "expired":
+            expired += 1
+            alerts.append({"type": "training", "name": t.get("driver_name") or t.get("course_name"), "item": t.get("course_name", "Training"), "status": "expired", "days": d})
+        elif st == "due_soon":
+            due_soon += 1
+            alerts.append({"type": "training", "name": t.get("driver_name") or t.get("course_name"), "item": t.get("course_name", "Training"), "status": "due_soon", "days": d})
+
     open_defects = [d for d in defects if d.get("status") == "open"]
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
@@ -608,7 +846,7 @@ async def gather_stats(user_id: str):
         "counts": {
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
             "open_defects": len(open_defects), "major_defects": len(major_defects),
-            "pmi": len(pmi_schedules),
+            "pmi": len(pmi_schedules), "trailers": len(trailers), "training": len(training),
             "expired": expired, "due_soon": due_soon,
         },
         "alerts": alerts,
@@ -670,6 +908,15 @@ app.add_middleware(
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        init_storage()
+        logger.info("Object storage initialized")
+    except Exception as e:
+        logger.error(f"Storage init failed: {e}")
 
 
 @app.on_event("shutdown")

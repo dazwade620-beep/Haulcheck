@@ -9,8 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, FileWarning, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
+import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
-const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "" };
+const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
 const CATEGORY = ["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"];
 const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["resolved", "Resolved"]];
@@ -60,6 +61,7 @@ export default function Defects() {
                       <p data-testid="defect-ai-summary" className="text-sm text-slate-600">{d.ai_summary}</p>
                     </div>
                   )}
+                  <AttachmentThumbs attachments={d.attachments} />
                   <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{new Date(d.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
@@ -76,7 +78,7 @@ export default function Defects() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-heading">Report a Defect</DialogTitle><DialogDescription className="sr-only">Defect report form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -98,6 +100,7 @@ export default function Defects() {
               </Field>
             </div>
             <Field label="Description *"><Textarea data-testid="defect-description" required rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the defect in detail…" /></Field>
+            <Field label="Photos"><FileUpload testid="defect-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-defect-button" type="submit" disabled={busy} className="bg-black hover:bg-slate-800 gap-2"><Sparkles size={15} /> {busy ? "Analysing…" : "Log & Summarise"}</Button></DialogFooter>
           </form>
         </DialogContent>

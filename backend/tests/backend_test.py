@@ -413,6 +413,209 @@ class TestDashboardPMI:
         requests.delete(f"{API}/pmi/{pid}", headers=auth_headers, timeout=15)
 
 
+# ---------- Trailers ----------
+class TestTrailers:
+    def test_create_list_edit_delete(self, auth_headers):
+        payload = {
+            "trailer_number": f"TEST-T{uuid.uuid4().hex[:4].upper()}",
+            "type": "Curtainsider",
+            "mot_due": FUTURE_DUE_SOON,
+            "service_due": PAST_EXPIRED,
+        }
+        r = requests.post(f"{API}/trailers", json=payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        t = r.json()
+        assert t["trailer_number"] == payload["trailer_number"]
+        assert "id" in t
+        tid = t["id"]
+
+        r = requests.get(f"{API}/trailers", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        item = next((x for x in r.json() if x["id"] == tid), None)
+        assert item is not None
+        assert item["mot_status"] == "due_soon"
+        assert item["service_status"] == "expired"
+
+        # Edit
+        r = requests.put(f"{API}/trailers/{tid}", json={**payload, "type": "Flatbed"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/trailers", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == tid)
+        assert item["type"] == "Flatbed"
+
+        # Delete
+        r = requests.delete(f"{API}/trailers/{tid}", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/trailers", headers=auth_headers, timeout=15)
+        assert not any(x["id"] == tid for x in r.json())
+
+    def test_edit_missing_returns_404(self, auth_headers):
+        r = requests.put(f"{API}/trailers/nonexistent", json={"trailer_number": "X", "type": "Box"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_requires_auth(self):
+        assert requests.get(f"{API}/trailers", timeout=15).status_code == 401
+
+
+# ---------- Training ----------
+class TestTraining:
+    def test_create_list_filter_edit_delete(self, auth_headers):
+        # Create a driver to attach to
+        drv_r = requests.post(f"{API}/drivers", json={"name": f"TEST TrainDrv {uuid.uuid4().hex[:4]}"}, headers=auth_headers, timeout=15)
+        assert drv_r.status_code == 200
+        drv = drv_r.json()
+        did = drv["id"]
+
+        payload = {
+            "driver_id": did, "driver_name": drv["name"],
+            "course_name": "TEST Driver CPC Module 3", "category": "Driver CPC",
+            "completed_date": PAST_EXPIRED, "expiry_date": FUTURE_DUE_SOON,
+            "provider": "TEST Trainer Ltd",
+        }
+        r = requests.post(f"{API}/training", json=payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        t = r.json()
+        tid = t["id"]
+        assert t["course_name"] == payload["course_name"]
+        assert t["driver_id"] == did
+
+        # List
+        r = requests.get(f"{API}/training", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        item = next((x for x in r.json() if x["id"] == tid), None)
+        assert item is not None
+        assert item["status"] == "due_soon"
+        assert item["days_left"] is not None and item["days_left"] <= 30
+
+        # Filter by driver_id
+        r = requests.get(f"{API}/training", params={"driver_id": did}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        assert all(x["driver_id"] == did for x in r.json())
+        assert any(x["id"] == tid for x in r.json())
+
+        # Edit
+        r = requests.put(f"{API}/training/{tid}", json={**payload, "expiry_date": FUTURE_VALID, "provider": "TEST Updated"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/training", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == tid)
+        assert item["provider"] == "TEST Updated"
+        assert item["status"] == "valid"
+
+        # Delete
+        r = requests.delete(f"{API}/training/{tid}", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/training", headers=auth_headers, timeout=15)
+        assert not any(x["id"] == tid for x in r.json())
+        # cleanup driver
+        requests.delete(f"{API}/drivers/{did}", headers=auth_headers, timeout=15)
+
+    def test_edit_missing_returns_404(self, auth_headers):
+        r = requests.put(f"{API}/training/nonexistent", json={"course_name": "x"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_requires_auth(self):
+        assert requests.get(f"{API}/training", timeout=15).status_code == 401
+
+
+# ---------- File upload / download ----------
+class TestFileUpload:
+    # 1x1 PNG bytes
+    PNG_BYTES = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
+        b"\x00\x00\x00\x03\x00\x01[\xd1E\xb9\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    def test_upload_and_download_via_bearer(self, token):
+        headers = {"Authorization": f"Bearer {token}"}
+        files = {"file": ("test.png", self.PNG_BYTES, "image/png")}
+        r = requests.post(f"{API}/upload", files=files, headers=headers, timeout=60)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "file_id" in body and body["filename"] == "test.png"
+        assert body["content_type"] == "image/png"
+        assert body["url"].endswith(f"/api/files/{body['file_id']}")
+        file_id = body["file_id"]
+
+        # Download via bearer
+        r = requests.get(f"{API}/files/{file_id}", headers=headers, timeout=30)
+        assert r.status_code == 200
+        assert r.headers.get("Content-Type", "").startswith("image/")
+        assert r.content == self.PNG_BYTES
+
+        # Download via ?auth=<token> (used by <img src>)
+        r = requests.get(f"{API}/files/{file_id}", params={"auth": token}, timeout=30)
+        assert r.status_code == 200
+        assert r.content == self.PNG_BYTES
+
+    def test_upload_requires_auth(self):
+        files = {"file": ("test.png", self.PNG_BYTES, "image/png")}
+        r = requests.post(f"{API}/upload", files=files, timeout=30)
+        assert r.status_code == 401
+
+    def test_download_requires_auth(self):
+        r = requests.get(f"{API}/files/nonexistent", timeout=15)
+        assert r.status_code == 401
+
+    def test_download_wrong_user_forbidden(self, token):
+        # Upload as seeded user, then try to fetch as a different fresh user
+        headers = {"Authorization": f"Bearer {token}"}
+        files = {"file": ("test.png", self.PNG_BYTES, "image/png")}
+        r = requests.post(f"{API}/upload", files=files, headers=headers, timeout=60)
+        assert r.status_code == 200
+        file_id = r.json()["file_id"]
+
+        # Fresh user
+        email = f"TEST_uf_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        rB = requests.post(f"{API}/auth/register", json={"email": email, "password": "Password1!", "name": "B"}, timeout=15)
+        tokB = rB.json()["token"]
+        r = requests.get(f"{API}/files/{file_id}", params={"auth": tokB}, timeout=15)
+        assert r.status_code == 404  # scoped to owner
+
+
+# ---------- Dashboard: trailers + training counts/alerts ----------
+class TestDashboardTrailersTraining:
+    def test_dashboard_counts_and_alerts_include_trailers_training(self, auth_headers):
+        # Expired trailer MOT
+        trailer_num = f"TEST-DT{uuid.uuid4().hex[:4].upper()}"
+        r = requests.post(f"{API}/trailers", json={
+            "trailer_number": trailer_num, "type": "Box", "mot_due": PAST_EXPIRED,
+        }, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        tid = r.json()["id"]
+
+        # Expired training
+        drv_r = requests.post(f"{API}/drivers", json={"name": f"TEST DshDrv {uuid.uuid4().hex[:4]}"}, headers=auth_headers, timeout=15)
+        did = drv_r.json()["id"]
+        tr_r = requests.post(f"{API}/training", json={
+            "driver_id": did, "driver_name": drv_r.json()["name"],
+            "course_name": "TEST Expired CPC", "category": "Driver CPC",
+            "expiry_date": PAST_EXPIRED,
+        }, headers=auth_headers, timeout=15)
+        trid = tr_r.json()["id"]
+
+        r = requests.get(f"{API}/dashboard", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        body = r.json()
+        assert "trailers" in body["counts"] and body["counts"]["trailers"] >= 1
+        assert "training" in body["counts"] and body["counts"]["training"] >= 1
+
+        trailer_alerts = [a for a in body["alerts"] if a.get("type") == "trailer" and a.get("name") == trailer_num]
+        training_alerts = [a for a in body["alerts"] if a.get("type") == "training" and a.get("item") == "TEST Expired CPC"]
+        assert trailer_alerts and trailer_alerts[0]["status"] == "expired"
+        assert training_alerts and training_alerts[0]["status"] == "expired"
+
+        # Calendar contains a training event
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        cal = r.json()
+        assert any(e.get("type") == "training" and e.get("date") == PAST_EXPIRED for e in cal)
+
+        # Cleanup
+        requests.delete(f"{API}/trailers/{tid}", headers=auth_headers, timeout=15)
+        requests.delete(f"{API}/training/{trid}", headers=auth_headers, timeout=15)
+        requests.delete(f"{API}/drivers/{did}", headers=auth_headers, timeout=15)
+
+
 # ---------- Data isolation ----------
 class TestIsolation:
     def test_data_scoped_per_user(self):

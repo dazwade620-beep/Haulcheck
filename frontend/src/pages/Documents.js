@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Pencil, FolderCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
+import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Other"];
-const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "" };
+const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", attachments: [] };
 
 export default function Documents() {
   const [items, setItems] = useState([]);
@@ -22,7 +23,7 @@ export default function Documents() {
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
-  const openEdit = (d) => { setForm({ ...empty, ...d, expiry_date: d.expiry_date || "" }); setEditId(d.id); setOpen(true); };
+  const openEdit = (d) => { setForm({ ...empty, ...d, expiry_date: d.expiry_date || "", attachments: d.attachments || [] }); setEditId(d.id); setOpen(true); };
 
   const save = async (e) => {
     e.preventDefault();
@@ -62,13 +63,14 @@ export default function Documents() {
                 </div>
                 <StatusBadge status={d.status} />
               </div>
+              <AttachmentThumbs attachments={d.attachments} />
             </div>
           ))}
         </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Document" : "Add Document"}</DialogTitle><DialogDescription className="sr-only">Document details form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <Field label="Title *"><Input data-testid="doc-title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Standard National O-Licence" /></Field>
@@ -82,6 +84,7 @@ export default function Documents() {
               <Field label="Reference"><Input data-testid="doc-reference" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="OB1234567" /></Field>
               <Field label="Expiry Date"><Input data-testid="doc-expiry" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
             </div>
+            <Field label="Scan / Document"><FileUpload testid="doc-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-document-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Document"}</Button></DialogFooter>
           </form>
         </DialogContent>
