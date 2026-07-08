@@ -6,7 +6,7 @@ import { toast } from "sonner";
 const authUrl = (fileId) => `${API}/files/${fileId}?auth=${localStorage.getItem("token") || ""}`;
 const isImage = (ct) => (ct || "").startsWith("image/");
 
-export function FileUpload({ attachments = [], onChange, testid = "file-upload", accept = "image/*,application/pdf" }) {
+export function FileUpload({ attachments = [], onChange, testid = "file-upload", accept = "image/*,application/pdf", label = "Upload photos / scans (image or PDF)" }) {
   const [busy, setBusy] = useState(false);
 
   const handleFiles = async (files) => {
@@ -38,7 +38,7 @@ export function FileUpload({ attachments = [], onChange, testid = "file-upload",
         className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-md py-4 px-3 text-sm text-slate-500 cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
       >
         {busy ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
-        <span>{busy ? "Uploading…" : "Upload photos / scans (image or PDF)"}</span>
+        <span>{busy ? "Uploading…" : label}</span>
         <input
           data-testid={`${testid}-input`}
           type="file"

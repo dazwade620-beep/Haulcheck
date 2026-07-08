@@ -133,7 +133,7 @@ export default function Tacho() {
               <Field label="Last Download"><Input data-testid="tacho-last" type="date" value={form.last_download} onChange={(e) => setForm({ ...form, last_download: e.target.value })} /></Field>
               <Field label="Infringements"><Input data-testid="tacho-infringements" type="number" min="0" value={form.infringements} onChange={(e) => setForm({ ...form, infringements: e.target.value })} /></Field>
             </div>
-            <Field label="Upload Tacho Data (download files)"><FileUpload testid="tacho-upload" accept="image/*,application/pdf,.ddd,.tgd,.c1b,.v1b,.dtc,.esm,.tgz" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
+            <Field label="Upload Tacho Data (download files)"><FileUpload testid="tacho-upload" label="Upload tacho files (.ddd / .tgd / .c1b / .v1b / image / PDF)" accept="image/*,application/pdf,.ddd,.tgd,.c1b,.v1b,.dtc,.esm,.tgz" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <Field label="Notes"><Textarea data-testid="tacho-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Infringement details, analysis notes…" /></Field>
             <DialogFooter><Button data-testid="save-tacho-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Record"}</Button></DialogFooter>
           </form>
