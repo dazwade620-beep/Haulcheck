@@ -100,6 +100,10 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Email Audit Pack (2026-07-08)**: `POST /api/export/account/email` builds the full audit pack and emails it as a PDF attachment via Resend (reuses RESEND_API_KEY/SENDER_EMAIL). Refactored account PDF generation into `_build_account_pdf(user, include_files)` shared by the GET export and the email endpoint. Dashboard Export menu → "Email Audit Pack…" opens a dialog (recipients + optional message). Verified via curl: send returned an email_id + correct dated filename; empty-recipient → 400.
 
+- **Tacho download false-positive fix (2026-07-08)**: the driver-card & vehicle-unit "no download record" gaps in `detect_gaps` used exact case-sensitive matching of driver name / vehicle reg against the tacho `reference` free-text field, causing false "complete download immediately" prompts when a recent download existed with any case/whitespace/format difference. Now uses a normalized (lowercase + collapsed whitespace) bidirectional-substring match. Verified by testing_agent iteration_15.json (5/5): false gap gone, genuine gaps still fire.
+- **Walkaround defect rectify + data isolation (2026-07-08)**: added rectified/rectified_date/rectified_notes to WalkaroundCheck + `PUT /api/walkarounds/{id}/rectify`; Daily Checks cards show a "Mark rectified" button (defects only) → green Rectified badge + banner. Confirmed multi-tenancy: register creates an empty account, every endpoint scoped by user_id — new users see none of another account's data. Verified iteration_14.json (11/11).
+- **Email Audit Pack (2026-07-08)**: `POST /api/export/account/email` sends the branded dated audit pack via Resend; Dashboard → Export → "Email Audit Pack…".
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
