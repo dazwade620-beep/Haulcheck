@@ -1310,6 +1310,13 @@ async def calendar(user: User = Depends(get_current_user)):
             "id": ev.get("id"), "date": ev.get("date"), "type": "custom", "title": ev.get("title", "Event"),
             "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
         })
+    for w in await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if w.get("next_due"):
+            events.append({
+                "date": w["next_due"], "type": "wheel", "title": f"Wheel Security Due — {w.get('vehicle_reg')}",
+                "subtitle": w.get("torque_setting") or "Re-torque check",
+                "status": compliance_status(days_until(w["next_due"])),
+            })
     events = [e for e in events if e.get("date")]
     return events
 
@@ -1443,6 +1450,16 @@ async def gather_stats(user_id: str):
 
     open_defects = [d for d in defects if d.get("status") == "open"]
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
+    wheel = await db.wheel_audits.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    for w in wheel:
+        d = days_until(w.get("next_due"))
+        st = compliance_status(d)
+        if st == "expired":
+            expired += 1
+            alerts.append({"type": "wheel", "name": w.get("vehicle_reg"), "item": "Wheel Security Check", "status": "expired", "days": d})
+        elif st == "due_soon":
+            due_soon += 1
+            alerts.append({"type": "wheel", "name": w.get("vehicle_reg"), "item": "Wheel Security Check", "status": "due_soon", "days": d})
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
     return {
         "counts": {
@@ -1566,7 +1583,7 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
 # ---------- Email reminders (Resend) ----------
 ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects"]
 AREA_OF = {"vehicle": "fleet", "trailer": "fleet", "driver": "drivers", "tacho": "tacho",
-           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects"}
+           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects", "wheel": "pmi"}
 AREA_PRESETS = {
     "Transport Manager": list(ALL_AREAS),
     "Driver": ["drivers", "tacho", "training"],
