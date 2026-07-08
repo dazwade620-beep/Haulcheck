@@ -92,6 +92,7 @@ export function DocumentsPanel({ embedded = false }) {
                   <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{d.doc_type}</p>
                   <h3 className="font-heading font-bold text-lg text-slate-900 truncate">{d.title}</h3>
                   {d.reference && <p className="text-xs text-slate-500 mt-0.5">Ref: {d.reference}</p>}
+                  {d.letter_data && d.notes && <p className="text-[11px] text-slate-400 mt-0.5">{d.notes}</p>}
                 </div>
                 <div className="flex gap-1 shrink-0">
                   {d.attachments?.length > 0 && (

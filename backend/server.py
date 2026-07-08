@@ -902,8 +902,8 @@ async def generate_document(data: LetterGenerateInput, user: User = Depends(get_
         title=data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
         doc_type=data.template,
         reference=data.subject,
-        notes=f"Generated {datetime.now(timezone.utc).strftime('%d %B %Y')}",
-        letter_data=data.model_dump(),
+        notes=f"v1 · generated {datetime.now(timezone.utc).strftime('%d %b %Y')}",
+        letter_data={**data.model_dump(), "version": 1},
         attachments=[att],
     )
     await db.documents.insert_one(doc.model_dump())
@@ -918,16 +918,17 @@ async def regenerate_document(docid: str, data: LetterGenerateInput, user: User 
     for old in (existing.get("attachments") or []):
         if old.get("file_id"):
             await db.files.update_one({"id": old["file_id"], "user_id": user.user_id}, {"$set": {"is_deleted": True}})
+    version = ((existing.get("letter_data") or {}).get("version", 1) or 1) + 1
     att = await _render_letter_attachment(user, data)
     await db.documents.update_one({"id": docid, "user_id": user.user_id}, {"$set": {
         "title": data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
         "doc_type": data.template,
         "reference": data.subject,
-        "notes": f"Updated {datetime.now(timezone.utc).strftime('%d %B %Y')}",
-        "letter_data": data.model_dump(),
+        "notes": f"v{version} · updated {datetime.now(timezone.utc).strftime('%d %b %Y')}",
+        "letter_data": {**data.model_dump(), "version": version},
         "attachments": [att.model_dump()],
     }})
-    return {"ok": True}
+    return {"ok": True, "version": version}
 
 
 async def _render_letter_attachment(user: User, data: LetterGenerateInput) -> Attachment:
@@ -1544,12 +1545,26 @@ async def delete_test_history(tid: str, user: User = Depends(get_current_user)):
 async def calendar(user: User = Depends(get_current_user)):
     events = []
     schedules = await db.pmi_schedules.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    horizon = (datetime.now(timezone.utc).date() + timedelta(weeks=52)).isoformat()
     for s in schedules:
-        if s.get("next_due"):
+        nd = s.get("next_due")
+        fw = s.get("frequency_weeks", 6) or 6
+        if not nd:
+            continue
+        try:
+            cur = datetime.fromisoformat(nd).date()
+        except Exception:
+            continue
+        first, count = True, 0
+        while cur.isoformat() <= horizon and count < 26:
+            iso = cur.isoformat()
             events.append({
-                "date": s["next_due"], "type": "pmi_due", "title": f"PMI Due — {s['vehicle_reg']}",
-                "subtitle": f"Every {s.get('frequency_weeks', 6)} weeks", "status": compliance_status(days_until(s["next_due"])),
+                "date": iso, "type": "pmi_due", "title": f"PMI Due — {s['vehicle_reg']}",
+                "subtitle": f"Every {fw} weeks" + ("" if first else " · planned"),
+                "status": compliance_status(days_until(iso)) if first else "valid",
             })
+            cur = cur + timedelta(weeks=fw)
+            first, count = False, count + 1
     records = await db.pmi_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
     for r in records:
         events.append({
