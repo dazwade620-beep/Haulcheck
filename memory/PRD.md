@@ -84,6 +84,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Office Links tab + region tax term (2026-07-08)**: added a dedicated "Links" tab in the Office folder — a reference-bookmarks manager (`/api/links` CRUD, `db.links`): title, URL (auto-prefixed https://), category (Government/Authority, Legislation, Portal, Training, Supplier, General) and notes; grouped by category, opens in new tab. New files `frontend/src/pages/Links.js`. Region pass: added `roadTax` term (UK "Vehicle Tax" / IE "Motor Tax") applied to the Fleet vehicle table + form (complements existing CVRT/MOT, currency, O-licence terms and the IE laden-brake-test hide).
 
+- **Service tab + starter links (2026-07-08)**: added a "Service" tab to Maintenance (`/api/service-records` CRUD, `db.service_records`): vehicle, service type (Full/Interim/Oil/AdBlue/Repair/Other), date, odometer, provider, cost, next-service-due (colour-coded status via compliance_status), notes + invoice upload. New file `frontend/src/pages/Service.js`. Also added `POST /api/links/seed` + "Add starter links" button that inserts region-appropriate official links (6 UK DVSA / 5 IE RSA), idempotent by URL. Verified via curl (service status/days, seed added 6 then 0) + UI smoke.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

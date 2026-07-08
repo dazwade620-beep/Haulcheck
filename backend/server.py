@@ -480,6 +480,33 @@ class WheelAuditInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class ServiceRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"svc_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    service_date: Optional[str] = None
+    service_type: str = "Full service"
+    odometer: float = 0
+    provider: str = ""
+    cost: float = 0
+    next_service_due: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ServiceInput(BaseModel):
+    vehicle_reg: str
+    service_date: Optional[str] = None
+    service_type: str = "Full service"
+    odometer: float = 0
+    provider: str = ""
+    cost: float = 0
+    next_service_due: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class WalkaroundCheck(BaseModel):
     id: str = Field(default_factory=lambda: f"wac_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -925,6 +952,38 @@ async def update_link(lid: str, data: WebLinkInput, user: User = Depends(get_cur
 async def delete_link(lid: str, user: User = Depends(get_current_user)):
     await db.links.delete_one({"id": lid, "user_id": user.user_id})
     return {"ok": True}
+
+
+STARTER_LINKS = {
+    "UK": [
+        {"title": "Vehicle Operator Licensing (VOL) self-service", "url": "https://www.vehicle-operator-licensing.service.gov.uk", "category": "Portal / Login"},
+        {"title": "GOV.UK — Vehicle operator licensing", "url": "https://www.gov.uk/vehicle-operator-licensing", "category": "Government / Authority"},
+        {"title": "DVSA — Guide to maintaining roadworthiness", "url": "https://www.gov.uk/government/publications/guide-to-maintaining-roadworthiness", "category": "Legislation"},
+        {"title": "Check MOT history", "url": "https://www.check-mot.service.gov.uk", "category": "Portal / Login"},
+        {"title": "DVSA Earned Recognition", "url": "https://www.gov.uk/government/collections/dvsa-earned-recognition", "category": "Government / Authority"},
+        {"title": "Drivers' hours & tachograph rules", "url": "https://www.gov.uk/drivers-hours", "category": "Legislation"},
+    ],
+    "IE": [
+        {"title": "RSA — CVRT (Commercial Vehicle Roadworthiness Test)", "url": "https://www.cvrt.ie", "category": "Government / Authority"},
+        {"title": "Road Transport Operator Licence (gov.ie)", "url": "https://www.gov.ie/en/service/8fcb1-apply-for-a-road-transport-operator-licence/", "category": "Portal / Login"},
+        {"title": "RSA — Commercial vehicle owners", "url": "https://www.rsa.ie/services/commercial-vehicle-owners", "category": "Government / Authority"},
+        {"title": "RSA — EU drivers' hours & tachograph", "url": "https://www.rsa.ie/services/professional-drivers/eu-drivers-hours-and-tachograph", "category": "Legislation"},
+        {"title": "Certificate of Roadworthiness (CRW)", "url": "https://www.cvrt.ie/en/crw", "category": "Government / Authority"},
+    ],
+}
+
+
+@api_router.post("/links/seed")
+async def seed_links(user: User = Depends(get_current_user)):
+    region = "IE" if user.region == "IE" else "UK"
+    existing = {l.get("url") for l in await db.links.find({"user_id": user.user_id}, {"_id": 0, "url": 1}).to_list(1000)}
+    added = 0
+    for s in STARTER_LINKS[region]:
+        if s["url"] in existing:
+            continue
+        await db.links.insert_one(WebLink(**s, user_id=user.user_id).model_dump())
+        added += 1
+    return {"ok": True, "added": added, "region": region}
 
 
 # ---------- Company document generator ----------
@@ -1655,6 +1714,37 @@ async def update_wheel_audit(wid: str, data: WheelAuditInput, user: User = Depen
 @api_router.delete("/wheel-audits/{wid}")
 async def delete_wheel_audit(wid: str, user: User = Depends(get_current_user)):
     await db.wheel_audits.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Service records ----------
+@api_router.get("/service-records")
+async def list_service(user: User = Depends(get_current_user)):
+    docs = await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).sort("service_date", -1).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("next_service_due")))
+        d["days_left"] = days_until(d.get("next_service_due"))
+    return docs
+
+
+@api_router.post("/service-records")
+async def create_service(data: ServiceInput, user: User = Depends(get_current_user)):
+    s = ServiceRecord(**data.model_dump(), user_id=user.user_id)
+    await db.service_records.insert_one(s.model_dump())
+    return s.model_dump()
+
+
+@api_router.put("/service-records/{sid}")
+async def update_service(sid: str, data: ServiceInput, user: User = Depends(get_current_user)):
+    res = await db.service_records.update_one({"id": sid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Service record not found")
+    return {"ok": True}
+
+
+@api_router.delete("/service-records/{sid}")
+async def delete_service(sid: str, user: User = Depends(get_current_user)):
+    await db.service_records.delete_one({"id": sid, "user_id": user.user_id})
     return {"ok": True}
 
 

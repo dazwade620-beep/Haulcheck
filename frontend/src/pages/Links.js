@@ -34,6 +34,13 @@ export function LinksPanel() {
     } catch { toast.error("Could not save link"); }
   };
   const remove = async (id) => { await api.delete(`/links/${id}`); toast.success("Link removed"); load(); };
+  const seed = async () => {
+    try {
+      const { data } = await api.post("/links/seed");
+      toast.success(data.added ? `Added ${data.added} starter links` : "Starter links already added");
+      load();
+    } catch { toast.error("Could not add starter links"); }
+  };
 
   const groups = CATEGORIES.filter((c) => items.some((l) => l.category === c));
 
@@ -41,7 +48,10 @@ export function LinksPanel() {
     <div data-testid="links-page">
       <div className="flex justify-between items-center mb-4">
         <p className="text-sm text-slate-500">Handy reference websites — DVSA/RSA, legislation, portals & suppliers.</p>
-        <Button data-testid="add-link-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Link</Button>
+        <div className="flex gap-2">
+          <Button data-testid="seed-links-button" onClick={seed} variant="outline" className="rounded-md border-slate-300">Add starter links</Button>
+          <Button data-testid="add-link-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Link</Button>
+        </div>
       </div>
 
       {items.length === 0 ? <Empty icon={Link2} text="No links yet. Save useful websites for quick reference." /> : (
