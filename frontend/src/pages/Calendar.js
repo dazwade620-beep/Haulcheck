@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2 } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -17,6 +21,7 @@ const TYPE_META = {
   training: { icon: GraduationCap, label: "Training Expiry" },
   insurance: { icon: ShieldCheck, label: "Insurance Renewal" },
   tacho: { icon: Gauge, label: "Tacho Download" },
+  custom: { icon: Flag, label: "Event" },
 };
 
 const dotColor = (status) => (status === "expired" ? "bg-red-500" : status === "due_soon" ? "bg-yellow-500" : "bg-green-500");
@@ -26,8 +31,29 @@ export default function Calendar() {
   const [cursor, setCursor] = useState(new Date());
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(new Date());
+  const [evtOpen, setEvtOpen] = useState(false);
+  const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
 
-  useEffect(() => { api.get("/calendar").then((r) => setEvents(r.data)); }, []);
+  const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
+  useEffect(() => { loadEvents(); }, []);
+
+  const openAddEvent = () => {
+    setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
+    setEvtOpen(true);
+  };
+  const saveEvent = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post("/calendar/events", evtForm);
+      toast.success("Event added to calendar");
+      setEvtOpen(false);
+      loadEvents();
+    } catch { toast.error("Could not add event"); }
+  };
+  const deleteEvent = async (id) => {
+    try { await api.delete(`/calendar/events/${id}`); toast.success("Event removed"); loadEvents(); }
+    catch { toast.error("Could not remove event"); }
+  };
 
   const days = useMemo(() => {
     const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 });
@@ -54,6 +80,7 @@ export default function Calendar() {
           <span data-testid="cal-month-label" className="font-heading font-bold text-lg tracking-tight w-40 text-center">{format(cursor, "MMMM yyyy")}</span>
           <Button data-testid="cal-next" variant="outline" size="icon" className="border-slate-300" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight size={18} /></Button>
           <Button data-testid="cal-today" variant="outline" className="border-slate-300 ml-2" onClick={() => { setCursor(new Date()); setSelected(new Date()); }}>Today</Button>
+          <Button data-testid="cal-add-event" className="bg-black hover:bg-slate-800 rounded-md gap-2 ml-1" onClick={openAddEvent}><Plus size={16} /> Add Event</Button>
         </div>
       </div>
 
@@ -122,6 +149,9 @@ export default function Calendar() {
                       <p className="text-xs text-slate-500">{e.subtitle}</p>
                     </div>
                     <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
+                    {e.type === "custom" && e.id && (
+                      <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
+                    )}
                   </div>
                 );
               })}
@@ -136,6 +166,30 @@ export default function Calendar() {
           </div>
         </div>
       </div>
+
+      <Dialog open={evtOpen} onOpenChange={setEvtOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Add Calendar Event</DialogTitle>
+            <DialogDescription className="sr-only">Add a custom calendar event</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEvent} className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Date</label>
+              <Input data-testid="event-date" type="date" required value={evtForm.date} onChange={(e) => setEvtForm({ ...evtForm, date: e.target.value })} />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Title</label>
+              <Input data-testid="event-title" required value={evtForm.title} onChange={(e) => setEvtForm({ ...evtForm, title: e.target.value })} placeholder="e.g. Tacho analysis meeting" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Notes</label>
+              <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
+            </div>
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">Add Event</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -35,6 +35,11 @@ export default function Insurance() {
   const [aiFiles, setAiFiles] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiResults, setAiResults] = useState(null);
+  const [folder, setFolder] = useState("All");
+
+  const FOLDERS = [["All", "All"], ["Motor — Truck", "Truck"], ["Motor — Trailer", "Trailer"], ["Goods in Transit (GIT)", "GIT"], ["Public Liability (PL)", "PL"], ["Employers' Liability (EL)", "EL"], ["Green Card", "Green Card"], ["Other", "Other"]];
+  const shown = folder === "All" ? items : items.filter((i) => i.policy_type === folder);
+  const countFor = (val) => (val === "All" ? items.length : items.filter((i) => i.policy_type === val).length);
 
   const load = async () => setItems((await api.get("/insurance")).data);
   useEffect(() => { load(); }, []);
@@ -91,9 +96,22 @@ export default function Insurance() {
         </div>
       </div>
 
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6" data-testid="insurance-folders">
+          {FOLDERS.map(([val, label]) => (
+            <button
+              key={val}
+              data-testid={`folder-${label}`}
+              onClick={() => setFolder(val)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${folder === val ? "bg-black text-white border-black" : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"}`}
+            >{label} <span className="opacity-60">{countFor(val)}</span></button>
+          ))}
+        </div>
+      )}
+
       {items.length === 0 ? <Empty icon={ShieldCheck} text="No insurance policies yet. Add one manually or use AI Import to upload them all at once." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((p) => (
+          {shown.map((p) => (
             <div key={p.id} data-testid="insurance-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
               <div className="flex items-start justify-between">
                 <div className="min-w-0">

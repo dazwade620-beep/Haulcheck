@@ -1096,3 +1096,108 @@ class TestTachoParse:
         # Cleanup
         requests.delete(f"{API}/tacho/{body['id']}", headers=auth_headers, timeout=15)
         requests.delete(f"{API}/drivers/{drv['id']}", headers=auth_headers, timeout=15)
+
+
+
+# ---------- BUG FIX: Tacho dedup on dashboard/calendar (latest per ref only) ----------
+class TestTachoDedupBug:
+    """Regression test for the reported bug: multiple historical downloads for the same
+    driver-card/vehicle-unit reference must NOT each count as expired on the dashboard.
+    Only the LATEST download's next_due determines status. counts.tacho == distinct refs."""
+
+    def test_dashboard_dedupes_to_latest_per_reference(self, auth_headers):
+        ref = f"TEST_Dedup_{uuid.uuid4().hex[:6]}"
+        d120 = (date.today() - timedelta(days=120)).isoformat()  # next_due = -92d expired
+        d60 = (date.today() - timedelta(days=60)).isoformat()    # next_due = -32d expired
+        d2 = (date.today() - timedelta(days=2)).isoformat()      # next_due = +26d due_soon (latest, on track)
+        ids = []
+        for last in [d120, d60, d2]:
+            r = requests.post(f"{API}/tacho", json={
+                "source_type": "Driver Card", "reference": ref,
+                "frequency_days": 28, "last_download": last,
+            }, headers=auth_headers, timeout=15)
+            assert r.status_code == 200
+            ids.append(r.json()["id"])
+
+        try:
+            r = requests.get(f"{API}/dashboard", headers=auth_headers, timeout=15)
+            assert r.status_code == 200
+            body = r.json()
+            # Only ONE tacho alert should exist for this reference (the latest, due_soon)
+            my_alerts = [a for a in body["alerts"] if a.get("type") == "tacho" and a.get("name") == ref]
+            assert len(my_alerts) <= 1, f"Expected <=1 alert for {ref}, got {len(my_alerts)}: {my_alerts}"
+            # The alert (if any) must NOT be 'expired' - only latest counts, and latest is due_soon
+            for a in my_alerts:
+                assert a["status"] != "expired", f"Latest download (2d ago) should NOT be expired: {a}"
+                assert a["status"] == "due_soon", f"Expected due_soon, got {a['status']}"
+
+            # counts.tacho should count DISTINCT references, not raw record count
+            # We created 3 records for 1 reference; counts.tacho should have increased by 1, not 3.
+            # Verify by comparing distinct refs vs record count for this user.
+            all_tacho = requests.get(f"{API}/tacho", headers=auth_headers, timeout=15).json()
+            distinct = len({(t.get("source_type"), t.get("reference")) for t in all_tacho})
+            assert body["counts"]["tacho"] == distinct, \
+                f"counts.tacho={body['counts']['tacho']} but distinct references={distinct}"
+        finally:
+            for tid in ids:
+                requests.delete(f"{API}/tacho/{tid}", headers=auth_headers, timeout=15)
+
+    def test_calendar_dedupes_tacho_to_latest(self, auth_headers):
+        ref = f"TEST_CalDedup_{uuid.uuid4().hex[:6]}"
+        d120 = (date.today() - timedelta(days=120)).isoformat()
+        d2 = (date.today() - timedelta(days=2)).isoformat()
+        latest_due = (date.today() + timedelta(days=26)).isoformat()
+        ids = []
+        for last in [d120, d2]:
+            r = requests.post(f"{API}/tacho", json={
+                "source_type": "Driver Card", "reference": ref,
+                "frequency_days": 28, "last_download": last,
+            }, headers=auth_headers, timeout=15)
+            ids.append(r.json()["id"])
+
+        try:
+            r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+            events = [e for e in r.json() if e.get("type") == "tacho" and ref in (e.get("title") or "")]
+            # Only ONE tacho event should exist for this reference (the latest)
+            assert len(events) == 1, f"Expected exactly 1 tacho event, got {len(events)}: {events}"
+            assert events[0]["date"] == latest_due
+            assert events[0]["status"] == "due_soon"
+        finally:
+            for tid in ids:
+                requests.delete(f"{API}/tacho/{tid}", headers=auth_headers, timeout=15)
+
+
+# ---------- NEW: Calendar custom events ----------
+class TestCalendarEvents:
+    def test_create_appears_and_delete(self, auth_headers):
+        day = (date.today() + timedelta(days=10)).isoformat()
+        payload = {"date": day, "title": f"TEST Event {uuid.uuid4().hex[:4]}", "notes": "unit test"}
+        r = requests.post(f"{API}/calendar/events", json=payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200, r.text
+        ev = r.json()
+        assert ev["id"].startswith("evt_")
+        assert ev["title"] == payload["title"]
+        assert ev["date"] == day
+        eid = ev["id"]
+
+        # Should appear in /calendar as type='custom' on that date
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        events = [e for e in r.json() if e.get("type") == "custom" and e.get("id") == eid]
+        assert len(events) == 1
+        assert events[0]["date"] == day
+        assert events[0]["title"] == payload["title"]
+
+        # Delete
+        r = requests.delete(f"{API}/calendar/events/{eid}", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        assert not any(e.get("id") == eid for e in r.json())
+
+    def test_create_requires_auth(self):
+        r = requests.post(f"{API}/calendar/events", json={"date": "2026-01-01", "title": "x"}, timeout=15)
+        assert r.status_code == 401
+
+    def test_delete_requires_auth(self):
+        r = requests.delete(f"{API}/calendar/events/x", timeout=15)
+        assert r.status_code == 401

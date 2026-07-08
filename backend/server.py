@@ -1107,15 +1107,48 @@ async def calendar(user: User = Depends(get_current_user)):
                 "status": compliance_status(days_until(ins["expiry_date"])),
             })
     tacho = await db.tacho.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    tacho_latest = {}
     for tc in tacho:
+        key = (tc.get("source_type"), tc.get("reference"))
+        cur = tacho_latest.get(key)
+        if cur is None or (tc.get("last_download") or tc.get("next_due") or "") > (cur.get("last_download") or cur.get("next_due") or ""):
+            tacho_latest[key] = tc
+    for tc in tacho_latest.values():
         if tc.get("next_due"):
             events.append({
                 "date": tc["next_due"], "type": "tacho", "title": f"Tacho Download — {tc.get('reference') or tc.get('source_type')}",
                 "subtitle": tc.get("source_type", ""),
                 "status": compliance_status(days_until(tc["next_due"])),
             })
+    for ev in await db.calendar_events.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        events.append({
+            "id": ev.get("id"), "date": ev.get("date"), "type": "custom", "title": ev.get("title", "Event"),
+            "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
+        })
     events = [e for e in events if e.get("date")]
     return events
+
+
+class CalendarEventInput(BaseModel):
+    date: str
+    title: str
+    notes: str = ""
+    status: str = "valid"
+
+
+@api_router.post("/calendar/events")
+async def create_calendar_event(data: CalendarEventInput, user: User = Depends(get_current_user)):
+    ev = {"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.date,
+          "title": data.title, "notes": data.notes, "status": data.status, "created_at": now_iso()}
+    await db.calendar_events.insert_one(dict(ev))
+    ev.pop("_id", None)
+    return ev
+
+
+@api_router.delete("/calendar/events/{eid}")
+async def delete_calendar_event(eid: str, user: User = Depends(get_current_user)):
+    await db.calendar_events.delete_one({"id": eid, "user_id": user.user_id})
+    return {"ok": True}
 
 
 # ---------- Dashboard + AI risk ----------
@@ -1206,7 +1239,14 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "insurance", "name": ins.get("insurer") or ins.get("policy_type"), "item": ins.get("policy_type", "Insurance"), "status": "due_soon", "days": d})
 
+    # Only the LATEST download per driver-card / vehicle-unit counts toward compliance
+    tacho_latest = {}
     for tc in tacho:
+        key = (tc.get("source_type"), tc.get("reference"))
+        cur = tacho_latest.get(key)
+        if cur is None or (tc.get("last_download") or tc.get("next_due") or "") > (cur.get("last_download") or cur.get("next_due") or ""):
+            tacho_latest[key] = tc
+    for tc in tacho_latest.values():
         d = days_until(tc.get("next_due"))
         st = compliance_status(d)
         if st == "expired":
@@ -1224,7 +1264,7 @@ async def gather_stats(user_id: str):
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
             "open_defects": len(open_defects), "major_defects": len(major_defects),
             "pmi": len(pmi_schedules), "trailers": len(trailers), "training": len(training),
-            "insurance": len(insurance), "tacho": len(tacho),
+            "insurance": len(insurance), "tacho": len(tacho_latest),
             "expired": expired, "due_soon": due_soon,
         },
         "alerts": alerts,

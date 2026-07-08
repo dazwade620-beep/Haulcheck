@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
@@ -78,48 +79,82 @@ export default function Tacho() {
     }
   };
 
+  const grouped = (sourceType) => {
+    const list = items.filter((i) => i.source_type === sourceType);
+    const map = {};
+    list.forEach((i) => { (map[i.reference || "—"] = map[i.reference || "—"] || []).push(i); });
+    return Object.entries(map).map(([ref, recs]) => {
+      recs.sort((a, b) => (b.last_download || b.next_due || "").localeCompare(a.last_download || a.next_due || ""));
+      return { ref, latest: recs[0], history: recs.slice(1) };
+    });
+  };
+
+  const renderGroups = (sourceType, emptyText) => {
+    const groups = grouped(sourceType);
+    const Icon = sourceType === "Vehicle Unit" ? Cpu : CreditCard;
+    if (groups.length === 0) return <Empty icon={Gauge} text={emptyText} />;
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {groups.map(({ ref, latest: t, history }) => (
+          <div key={sourceType + ref} data-testid="tacho-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
+            <div className="flex items-start justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1"><Icon size={12} /> {t.source_type}</p>
+                <h3 className="font-heading font-bold text-lg text-slate-900 truncate">{ref}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Every {t.frequency_days} days · last {t.last_download || "—"}</p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button data-testid="edit-tacho-button" onClick={() => openEdit(t)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
+                <button data-testid="delete-tacho-button" onClick={() => remove(t.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400">Next download due</p>
+                <p className="text-sm font-semibold text-slate-700">{t.next_due || "—"}{t.days_left != null && <span className="text-slate-400 font-normal"> · {t.days_left < 0 ? `${Math.abs(t.days_left)}d overdue` : `${t.days_left}d`}</span>}</p>
+              </div>
+              <StatusBadge status={t.status} />
+            </div>
+            {t.infringements > 0 && (
+              <div className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-red-50 rounded-md px-2.5 py-1.5">
+                <AlertTriangle size={13} /> {t.infringements} infringement{t.infringements > 1 ? "s" : ""} logged
+              </div>
+            )}
+            <AttachmentThumbs attachments={t.attachments} />
+            {history.length > 0 && (
+              <details className="mt-3">
+                <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-700">{history.length} earlier download{history.length > 1 ? "s" : ""}</summary>
+                <div className="mt-2 space-y-1">
+                  {history.map((h) => (
+                    <div key={h.id} className="flex items-center justify-between text-xs text-slate-500 border-t border-slate-100 pt-1">
+                      <span>{h.last_download || "—"}</span>
+                      <button onClick={() => remove(h.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+            <Button data-testid="log-download-button" onClick={() => logDownload(t)} variant="outline" className="w-full mt-4 gap-2 border-slate-300">
+              <Download size={15} /> Log Download Today
+            </Button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div data-testid="tacho-page">
       <Header title="Tacho Portal" subtitle="Driver card (28d) & vehicle unit (90d) download tracking" onAdd={openNew} addTestId="add-tacho-button" addLabel="Add Record" />
 
-      {items.length === 0 ? <Empty icon={Gauge} text="No tacho records yet. Track driver card & vehicle unit download schedules and store the download files." /> : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((t) => {
-            const Icon = t.source_type === "Vehicle Unit" ? Cpu : CreditCard;
-            return (
-              <div key={t.id} data-testid="tacho-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1"><Icon size={12} /> {t.source_type}</p>
-                    <h3 className="font-heading font-bold text-lg text-slate-900 truncate">{t.reference || "—"}</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Every {t.frequency_days} days</p>
-                  </div>
-                  <div className="flex gap-1 shrink-0">
-                    <button data-testid="edit-tacho-button" onClick={() => openEdit(t)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                    <button data-testid="delete-tacho-button" onClick={() => remove(t.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-slate-400">Next download due</p>
-                    <p className="text-sm font-semibold text-slate-700">{t.next_due || "—"}{t.days_left != null && <span className="text-slate-400 font-normal"> · {t.days_left < 0 ? `${Math.abs(t.days_left)}d overdue` : `${t.days_left}d`}</span>}</p>
-                  </div>
-                  <StatusBadge status={t.status} />
-                </div>
-                {t.infringements > 0 && (
-                  <div className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-red-700 bg-red-50 rounded-md px-2.5 py-1.5">
-                    <AlertTriangle size={13} /> {t.infringements} infringement{t.infringements > 1 ? "s" : ""} logged
-                  </div>
-                )}
-                <AttachmentThumbs attachments={t.attachments} />
-                <Button data-testid="log-download-button" onClick={() => logDownload(t)} variant="outline" className="w-full mt-4 gap-2 border-slate-300">
-                  <Download size={15} /> Log Download Today
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <Tabs defaultValue="Driver Card">
+        <TabsList className="mb-6">
+          <TabsTrigger value="Driver Card" data-testid="tacho-tab-drivers"><CreditCard size={15} className="mr-1.5" /> Driver Cards</TabsTrigger>
+          <TabsTrigger value="Vehicle Unit" data-testid="tacho-tab-vehicles"><Cpu size={15} className="mr-1.5" /> Vehicle Units</TabsTrigger>
+        </TabsList>
+        <TabsContent value="Driver Card">{renderGroups("Driver Card", "No driver card downloads yet. Add a record to start tracking.")}</TabsContent>
+        <TabsContent value="Vehicle Unit">{renderGroups("Vehicle Unit", "No vehicle unit downloads yet. Add a record to start tracking.")}</TabsContent>
+      </Tabs>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
