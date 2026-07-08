@@ -85,14 +85,17 @@ def days_until(date_str: Optional[str]) -> Optional[int]:
         return None
 
 
-def compliance_status(days: Optional[int]) -> str:
+def compliance_status(days: Optional[int], soon_days: int = 30) -> str:
     if days is None:
         return "unknown"
     if days < 0:
         return "expired"
-    if days <= 30:
+    if days <= soon_days:
         return "due_soon"
     return "valid"
+
+
+TACHO_SOON_DAYS = 7
 
 
 # ---------- Models ----------
@@ -1451,7 +1454,7 @@ def compute_next_due(last: Optional[str], days: int) -> Optional[str]:
 async def list_tacho(user: User = Depends(get_current_user)):
     docs = await db.tacho.find({"user_id": user.user_id}, {"_id": 0}).sort("next_due", 1).to_list(1000)
     for d in docs:
-        d["status"] = compliance_status(days_until(d.get("next_due")))
+        d["status"] = compliance_status(days_until(d.get("next_due")), soon_days=TACHO_SOON_DAYS)
         d["days_left"] = days_until(d.get("next_due"))
     return docs
 
@@ -1888,7 +1891,7 @@ async def calendar(user: User = Depends(get_current_user)):
             events.append({
                 "date": tc["next_due"], "type": "tacho", "title": f"Tacho Download — {tc.get('reference') or tc.get('source_type')}",
                 "subtitle": tc.get("source_type", ""),
-                "status": compliance_status(days_until(tc["next_due"])),
+                "status": compliance_status(days_until(tc["next_due"]), soon_days=TACHO_SOON_DAYS),
             })
     for ev in await db.calendar_events.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         events.append({
@@ -2056,7 +2059,7 @@ async def gather_stats(user_id: str):
             tacho_latest[key] = tc
     for tc in tacho_latest.values():
         d = days_until(tc.get("next_due"))
-        st = compliance_status(d)
+        st = compliance_status(d, soon_days=TACHO_SOON_DAYS)
         if st == "expired":
             expired += 1
             alerts.append({"type": "tacho", "name": tc.get("reference") or tc.get("source_type"), "item": f"{tc.get('source_type', 'Tacho')} Download", "status": "expired", "days": d})
