@@ -85,7 +85,7 @@ export default function Calendar() {
                   )}>{format(day, "d")}</span>
                   <div className="mt-1 space-y-0.5">
                     {evs.slice(0, 3).map((e, i) => (
-                      <div key={i} className="flex items-center gap-1 truncate">
+                      <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-center gap-1 truncate">
                         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor(e.status))} />
                         <span className="text-[10px] text-slate-600 truncate">{e.title}</span>
                       </div>
@@ -112,7 +112,7 @@ export default function Calendar() {
               {selectedEvents.map((e, i) => {
                 const M = TYPE_META[e.type] || TYPE_META.defect;
                 return (
-                  <div key={i} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
+                  <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
                     <M.icon size={16} className="text-slate-500 mt-0.5 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-slate-900 truncate">{e.title}</p>
