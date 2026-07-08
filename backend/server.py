@@ -2147,6 +2147,21 @@ def _fmt(v):
     return v if v not in (None, "") else "—"
 
 
+async def _get_logo_bytes(user_id: str, operator: dict):
+    lid = (operator or {}).get("logo_file_id")
+    if not lid:
+        return None
+    frec = await db.files.find_one({"id": lid, "user_id": user_id, "is_deleted": False}, {"_id": 0})
+    if not frec:
+        return None
+    try:
+        data, _ = await asyncio.to_thread(get_object, frec["storage_path"])
+        return data
+    except Exception as e:
+        logging.error(f"Logo fetch failed: {e}")
+        return None
+
+
 async def _collect_files(user_id: str, file_ids: list):
     files = []
     seen = set()
@@ -2192,7 +2207,8 @@ async def export_driver(driver_id: str, include_files: bool = Query(False), user
     ]
     pdf = await asyncio.to_thread(
         build_report_pdf, "Driver Compliance File", d.get("name", ""),
-        [("Operator", operator.get("company_name", "")), ("O-Licence", operator.get("operator_licence_number", ""))], sections)
+        [("Operator", operator.get("company_name", "")), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator))
     if include_files:
         fids = [a.get("file_id") for t in training for a in (t.get("attachments") or [])]
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
@@ -2267,7 +2283,8 @@ async def export_account(include_files: bool = Query(False), user: User = Depend
     subtitle = operator.get("company_name") or user.name
     pdf = await asyncio.to_thread(
         build_report_pdf, "Fleet Compliance Report", subtitle,
-        [("Authority", "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"), ("O-Licence", operator.get("operator_licence_number", ""))], sections)
+        [("Authority", "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator))
     if include_files:
         all_files = await db.files.find({"user_id": user.user_id, "is_deleted": False}, {"_id": 0, "id": 1}).to_list(2000)
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, [f["id"] for f in all_files]))

@@ -36,12 +36,34 @@ def _styles():
     return ss
 
 
-def build_report_pdf(title, subtitle, meta_pairs, sections):
+def _logo_flowable(logo_bytes, max_w_mm=48, max_h_mm=24):
+    try:
+        im = Image.open(io.BytesIO(logo_bytes))
+        iw, ih = im.size
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGBA")
+        lb = io.BytesIO()
+        im.save(lb, format="PNG")
+        lb.seek(0)
+        ratio = min((max_w_mm * mm) / iw, (max_h_mm * mm) / ih)
+        logo = RLImage(lb, width=iw * ratio, height=ih * ratio)
+        logo.hAlign = "LEFT"
+        return logo
+    except Exception:
+        return None
+
+
+def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=16 * mm,
                             leftMargin=16 * mm, rightMargin=16 * mm, title=title)
     ss = _styles()
     story = []
+    if logo_bytes:
+        lf = _logo_flowable(logo_bytes)
+        if lf:
+            story.append(lf)
+            story.append(Spacer(1, 8))
     story.append(Paragraph("HAULCHECK · COMPLIANCE", ss["Brand"]))
     story.append(Paragraph(title, ss["BigTitle"]))
     if subtitle:
@@ -121,21 +143,10 @@ def build_letter_pdf(company, recipient_name, recipient_address, subject, body, 
         ss.add(ParagraphStyle("LetterSubject", fontName="Helvetica-Bold", fontSize=11, textColor=DARK, leading=14, spaceBefore=6, spaceAfter=10))
     story = []
     if logo_bytes:
-        try:
-            im = Image.open(io.BytesIO(logo_bytes))
-            iw, ih = im.size
-            if im.mode not in ("RGB", "RGBA"):
-                im = im.convert("RGBA")
-            lb = io.BytesIO()
-            im.save(lb, format="PNG")
-            lb.seek(0)
-            ratio = min((48 * mm) / iw, (24 * mm) / ih)
-            logo = RLImage(lb, width=iw * ratio, height=ih * ratio)
-            logo.hAlign = "LEFT"
-            story.append(logo)
+        lf = _logo_flowable(logo_bytes)
+        if lf:
+            story.append(lf)
             story.append(Spacer(1, 8))
-        except Exception:
-            pass
     cname = (company or {}).get("company_name") or "Company Name"
     story.append(Paragraph(cname, ss["LetterHead"]))
     head_bits = []

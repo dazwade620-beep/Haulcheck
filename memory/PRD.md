@@ -64,6 +64,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **PRSI template + logo letterhead (2026-07-08)**: Added "PRSI Letter" (Ireland/RSA — Pay Related Social Insurance) to the Company Documents Generator templates with an Irish-employment AI guide. Added a **company logo upload** to Operator Details (`logo_file_id`); `build_letter_pdf` now embeds the logo as letterhead at the top of every generated document PDF (logo bytes fetched from object storage in `generate_document`). Verified end-to-end: logo uploaded → operator saved → PRSI letter PDF generated with embedded logo image + company header + body.
 
+- **Logo on all PDFs (2026-07-08)**: extracted a shared `_logo_flowable` helper in pdf_export.py; `build_report_pdf` now accepts `logo_bytes` and renders the company logo as letterhead. Wired into both `/api/export/account` (Fleet Compliance Report) and `/api/export/driver/{id}` (Driver Compliance File) via new `_get_logo_bytes` helper, plus the existing generated-document PDFs. Set the account's real logo (DLZ International Limited). Verified: account export PDF embeds the logo image on page 1.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
