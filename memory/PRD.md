@@ -92,6 +92,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Full region audit of AI checklist (2026-07-08)**: audited every `detect_gaps` rule for DVSA vs RSA. Findings: only the laden brake test is UK-only (suppressed for IE); vehicle-test & annual-test wording now switches MOT↔CVRT via `mot_label`/`test_label`; all other rules (operator licence, TM, insurance GIT/Motor/PL/EL, tacho calibration & downloads, speed limiter, PMI, wheel security, walkarounds, licence/CPC expiry, CPC 35h, training) are EU-derived and correct for both. AI prompt already region-aware + instructed not to invent jurisdiction requirements.
 
+- **Authority badge on AI Briefing (2026-07-08)**: added a DVSA/RSA pill badge (`ai-authority-badge`) to the AI Compliance Briefing card on the Dashboard, driven by `getTerms(user.region).authority`, so the applied jurisdiction is always visible and updates with the region toggle. Verified in UI (shows DVSA for UK).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

@@ -3,6 +3,8 @@ import api from "@/lib/api";
 import { downloadPdf } from "@/lib/download";
 import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useAuth } from "@/context/AuthContext";
+import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,8 @@ function Kpi({ icon: Icon, label, value, tone, testid, delay }) {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const terms = getTerms(user?.region);
   const [data, setData] = useState(null);
   const [insight, setInsight] = useState("");
   const [checklist, setChecklist] = useState([]);
@@ -104,9 +108,12 @@ export default function Dashboard() {
 
         {/* AI insight */}
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-md p-6 animate-in-up" style={{ animationDelay: "80ms" }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles size={18} className="text-slate-900" />
-            <h3 className="font-heading font-bold text-lg tracking-tight">AI Compliance Briefing</h3>
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-slate-900" />
+              <h3 className="font-heading font-bold text-lg tracking-tight">AI Compliance Briefing</h3>
+            </div>
+            <span data-testid="ai-authority-badge" title={`Applying ${terms.authority} (${terms.label}) rules`} className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-slate-900 text-white shrink-0">{terms.authority}</span>
           </div>
           {insight ? (
             <p data-testid="ai-insight-text" className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">{insight}</p>
