@@ -286,6 +286,35 @@ class LetterGenerateInput(BaseModel):
     signoff_role: str = ""
 
 
+class TradeUnion(BaseModel):
+    id: str = Field(default_factory=lambda: f"tu_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    union_name: str
+    branch: str = ""
+    rep_name: str = ""
+    rep_role: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    membership_number: str = ""
+    agreement_ref: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class TradeUnionInput(BaseModel):
+    union_name: str
+    branch: str = ""
+    rep_name: str = ""
+    rep_role: str = ""
+    contact_email: str = ""
+    contact_phone: str = ""
+    membership_number: str = ""
+    agreement_ref: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class WebLink(BaseModel):
     id: str = Field(default_factory=lambda: f"link_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -962,6 +991,33 @@ async def update_link(lid: str, data: WebLinkInput, user: User = Depends(get_cur
 @api_router.delete("/links/{lid}")
 async def delete_link(lid: str, user: User = Depends(get_current_user)):
     await db.links.delete_one({"id": lid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+# ---------- Trade unions ----------
+@api_router.get("/trade-unions")
+async def list_trade_unions(user: User = Depends(get_current_user)):
+    return await db.trade_unions.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.post("/trade-unions")
+async def create_trade_union(data: TradeUnionInput, user: User = Depends(get_current_user)):
+    tu = TradeUnion(**data.model_dump(), user_id=user.user_id)
+    await db.trade_unions.insert_one(tu.model_dump())
+    return tu.model_dump()
+
+
+@api_router.put("/trade-unions/{tid}")
+async def update_trade_union(tid: str, data: TradeUnionInput, user: User = Depends(get_current_user)):
+    res = await db.trade_unions.update_one({"id": tid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Trade union not found")
+    return {"ok": True}
+
+
+@api_router.delete("/trade-unions/{tid}")
+async def delete_trade_union(tid: str, user: User = Depends(get_current_user)):
+    await db.trade_unions.delete_one({"id": tid, "user_id": user.user_id})
     return {"ok": True}
 
 
