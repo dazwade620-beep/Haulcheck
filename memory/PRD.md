@@ -104,6 +104,9 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - **Walkaround defect rectify + data isolation (2026-07-08)**: added rectified/rectified_date/rectified_notes to WalkaroundCheck + `PUT /api/walkarounds/{id}/rectify`; Daily Checks cards show a "Mark rectified" button (defects only) → green Rectified badge + banner. Confirmed multi-tenancy: register creates an empty account, every endpoint scoped by user_id — new users see none of another account's data. Verified iteration_14.json (11/11).
 - **Email Audit Pack (2026-07-08)**: `POST /api/export/account/email` sends the branded dated audit pack via Resend; Dashboard → Export → "Email Audit Pack…".
 
+- **Tacho "due soon" threshold fix (2026-07-08)**: `compliance_status(days, soon_days=30)` is now configurable; tacho downloads use a 7-day window (`TACHO_SOON_DAYS`) applied to the tacho list, dashboard/gather_stats alerts and calendar events — so a freshly-logged 28-day-cycle download no longer shows "due soon" until ~7 days before due. Verified testing_agent iteration_16 (8/8): 28d→valid/no alert, ~5d→due_soon, vehicle MOT keeps 30-day window.
+- **Trade Unions tab (2026-07-08)**: new "Trade Unions" tab in Office (`/api/trade-unions` CRUD, `db.trade_unions`): union name/branch, rep name/role, email/phone, membership no., agreement ref, notes + document upload. New file `frontend/src/pages/TradeUnions.js`. Verified testing_agent iteration_17 (14/14 backend + full frontend, incl. cross-user isolation).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
