@@ -110,11 +110,9 @@ export function InsurancePanel({ embedded = false }) {
           </div>
         ) : <div />}
         <div className="flex gap-2">
-          {countFor("Other") > 0 && (
-            <Button data-testid="sort-loose-button" onClick={sortLoose} disabled={sorting} variant="outline" className="border-slate-300 rounded-md gap-2">
-              {sorting ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />} Sort loose docs
-            </Button>
-          )}
+          <Button data-testid="sort-loose-button" onClick={sortLoose} disabled={sorting} variant="outline" className="border-slate-300 rounded-md gap-2">
+            {sorting ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />} Sort loose docs
+          </Button>
           <Button data-testid="ai-import-button" onClick={openAi} variant="outline" className="border-slate-300 rounded-md gap-2"><Sparkles size={16} /> AI Import</Button>
           <Button data-testid="add-insurance-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Policy</Button>
         </div>

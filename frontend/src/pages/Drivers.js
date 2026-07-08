@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Trash2, Pencil, Users, Clock } from "lucide-react";
+import { Trash2, Pencil, Users, Clock, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 
@@ -12,11 +12,16 @@ const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: ""
 
 export default function Drivers() {
   const [items, setItems] = useState([]);
+  const [training, setTraining] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
 
-  const load = async () => setItems((await api.get("/drivers")).data);
+  const load = async () => {
+    const [d, t] = await Promise.all([api.get("/drivers"), api.get("/training")]);
+    setItems(d.data); setTraining(t.data);
+  };
+  const driverTraining = (d) => training.filter((t) => (t.driver_id && t.driver_id === d.id) || t.driver_name === d.name);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
@@ -68,6 +73,22 @@ export default function Drivers() {
                   <span className="flex items-center gap-1.5"><Clock size={15} /> Weekly hours</span>
                   <span className="font-bold">{d.weekly_hours} / {d.max_weekly_hours}h</span>
                 </div>
+                {driverTraining(d).length > 0 && (
+                  <div className="mt-3 border-t border-slate-100 pt-3" data-testid="driver-training-list">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1.5 flex items-center gap-1"><GraduationCap size={12} /> Training</p>
+                    <div className="space-y-1.5">
+                      {driverTraining(d).map((t) => (
+                        <div key={t.id} className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-slate-600 truncate">{t.course_name || t.category}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-slate-400">{t.expiry_date || "—"}</span>
+                            <StatusBadge status={t.status} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
