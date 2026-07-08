@@ -9,7 +9,7 @@ import { toast } from "sonner";
 const StatusPill = ({ status }) => {
   const map = {
     pending: { label: "Pending", cls: "bg-amber-100 text-amber-800", Icon: Clock },
-    accepted: { label: "Accepted", cls: "bg-emerald-100 text-emerald-800", Icon: CheckCircle2 },
+    accepted: { label: "Active", cls: "bg-emerald-100 text-emerald-800", Icon: CheckCircle2 },
   };
   const { label, cls, Icon } = map[status] || map.pending;
   return (
@@ -17,6 +17,20 @@ const StatusPill = ({ status }) => {
       <Icon size={12} /> {label}
     </span>
   );
+};
+
+const relTime = (iso) => {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return d.toLocaleDateString();
 };
 
 export default function Team() {
@@ -102,8 +116,13 @@ export default function Team() {
               {invites.map((inv) => (
                 <div key={inv.id} data-testid={`invite-row-${inv.id}`} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900 truncate">{inv.email}</p>
-                    <p className="text-xs text-slate-400">Invited {new Date(inv.created_at).toLocaleDateString()}</p>
+                    <p className="text-sm font-semibold text-slate-900 truncate">{inv.member_name || inv.email}</p>
+                    <p className="text-xs text-slate-400 truncate">
+                      {inv.member_name ? `${inv.email} · ` : ""}
+                      {inv.status === "accepted"
+                        ? `Activated ${inv.accepted_at ? new Date(inv.accepted_at).toLocaleDateString() : "—"} · last active ${relTime(inv.last_login_at)}`
+                        : `Invited ${new Date(inv.created_at).toLocaleDateString()}`}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <StatusPill status={inv.status} />

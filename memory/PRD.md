@@ -109,6 +109,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **User Invitation & Template Setup (2026-06 — VERIFIED)**: managers can invite other operators to their OWN isolated account. Backend: `POST /api/invitations` (creates token, emails invite via Resend, returns invite_link+token), `GET /api/invitations` (list, includes token for copy-link), `DELETE /api/invitations/{id}` (revoke), `GET /api/invitations/verify?token=` (unauthenticated), `POST /api/auth/accept-invite` (consumes token, creates user, `_seed_template` clones inviter's Links + reminder-settings recipient[0] with invitee's own email, sets region). Frontend: new sidebar **Team** page (`/team`, `Team.js`) with invite form + sent-invitations list (copy-link/revoke), and standalone **`/accept-invite?token=`** page (`AcceptInvite.js`) verify→set name/password→auto-login. Data isolation confirmed (invitee sees none of inviter's vehicles/drivers). Also FIXED: email case-sensitivity bug — all user write/lookup paths (register, login, google session, invite) now normalize email to `.lower().strip()`. Verified: testing_agent iteration_18 (14/14 backend + full frontend E2E incl. isolation & template seed).
 
+- **Team overview enrichment (2026-06)**: users now track `last_login_at` (set on JWT login, Google session, and invite acceptance). `GET /api/invitations` enriches accepted invites with the member's `name` + `last_login_at`; the Team page shows each active operator's name, activation date and relative last-active time ("Active" pill). Verified via curl + regression (14/14).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

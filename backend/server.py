@@ -723,7 +723,14 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
 
 @api_router.get("/invitations")
 async def list_invitations(user: User = Depends(get_current_user)):
-    return await db.invitations.find({"invited_by": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    invites = await db.invitations.find({"invited_by": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for inv in invites:
+        if inv.get("status") == "accepted":
+            u = await db.users.find_one({"email": inv["email"]}, {"_id": 0, "last_login_at": 1, "name": 1})
+            if u:
+                inv["last_login_at"] = u.get("last_login_at")
+                inv["member_name"] = u.get("name")
+    return invites
 
 
 @api_router.delete("/invitations/{iid}")
@@ -758,10 +765,10 @@ async def accept_invite(data: AcceptInviteInput):
     await db.users.insert_one({
         "user_id": user_id, "email": email, "name": data.name, "role": "manager",
         "region": "UK", "picture": None, "password_hash": pwd_context.hash(data.password),
-        "invited_by": inv["invited_by"], "created_at": now_iso(),
+        "invited_by": inv["invited_by"], "created_at": now_iso(), "last_login_at": now_iso(),
     })
     await _seed_template(user_id, inv["invited_by"], email)
-    await db.invitations.update_one({"id": inv["id"]}, {"$set": {"status": "accepted", "accepted_at": now_iso()}})
+    await db.invitations.update_one({"id": inv["id"]}, {"$set": {"status": "accepted", "accepted_at": now_iso(), "accepted_user_id": user_id}})
     fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     return {"token": create_jwt(user_id), "user": {"user_id": user_id, "email": email, "name": data.name, "role": "manager", "region": fresh.get("region", "UK")}}
 
@@ -797,6 +804,7 @@ async def login(data: LoginInput):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not pwd_context.verify(data.password, user_doc["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"last_login_at": now_iso()}})
     token = create_jwt(user_doc["user_id"])
     return {"token": token, "user": {"user_id": user_doc["user_id"], "email": user_doc["email"], "name": user_doc["name"], "role": user_doc.get("role", "manager")}}
 
@@ -825,6 +833,7 @@ async def google_session(request: Request, response: Response):
         await db.users.insert_one(dict(user_doc))
     else:
         user_id = user_doc["user_id"]
+    await db.users.update_one({"user_id": user_id}, {"$set": {"last_login_at": now_iso()}})
     session_token = data["session_token"]
     await db.user_sessions.insert_one({
         "user_id": user_id,
