@@ -13,6 +13,7 @@ import jwt
 import httpx
 import requests
 import json
+import re
 import base64
 import tempfile
 from passlib.context import CryptContext
@@ -768,6 +769,33 @@ def normalize_policy_type(raw: str) -> str:
     return "Other"
 
 
+def infer_from_text(text: str) -> str:
+    """Best-effort policy type from filename / policy number / insurer text."""
+    t = (text or "").lower()
+    if "trailer" in t:
+        return "Motor — Trailer"
+    if "goods in transit" in t or "git-" in t or re.search(r"\bgit\b", t):
+        return "Goods in Transit (GIT)"
+    if "green card" in t:
+        return "Green Card"
+    if "employ" in t:
+        return "Employers' Liability (EL)"
+    if "public liab" in t or "public liability" in t:
+        return "Public Liability (PL)"
+    if "liability" in t or "liab" in t:  # combined/generic liability → PL (best effort)
+        return "Public Liability (PL)"
+    if any(w in t for w in ("truck", "tractor", "motor", "fleet", "goods vehicle", "hgv", "lorry")):
+        return "Motor — Truck"
+    return "Other"
+
+
+def classify_policy_type(ai_type: str, filename: str = "", policy_number: str = "", insurer: str = "") -> str:
+    t = normalize_policy_type(ai_type)
+    if t != "Other":
+        return t
+    return infer_from_text(f"{filename} {policy_number} {insurer}")
+
+
 async def ai_extract_insurance(file_bytes: bytes, mime: str, ext: str):
     from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
     system = (
@@ -834,7 +862,7 @@ async def ai_import_insurance(files: List[UploadFile] = File(...), user: User = 
         attachment = Attachment(file_id=file_id, filename=file.filename or "", content_type=content_type)
         extracted = await ai_extract_insurance(data, content_type, ext)
         if extracted:
-            ptype = normalize_policy_type(extracted.get("policy_type"))
+            ptype = classify_policy_type(extracted.get("policy_type"), file.filename or "", extracted.get("policy_number") or "", extracted.get("insurer") or "")
             conf = extracted.get("confidence", 0) or 0
             policy = InsurancePolicy(
                 user_id=user.user_id, policy_type=ptype,
@@ -846,13 +874,27 @@ async def ai_import_insurance(files: List[UploadFile] = File(...), user: User = 
             )
         else:
             policy = InsurancePolicy(
-                user_id=user.user_id, policy_type="Other", needs_review=True, ai_extracted=True,
+                user_id=user.user_id, policy_type=infer_from_text(file.filename or ""), needs_review=True, ai_extracted=True,
                 attachments=[attachment], notes="AI could not read this document — please review manually.",
             )
         await db.insurance.insert_one(policy.model_dump())
         created.append({"id": policy.id, "filename": file.filename, "policy_type": policy.policy_type,
                         "insurer": policy.insurer, "expiry_date": policy.expiry_date, "needs_review": policy.needs_review})
     return {"count": len(created), "created": created}
+
+
+@api_router.post("/insurance/reclassify")
+async def reclassify_insurance(user: User = Depends(get_current_user)):
+    docs = await db.insurance.find({"user_id": user.user_id, "policy_type": "Other"}, {"_id": 0}).to_list(1000)
+    moved = 0
+    for d in docs:
+        atts = d.get("attachments") or []
+        fn = atts[0].get("filename", "") if atts else ""
+        new_type = infer_from_text(f"{fn} {d.get('policy_number', '')} {d.get('insurer', '')}")
+        if new_type != "Other":
+            await db.insurance.update_one({"id": d["id"], "user_id": user.user_id}, {"$set": {"policy_type": new_type}})
+            moved += 1
+    return {"ok": True, "moved": moved, "checked": len(docs)}
 
 
 # ---------- Tacho Portal ----------

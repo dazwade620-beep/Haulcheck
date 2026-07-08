@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, ShieldCheck, Sparkles, Plus, Loader2, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Trash2, Pencil, ShieldCheck, Sparkles, Plus, Loader2, Upload, CheckCircle2, AlertTriangle, FolderInput } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -36,6 +36,18 @@ export default function Insurance() {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiResults, setAiResults] = useState(null);
   const [folder, setFolder] = useState("All");
+  const [sorting, setSorting] = useState(false);
+
+  const sortLoose = async () => {
+    setSorting(true);
+    try {
+      const r = await api.post("/insurance/reclassify");
+      if (r.data.moved > 0) toast.success(`Sorted ${r.data.moved} loose doc(s) into their correct folders`);
+      else toast.info("No loose docs could be auto-sorted");
+      load();
+    } catch { toast.error("Could not sort loose docs"); }
+    finally { setSorting(false); }
+  };
 
   const FOLDERS = [["All", "All"], ["Motor — Truck", "Truck"], ["Motor — Trailer", "Trailer"], ["Goods in Transit (GIT)", "GIT"], ["Public Liability (PL)", "PL"], ["Employers' Liability (EL)", "EL"], ["Green Card", "Green Card"], ["Other", "Other"]];
   const shown = folder === "All" ? items : items.filter((i) => i.policy_type === folder);
@@ -92,6 +104,11 @@ export default function Insurance() {
           <p className="text-slate-500 text-sm mt-1">GIT, motor, green card, PL & EL policy tracking</p>
         </div>
         <div className="flex gap-2">
+          {countFor("Other") > 0 && (
+            <Button data-testid="sort-loose-button" onClick={sortLoose} disabled={sorting} variant="outline" className="border-slate-300 rounded-md gap-2">
+              {sorting ? <Loader2 size={16} className="animate-spin" /> : <FolderInput size={16} />} Sort loose docs
+            </Button>
+          )}
           <Button data-testid="ai-import-button" onClick={openAi} variant="outline" className="border-slate-300 rounded-md gap-2"><Sparkles size={16} /> AI Import</Button>
           <Button data-testid="add-insurance-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Policy</Button>
         </div>
