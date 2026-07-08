@@ -3,15 +3,15 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Copy, Trash2, CheckCircle2, Clock } from "lucide-react";
+import { UserPlus, Mail, Copy, Trash2, CheckCircle2, Clock, Ban, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
-const StatusPill = ({ status }) => {
-  const map = {
-    pending: { label: "Pending", cls: "bg-amber-100 text-amber-800", Icon: Clock },
-    accepted: { label: "Active", cls: "bg-emerald-100 text-emerald-800", Icon: CheckCircle2 },
-  };
-  const { label, cls, Icon } = map[status] || map.pending;
+const StatusPill = ({ inv }) => {
+  let cfg;
+  if (inv.status === "accepted" && inv.active === false) cfg = { label: "Suspended", cls: "bg-red-100 text-red-700", Icon: Ban };
+  else if (inv.status === "accepted") cfg = { label: "Active", cls: "bg-emerald-100 text-emerald-800", Icon: CheckCircle2 };
+  else cfg = { label: "Pending", cls: "bg-amber-100 text-amber-800", Icon: Clock };
+  const { label, cls, Icon } = cfg;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
       <Icon size={12} /> {label}
@@ -75,6 +75,14 @@ export default function Team() {
     catch { toast.error("Could not remove invitation"); }
   };
 
+  const setMemberStatus = async (id, active) => {
+    try {
+      await api.put(`/invitations/${id}/member-status`, { active });
+      toast.success(active ? "Member reactivated" : "Member deactivated");
+      load();
+    } catch (err) { toast.error(err.response?.data?.detail || "Could not update member"); }
+  };
+
   return (
     <div data-testid="team-page">
       <div className="mb-8">
@@ -125,7 +133,7 @@ export default function Team() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <StatusPill status={inv.status} />
+                    <StatusPill inv={inv} />
                     {inv.status === "pending" && (
                       <>
                         <Button data-testid={`copy-invite-${inv.id}`} variant="outline" size="sm" className="rounded-md gap-1.5 h-8"
@@ -137,6 +145,18 @@ export default function Team() {
                           <Trash2 size={14} />
                         </Button>
                       </>
+                    )}
+                    {inv.status === "accepted" && inv.active !== false && (
+                      <Button data-testid={`deactivate-member-${inv.id}`} variant="outline" size="sm" className="rounded-md gap-1.5 h-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => setMemberStatus(inv.id, false)} title="Deactivate account">
+                        <Ban size={14} /> Deactivate
+                      </Button>
+                    )}
+                    {inv.status === "accepted" && inv.active === false && (
+                      <Button data-testid={`reactivate-member-${inv.id}`} variant="outline" size="sm" className="rounded-md gap-1.5 h-8 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                        onClick={() => setMemberStatus(inv.id, true)} title="Reactivate account">
+                        <RotateCcw size={14} /> Reactivate
+                      </Button>
                     )}
                   </div>
                 </div>

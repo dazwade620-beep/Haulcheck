@@ -111,6 +111,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Team overview enrichment (2026-06)**: users now track `last_login_at` (set on JWT login, Google session, and invite acceptance). `GET /api/invitations` enriches accepted invites with the member's `name` + `last_login_at`; the Team page shows each active operator's name, activation date and relative last-active time ("Active" pill). Verified via curl + regression (14/14).
 
+- **Member deactivation (2026-06)**: inviting managers can suspend an activated team member (e.g. for non-payment) from the Team page. `PUT /api/invitations/{id}/member-status {active}` sets `users.active` (scoped to inviter's own members) and clears the member's sessions on deactivate. `_authenticate` and `/auth/login` now reject inactive users (401 on token, 403 with clear message on login). Team page shows a red "Suspended" pill + Deactivate/Reactivate buttons. Verified via curl (activate→me 200, deactivate→me 401 + login 403, reactivate→login 200) + regression 14/14.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

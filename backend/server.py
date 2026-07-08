@@ -625,14 +625,14 @@ async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> O
             if expires_at < datetime.now(timezone.utc):
                 return None
             user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
-            if user_doc:
+            if user_doc and user_doc.get("active", True):
                 return User(**user_doc)
     # JWT (email/password)
     if bearer:
         try:
             payload = jwt.decode(bearer, JWT_SECRET, algorithms=["HS256"])
             user_doc = await db.users.find_one({"user_id": payload["user_id"]}, {"_id": 0})
-            if user_doc:
+            if user_doc and user_doc.get("active", True):
                 return User(**user_doc)
         except jwt.PyJWTError:
             pass
@@ -726,10 +726,11 @@ async def list_invitations(user: User = Depends(get_current_user)):
     invites = await db.invitations.find({"invited_by": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for inv in invites:
         if inv.get("status") == "accepted":
-            u = await db.users.find_one({"email": inv["email"]}, {"_id": 0, "last_login_at": 1, "name": 1})
+            u = await db.users.find_one({"email": inv["email"]}, {"_id": 0, "last_login_at": 1, "name": 1, "active": 1})
             if u:
                 inv["last_login_at"] = u.get("last_login_at")
                 inv["member_name"] = u.get("name")
+                inv["active"] = u.get("active", True)
     return invites
 
 
@@ -737,6 +738,28 @@ async def list_invitations(user: User = Depends(get_current_user)):
 async def delete_invitation(iid: str, user: User = Depends(get_current_user)):
     await db.invitations.delete_one({"id": iid, "invited_by": user.user_id})
     return {"ok": True}
+
+
+async def _resolve_member(inv: dict, inviter_id: str):
+    mid = inv.get("accepted_user_id")
+    if mid:
+        return await db.users.find_one({"user_id": mid, "invited_by": inviter_id}, {"_id": 0})
+    return await db.users.find_one({"email": inv["email"], "invited_by": inviter_id}, {"_id": 0})
+
+
+@api_router.put("/invitations/{iid}/member-status")
+async def set_member_status(iid: str, payload: dict, user: User = Depends(get_current_user)):
+    inv = await db.invitations.find_one({"id": iid, "invited_by": user.user_id}, {"_id": 0})
+    if not inv or inv.get("status") != "accepted":
+        raise HTTPException(status_code=404, detail="Active member not found for this invitation")
+    member = await _resolve_member(inv, user.user_id)
+    if not member:
+        raise HTTPException(status_code=404, detail="Member account not found")
+    active = bool(payload.get("active", True))
+    await db.users.update_one({"user_id": member["user_id"]}, {"$set": {"active": active}})
+    if not active:
+        await db.user_sessions.delete_many({"user_id": member["user_id"]})
+    return {"ok": True, "active": active}
 
 
 @api_router.get("/invitations/verify")
@@ -804,6 +827,8 @@ async def login(data: LoginInput):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not pwd_context.verify(data.password, user_doc["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user_doc.get("active", True) is False:
+        raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact the operator who invited you.")
     await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"last_login_at": now_iso()}})
     token = create_jwt(user_doc["user_id"])
     return {"token": token, "user": {"user_id": user_doc["user_id"], "email": user_doc["email"], "name": user_doc["name"], "role": user_doc.get("role", "manager")}}
