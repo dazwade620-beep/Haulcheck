@@ -8,7 +8,13 @@ export async function downloadPdf(url, filename) {
     const href = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = href;
-    link.download = filename;
+    let name = filename;
+    if (!name) {
+      const cd = res.headers?.["content-disposition"] || "";
+      const m = cd.match(/filename="?([^"]+)"?/);
+      name = m ? m[1] : "download.pdf";
+    }
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();

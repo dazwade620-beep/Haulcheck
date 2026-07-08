@@ -96,6 +96,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Jurisdiction on PDF headers (2026-07-08)**: `build_report_pdf` now takes an `authority` arg and prints it in the brand line ("HAULCHECK · COMPLIANCE · DVSA (UK)" / "RSA (Ireland)"). Applied to both `/api/export/account` and `/api/export/driver/{id}` (driver export also now carries the authority). Logo already renders above it. Verified via PDF text extraction.
 
+- **Audit Pack export (2026-07-08)**: `/api/export/account?include_files=true` now returns a company-branded, dated filename (`{CompanySlug}-Audit-Pack-{YYYY-MM}.pdf`) bundling the full fleet report + all merged evidence PDFs. Dashboard Export menu item "Audit Pack" uses it; `downloadPdf` now falls back to the server's Content-Disposition filename when none is passed. Verified: filename `HaulCheck-Logistics-Ltd-Audit-Pack-2026-07.pdf`, 22-page merged output.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

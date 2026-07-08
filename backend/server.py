@@ -2615,7 +2615,12 @@ async def export_account(include_files: bool = Query(False), user: User = Depend
     if include_files:
         all_files = await db.files.find({"user_id": user.user_id, "is_deleted": False}, {"_id": 0, "id": 1}).to_list(2000)
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, [f["id"] for f in all_files]))
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="fleet-compliance-report.pdf"'})
+    if include_files:
+        slug = re.sub(r"[^A-Za-z0-9]+", "-", (operator.get("company_name") or "Fleet")).strip("-") or "Fleet"
+        fname = f"{slug}-Audit-Pack-{datetime.now(timezone.utc).strftime('%Y-%m')}.pdf"
+    else:
+        fname = "fleet-compliance-report.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 app.include_router(api_router)

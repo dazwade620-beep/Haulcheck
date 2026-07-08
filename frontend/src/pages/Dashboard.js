@@ -74,8 +74,8 @@ export default function Dashboard() {
               <DropdownMenuItem data-testid="export-summary" onClick={() => downloadPdf("/export/account", "fleet-compliance-report.pdf")}>
                 Compliance report (summary)
               </DropdownMenuItem>
-              <DropdownMenuItem data-testid="export-with-files" onClick={() => downloadPdf("/export/account?include_files=true", "fleet-compliance-pack.pdf")}>
-                Report + all documents (full pack)
+              <DropdownMenuItem data-testid="export-with-files" onClick={() => downloadPdf("/export/account?include_files=true", null)}>
+                Audit Pack (report + all evidence, dated)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
