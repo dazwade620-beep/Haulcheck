@@ -796,6 +796,11 @@ def classify_policy_type(ai_type: str, filename: str = "", policy_number: str = 
     return infer_from_text(f"{filename} {policy_number} {insurer}")
 
 
+def is_combined_liability(text: str) -> bool:
+    t = (text or "").lower()
+    return "combined" in t and ("liab" in t)
+
+
 async def ai_extract_insurance(file_bytes: bytes, mime: str, ext: str):
     from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
     system = (
@@ -864,6 +869,34 @@ async def ai_import_insurance(files: List[UploadFile] = File(...), user: User = 
         })
         attachment = Attachment(file_id=file_id, filename=file.filename or "", content_type=content_type)
         extracted = await ai_extract_insurance(data, content_type, ext)
+        # Combined liability policy → ensure one PL and one EL record (deduped), no fragment duplicates
+        if extracted and is_combined_liability(f"{file.filename} {extracted.get('policy_type', '')}"):
+            ins = extracted.get("insurer") or ""
+            num = extracted.get("policy_number") or ""
+            common = dict(
+                insurer=ins, policy_number=num,
+                start_date=extracted.get("start_date") or None, expiry_date=extracted.get("expiry_date") or None,
+                cover_amount=str(extracted.get("cover_amount") or ""),
+                notes="Combined liability policy (covers Public & Employers' Liability).", ai_extracted=True,
+            )
+            for ptype in ["Public Liability (PL)", "Employers' Liability (EL)"]:
+                key = {"user_id": user.user_id, "policy_type": ptype}
+                key["policy_number"] = num if num else ""
+                if not num:
+                    key["insurer"] = ins
+                existing = await db.insurance.find_one(key, {"_id": 0})
+                if existing:
+                    fids = {a.get("file_id") for a in (existing.get("attachments") or [])}
+                    if attachment.file_id not in fids:
+                        await db.insurance.update_one({"id": existing["id"], "user_id": user.user_id}, {"$push": {"attachments": attachment.model_dump()}})
+                    rid = existing["id"]
+                else:
+                    pol = InsurancePolicy(user_id=user.user_id, policy_type=ptype, attachments=[attachment], **common)
+                    await db.insurance.insert_one(pol.model_dump())
+                    rid = pol.id
+                created.append({"id": rid, "filename": file.filename, "policy_type": ptype,
+                                "insurer": ins, "expiry_date": common["expiry_date"], "needs_review": False})
+            continue
         if extracted:
             ptype = classify_policy_type(extracted.get("policy_type"), file.filename or "", extracted.get("policy_number") or "", extracted.get("insurer") or "")
             conf = extracted.get("confidence", 0) or 0

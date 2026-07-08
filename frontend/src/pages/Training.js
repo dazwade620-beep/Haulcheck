@@ -20,6 +20,11 @@ export function TrainingPanel({ embedded = false }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [folder, setFolder] = useState("All");
+
+  const driverFolders = ["All", ...Array.from(new Set(items.map((t) => t.driver_name || "Unassigned")))];
+  const shown = folder === "All" ? items : items.filter((t) => (t.driver_name || "Unassigned") === folder);
+  const countFor = (name) => (name === "All" ? items.length : items.filter((t) => (t.driver_name || "Unassigned") === name).length);
 
   const load = async () => {
     setItems((await api.get("/training")).data);
@@ -60,9 +65,22 @@ export function TrainingPanel({ embedded = false }) {
         </div>
       )}
 
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6" data-testid="training-folders">
+          {driverFolders.map((name) => (
+            <button
+              key={name}
+              data-testid={`training-folder-${name}`}
+              onClick={() => setFolder(name)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${folder === name ? "bg-black text-white border-black" : "bg-white text-slate-600 border-slate-300 hover:border-slate-400"}`}
+            >{name} <span className="opacity-60">{countFor(name)}</span></button>
+          ))}
+        </div>
+      )}
+
       {items.length === 0 ? <Empty icon={GraduationCap} text="No training records yet. Log driver courses and upload certificates." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((t) => (
+          {shown.map((t) => (
             <div key={t.id} data-testid="training-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
               <div className="flex items-start justify-between">
                 <div className="min-w-0">

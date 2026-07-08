@@ -48,6 +48,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Office folder** (2026-07-08): grouped Insurance + Documents + Training under a single "Office" sidebar item → `/office` tabbed page (same pattern as Maintenance). Panels refactored with `embedded` prop; `/insurance`, `/documents`, `/training` redirect to `/office`.
 
+- **Combined liability split + Training driver folders** (2026-07-08): consolidated the main account's 5 "Combined Hauliers Liability" PL fragments into exactly 1 PL + 1 EL record (all 5 files attached to both). Added `is_combined_liability` detection in AI Import so combined-liability docs auto-create a deduped PL+EL pair (keyed on policy_number/insurer). Training tab now shows a folder per driver (filter by `driver_name`, "All" + per-person pills).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
