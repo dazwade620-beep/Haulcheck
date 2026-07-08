@@ -19,7 +19,7 @@ export function DocumentsPanel({ embedded = false }) {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
 
-  const load = async () => setItems((await api.get("/documents")).data);
+  const load = async () => setItems((await api.get("/documents")).data.filter((d) => !d.driver_id));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 

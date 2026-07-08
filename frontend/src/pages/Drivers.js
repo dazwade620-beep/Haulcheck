@@ -4,26 +4,34 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
+import { FileUpload } from "@/components/FileUpload";
 import { downloadPdf } from "@/lib/download";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
+const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
+const emptyDoc = { title: "", doc_type: "Driver Infringement", reference: "", expiry_date: "", notes: "", attachments: [] };
 
 export default function Drivers() {
   const [items, setItems] = useState([]);
   const [training, setTraining] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [docFor, setDocFor] = useState(null);
+  const [docForm, setDocForm] = useState(emptyDoc);
 
   const load = async () => {
-    const [d, t] = await Promise.all([api.get("/drivers"), api.get("/training")]);
-    setItems(d.data); setTraining(t.data);
+    const [d, t, docs] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents")]);
+    setItems(d.data); setTraining(t.data); setDocuments(docs.data.filter((x) => x.driver_id));
   };
   const driverTraining = (d) => training.filter((t) => (t.driver_id && t.driver_id === d.id) || t.driver_name === d.name);
+  const driverDocs = (d) => documents.filter((x) => x.driver_id === d.id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
@@ -45,6 +53,15 @@ export default function Drivers() {
     } catch { toast.error("Could not save driver"); }
   };
   const remove = async (id) => { await api.delete(`/drivers/${id}`); toast.success("Driver removed"); load(); };
+
+  const openDoc = (d) => { setDocFor(d); setDocForm(emptyDoc); };
+  const saveDoc = async () => {
+    try {
+      await api.post("/documents", { ...docForm, driver_id: docFor.id, driver_name: docFor.name, expiry_date: docForm.expiry_date || null });
+      toast.success("Document added"); setDocFor(null); load();
+    } catch { toast.error("Could not save document"); }
+  };
+  const removeDoc = async (id) => { await api.delete(`/documents/${id}`); toast.success("Document removed"); load(); };
 
   return (
     <div data-testid="drivers-page">
@@ -112,6 +129,25 @@ export default function Drivers() {
                     </div>
                   </div>
                 )}
+                <div className="mt-3 border-t border-slate-100 pt-3" data-testid="driver-docs-list">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1"><FileText size={12} /> Documents</p>
+                    <button data-testid="add-driver-doc-button" onClick={() => openDoc(d)} className="text-[11px] font-semibold text-slate-500 hover:text-slate-900">+ Add</button>
+                  </div>
+                  {driverDocs(d).length > 0 ? (
+                    <div className="space-y-1.5">
+                      {driverDocs(d).map((x) => (
+                        <div key={x.id} data-testid="driver-doc-item" className="flex items-center justify-between text-xs gap-2">
+                          <span className="text-slate-600 truncate"><span className="text-slate-400">{x.doc_type}:</span> {x.title}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-slate-400">{x.expiry_date || ""}</span>
+                            <button data-testid="delete-driver-doc-button" onClick={() => removeDoc(x.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={12} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-xs text-slate-400">No documents yet.</p>}
+                </div>
               </div>
             );
           })}
@@ -144,6 +180,28 @@ export default function Drivers() {
             </div>
             <DialogFooter><Button data-testid="save-driver-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Driver"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!docFor} onOpenChange={(o) => !o && setDocFor(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="font-heading">Add document — {docFor?.name}</DialogTitle><DialogDescription className="sr-only">Driver document form</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <Field label="Type">
+              <Select value={docForm.doc_type} onValueChange={(v) => setDocForm({ ...docForm, doc_type: v })}>
+                <SelectTrigger data-testid="ddoc-type"><SelectValue /></SelectTrigger>
+                <SelectContent>{DRIVER_DOC_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Title *"><Input data-testid="ddoc-title" value={docForm.title} onChange={(e) => setDocForm({ ...docForm, title: e.target.value })} placeholder="e.g. Speeding infringement — M6" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Reference"><Input data-testid="ddoc-ref" value={docForm.reference} onChange={(e) => setDocForm({ ...docForm, reference: e.target.value })} /></Field>
+              <Field label="Date / Expiry"><Input data-testid="ddoc-date" type="date" value={docForm.expiry_date} onChange={(e) => setDocForm({ ...docForm, expiry_date: e.target.value })} /></Field>
+            </div>
+            <Field label="Notes"><Input data-testid="ddoc-notes" value={docForm.notes} onChange={(e) => setDocForm({ ...docForm, notes: e.target.value })} /></Field>
+            <Field label="Scan / File"><FileUpload testid="ddoc-upload" attachments={docForm.attachments} onChange={(a) => setDocForm({ ...docForm, attachments: a })} /></Field>
+            <DialogFooter><Button data-testid="save-driver-doc-button" onClick={saveDoc} disabled={!docForm.title} className="bg-black hover:bg-slate-800">Add Document</Button></DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

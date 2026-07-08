@@ -246,6 +246,8 @@ class ComplianceDoc(BaseModel):
     reference: str = ""
     expiry_date: Optional[str] = None
     notes: str = ""
+    driver_id: str = ""
+    driver_name: str = ""
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
@@ -256,6 +258,8 @@ class DocInput(BaseModel):
     reference: str = ""
     expiry_date: Optional[str] = None
     notes: str = ""
+    driver_id: str = ""
+    driver_name: str = ""
     attachments: List[Attachment] = []
 
 
