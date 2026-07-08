@@ -2143,7 +2143,9 @@ async def detect_gaps(user_id: str):
             gaps.append({"area": "Insurance", "item": f"Missing {short} policy", "priority": "high" if req == "Employers' Liability (EL)" else "medium"})
 
     pmi_regs = {p.get("vehicle_reg") for p in pmi}
-    tacho_vu = {t.get("reference") for t in tacho if t.get("source_type") == "Vehicle Unit"}
+    def _norm(s):
+        return " ".join((s or "").lower().split())
+    tacho_vu = [_norm(t.get("reference")) for t in tacho if t.get("source_type") == "Vehicle Unit" and t.get("reference")]
     wheel_regs = {w.get("vehicle_reg") for w in wheel}
     walk_regs = {w.get("vehicle_reg") for w in walkarounds}
     test_regs = {t.get("vehicle_reg") for t in test_history}
@@ -2168,14 +2170,15 @@ async def detect_gaps(user_id: str):
             gaps.append({"area": "Maintenance", "item": f"{reg}: no daily walkaround checks recorded", "priority": "medium"})
         if reg not in test_regs:
             gaps.append({"area": "Fleet", "item": f"{reg}: no {test_label}/prohibition history recorded", "priority": "low"})
-        if reg not in tacho_vu:
+        if reg and not any(_norm(reg) == r or _norm(reg) in r or r in _norm(reg) for r in tacho_vu):
             gaps.append({"area": "Tacho", "item": f"{reg}: no vehicle-unit tacho download record", "priority": "medium"})
 
-    tacho_dc = {t.get("reference") for t in tacho if t.get("source_type") == "Driver Card"}
+    tacho_dc_refs = [_norm(t.get("reference")) for t in tacho if t.get("source_type") == "Driver Card" and t.get("reference")]
     training_drivers = {t.get("driver_name") for t in training}
     cutoff = (datetime.now(timezone.utc).date() - timedelta(days=365 * 5)).isoformat()
     for d in drivers:
         nm = d.get("name")
+        nmn = _norm(nm)
         if not d.get("licence_expiry"):
             gaps.append({"area": "Drivers", "item": f"{nm}: no driving licence expiry recorded", "priority": "medium"})
         if not d.get("cpc_expiry"):
@@ -2190,7 +2193,7 @@ async def detect_gaps(user_id: str):
         if cpc_hours < 35 and cpc_days is not None and cpc_days <= 365:
             due = d.get("cpc_expiry") or ""
             gaps.append({"area": "Training", "item": f"{nm}: Driver CPC periodic training incomplete ({cpc_hours:.0f}/35h) before CPC renewal {due}", "priority": "medium" if cpc_days <= 90 else "low"})
-        if nm not in tacho_dc:
+        if nmn and not any(nmn == r or nmn in r or r in nmn for r in tacho_dc_refs):
             gaps.append({"area": "Tacho", "item": f"{nm}: no driver-card tacho download record", "priority": "medium"})
         if nm not in training_drivers:
             gaps.append({"area": "Training", "item": f"{nm}: no training records", "priority": "low"})
