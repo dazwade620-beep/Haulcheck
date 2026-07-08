@@ -2140,7 +2140,7 @@ async def detect_gaps(user_id: str):
             gaps.append({"area": "Fleet", "item": f"{reg}: no date of first use recorded", "priority": "low"})
         if reg not in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
-        if reg not in pmr_with_brake and reg in pmi_regs:
+        if not is_ie and reg not in pmr_with_brake and reg in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no laden brake test recorded at PMI", "priority": "medium"})
         if reg not in wheel_regs:
             gaps.append({"area": "Maintenance", "item": f"{reg}: no wheel security audit recorded", "priority": "medium"})
@@ -2194,14 +2194,18 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
     order = {"high": 0, "medium": 1, "low": 2}
     gaps.sort(key=lambda g: order.get(g["priority"], 3))
     gap_text = "; ".join([f"[{g['priority']}] {g['item']}" for g in gaps[:14]]) or "No obvious record gaps detected"
+    is_ie = (await db.users.find_one({"user_id": user.user_id}, {"_id": 0}) or {}).get("region") == "IE"
+    region_note = ("This operator is in IRELAND (RSA/CVRT rules). Do NOT recommend laden brake tests or DVSA-specific requirements; use RSA/CVRT terminology (CVRT, CRW)."
+                   if is_ie else "This operator is in the UK (DVSA rules); use DVSA terminology (MOT, safety inspections with laden roller brake test).")
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"risk_{uuid.uuid4().hex[:8]}",
-            system_message="You are a UK & Ireland operator-licence compliance auditor for road haulage operators (DVSA in the UK, RSA in Ireland). Given fleet stats, outstanding alerts and detected record gaps, write a concise audit briefing (max 110 words) for a transport manager: state the biggest risks to the operator licence and the top prioritised actions, explicitly calling out the most important MISSING records/documents. Be direct and practical.",
+            system_message="You are a UK & Ireland operator-licence compliance auditor for road haulage operators (DVSA in the UK, RSA in Ireland). Given fleet stats, outstanding alerts and detected record gaps, write a concise audit briefing (max 110 words) for a transport manager: state the biggest risks to the operator licence and the top prioritised actions, explicitly calling out the most important MISSING records/documents. Only reference gaps that are actually in the provided data — do not invent requirements. Be direct and practical.",
         ).with_model("openai", "gpt-5.4")
-        prompt = (f"Compliance score: {score}/100. Vehicles: {c['vehicles']}, Drivers: {c['drivers']}, "
+        prompt = (f"{region_note} "
+                  f"Compliance score: {score}/100. Vehicles: {c['vehicles']}, Drivers: {c['drivers']}, "
                   f"Documents: {c['documents']}, Insurance: {c.get('insurance', 0)}, Tacho: {c.get('tacho', 0)}. "
                   f"Expired: {c['expired']}, Due soon: {c['due_soon']}, Open defects: {c['open_defects']} (major {c['major_defects']}). "
                   f"Top alerts: {alert_text}. Detected gaps: {gap_text}.")

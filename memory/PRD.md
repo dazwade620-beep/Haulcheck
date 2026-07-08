@@ -88,6 +88,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Calendar event editing + service on calendar (2026-07-08)**: added `PUT /api/calendar/events/{id}` and an edit (pencil) button on custom day events so date/title/notes can be corrected. Next-service-due dates from `service_records` now surface on the calendar (type "service", ⚙ icon, colour-coded) and feed email reminders via a new "service" area (registered in ALL_AREAS/AREA_OF, added to the Maintenance recipient preset; service due items within 30 days added in `_reminder_alerts`). Verified via curl (edit updates title/date; service event appears due_soon).
 
+- **AI briefing region fix (2026-07-08)**: the laden brake-test gap in `detect_gaps` is now skipped for IE, and the AI risk-insight prompt is region-aware (reads region from db.users; injects a note telling the model NOT to recommend laden brake tests / DVSA-only requirements for RSA operators, and not to invent gaps). Verified: IE checklist has no brake gap and the briefing no longer mentions "laden".
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
