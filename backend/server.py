@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import secrets
 import asyncio
 import logging
 from pathlib import Path
@@ -108,6 +109,17 @@ class RegisterInput(BaseModel):
 
 class LoginInput(BaseModel):
     email: EmailStr
+    password: str
+
+
+class InviteInput(BaseModel):
+    email: EmailStr
+    base_url: str = ""
+
+
+class AcceptInviteInput(BaseModel):
+    token: str
+    name: str
     password: str
 
 
@@ -655,6 +667,102 @@ async def register(data: RegisterInput):
     })
     token = create_jwt(user_id)
     return {"token": token, "user": {"user_id": user_id, "email": data.email, "name": data.name, "role": data.role, "region": "UK"}}
+
+
+async def _seed_template(new_user_id: str, inviter_id: str, new_email: str):
+    inviter = await db.users.find_one({"user_id": inviter_id}, {"_id": 0}) or {}
+    await db.users.update_one({"user_id": new_user_id}, {"$set": {"region": inviter.get("region", "UK")}})
+    for l in await db.links.find({"user_id": inviter_id}, {"_id": 0}).to_list(1000):
+        await db.links.insert_one({**l, "id": f"link_{uuid.uuid4().hex[:10]}", "user_id": new_user_id, "created_at": now_iso()})
+    rs = await db.reminder_settings.find_one({"user_id": inviter_id}, {"_id": 0})
+    if rs and rs.get("recipients"):
+        base = rs["recipients"][0]
+        await db.reminder_settings.update_one(
+            {"user_id": new_user_id},
+            {"$set": {"user_id": new_user_id, "recipients": [{"email": new_email, "areas": base.get("areas", []), "schedule": base.get("schedule", "weekly")}]}},
+            upsert=True,
+        )
+
+
+@api_router.post("/invitations")
+async def create_invitation(data: InviteInput, user: User = Depends(get_current_user)):
+    email = data.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="That email already has an account")
+    token = secrets.token_urlsafe(32)
+    inv = {
+        "id": f"inv_{uuid.uuid4().hex[:10]}", "email": email, "token": token,
+        "invited_by": user.user_id, "inviter_name": user.name, "status": "pending",
+        "created_at": now_iso(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=14)).isoformat(),
+    }
+    await db.invitations.insert_one(inv)
+    link = f"{(data.base_url or '').rstrip('/')}/accept-invite?token={token}"
+    html = (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        f"<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Compliance</p>"
+        f"<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>You've been invited</h1>"
+        f"<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>{user.name} has invited you to set up your own HaulCheck compliance account. Click below to choose a password and get started.</p>"
+        f"<p style='margin:24px 0;'><a href='{link}' style='background:#0f172a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;'>Accept invitation</a></p>"
+        f"<p style='margin:8px 0 0;font-size:12px;color:#94a3b8;'>Or paste this link: {link}</p>"
+        "<p style='margin:16px 0 0;font-size:12px;color:#94a3b8;'>This invitation expires in 14 days.</p>"
+        "</td></tr></table></div>"
+    )
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [email],
+            "subject": f"{user.name} invited you to HaulCheck", "html": html,
+        })
+    except Exception as e:
+        logging.error(f"Invite email failed: {e}")
+    return {"ok": True, "id": inv["id"], "invite_link": link}
+
+
+@api_router.get("/invitations")
+async def list_invitations(user: User = Depends(get_current_user)):
+    return await db.invitations.find({"invited_by": user.user_id}, {"_id": 0, "token": 0}).sort("created_at", -1).to_list(500)
+
+
+@api_router.delete("/invitations/{iid}")
+async def delete_invitation(iid: str, user: User = Depends(get_current_user)):
+    await db.invitations.delete_one({"id": iid, "invited_by": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/invitations/verify")
+async def verify_invitation(token: str):
+    inv = await db.invitations.find_one({"token": token}, {"_id": 0})
+    if not inv or inv.get("status") != "pending":
+        raise HTTPException(status_code=404, detail="Invitation not found or already used")
+    if inv["expires_at"] < now_iso():
+        raise HTTPException(status_code=400, detail="This invitation has expired")
+    return {"email": inv["email"], "inviter_name": inv.get("inviter_name", "")}
+
+
+@api_router.post("/auth/accept-invite")
+async def accept_invite(data: AcceptInviteInput):
+    inv = await db.invitations.find_one({"token": data.token})
+    if not inv or inv.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Invitation not found or already used")
+    if inv["expires_at"] < now_iso():
+        raise HTTPException(status_code=400, detail="This invitation has expired")
+    email = inv["email"]
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    await db.users.insert_one({
+        "user_id": user_id, "email": email, "name": data.name, "role": "manager",
+        "region": "UK", "picture": None, "password_hash": pwd_context.hash(data.password),
+        "invited_by": inv["invited_by"], "created_at": now_iso(),
+    })
+    await _seed_template(user_id, inv["invited_by"], email)
+    await db.invitations.update_one({"id": inv["id"]}, {"$set": {"status": "accepted", "accepted_at": now_iso()}})
+    fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    return {"token": create_jwt(user_id), "user": {"user_id": user_id, "email": email, "name": data.name, "role": "manager", "region": fresh.get("region", "UK")}}
 
 
 @api_router.put("/settings/region")
