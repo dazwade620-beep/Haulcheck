@@ -19,20 +19,22 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 ## Implemented (2026-07-08)
 - Email/password register+login (JWT) and Google OAuth (cookie session).
-- Dashboard: risk score gauge, AI risk briefing, KPI cards (incl. PMI), prioritised alerts feed (incl. PMI due).
-- Vehicles CRUD (MOT/service/tax tracking with badges).
+- Dashboard: risk score gauge, AI risk briefing, KPI cards, prioritised alerts feed (vehicles, trailers, drivers, PMI, training, documents, defects).
+- **Fleet page** with tabs: Vehicles (MOT/service/tax) + **Trailers** (annual test/service).
 - Drivers CRUD (licence/CPC/tacho + weekly-hours over-limit flag).
-- Documents CRUD (operator licence, insurance, audit, wheel security, etc.).
-- Defects: report + AI summary + status workflow (open/monitoring/resolved).
-- **PMI Inspections**: recurring maintenance schedules per vehicle (frequency in weeks, auto next-due), record completed inspections (pass/advisory/fail) which advance next-due, and inspection history.
-- **Calendar**: month grid combining PMI due dates, completed PMIs and driver defect reports; day-detail panel + legend.
-- Fully tested: backend 24/24 pytest, all critical frontend flows pass. Fixed dev-mode ResizeObserver overlay + Dialog a11y descriptions.
+- **Driver Training records**: courses/qualifications per driver, category, completed/expiry dates, provider, certificate uploads, expiry status.
+- Documents CRUD (operator licence, insurance, audit, wheel security) with scan uploads.
+- Defects: report + AI summary + status workflow + photo uploads.
+- PMI Inspections: recurring schedules + completed-inspection records (auto next-due) + history.
+- Calendar: month grid combining PMI due/done, defects and training expiries.
+- **File uploads via Emergent object storage**: reusable upload/download (image + PDF), served through backend with `?auth=` query-param for `<img src>`; per-user scoped.
+- Fully tested: backend 35/35 pytest, all critical frontend flows pass.
 
 ## Backlog
-- P1: File uploads/attachments for documents & defect photos (object storage).
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
-- P2: UI delete for inspection history records.
+- P2: UI delete/soft-delete for uploaded files & inspection history records.
+- Minor: silence React uncontrolled->controlled warning on training driver select (cosmetic).
 
 ## Next Tasks
 - Await user feedback; then tackle P1 items (file uploads, roles).
