@@ -2544,6 +2544,53 @@ async def export_driver(driver_id: str, include_files: bool = Query(False), user
 
 @api_router.get("/export/account")
 async def export_account(include_files: bool = Query(False), user: User = Depends(get_current_user)):
+    pdf, fname = await _build_account_pdf(user, include_files)
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+class EmailPackInput(BaseModel):
+    to: List[EmailStr]
+    message: str = ""
+
+
+@api_router.post("/export/account/email")
+async def email_account_pack(data: EmailPackInput, user: User = Depends(get_current_user)):
+    if not data.to:
+        raise HTTPException(status_code=400, detail="At least one recipient is required")
+    pdf, fname = await _build_account_pdf(user, include_files=True)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    company = operator.get("company_name") or "our fleet"
+    authority = "RSA" if user.region == "IE" else "DVSA"
+    body = (data.message or "").replace("\n", "<br/>")
+    html = (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='600' align='center' cellpadding='0' cellspacing='0' style='background:#ffffff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        "<tr><td>"
+        f"<p style='margin:0;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck · {authority} compliance</p>"
+        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Audit Pack</h1>"
+        f"<p style='margin:4px 0 0;font-size:14px;color:#475569;'>{company}</p>"
+        f"<p style='margin:20px 0 0;font-size:14px;color:#334155;line-height:1.6;'>{body or 'Please find attached the full compliance audit pack.'}</p>"
+        f"<p style='margin:20px 0 0;font-size:13px;color:#64748b;'>Attachment: {fname}</p>"
+        "</td></tr></table></div>"
+    )
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        params = {
+            "from": os.environ['SENDER_EMAIL'], "to": data.to,
+            "subject": f"{company} — Compliance Audit Pack ({authority})",
+            "html": html,
+            "attachments": [{"filename": fname, "content": list(pdf)}],
+        }
+        result = await asyncio.to_thread(resend.Emails.send, params)
+        eid = result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
+        return {"ok": True, "email_id": eid, "filename": fname}
+    except Exception as e:
+        logging.error(f"Audit pack email failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not send email")
+
+
+async def _build_account_pdf(user: User, include_files: bool):
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
     vehicles = await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
     trailers = await db.trailers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
@@ -2620,7 +2667,7 @@ async def export_account(include_files: bool = Query(False), user: User = Depend
         fname = f"{slug}-Audit-Pack-{datetime.now(timezone.utc).strftime('%Y-%m')}.pdf"
     else:
         fname = "fleet-compliance-report.pdf"
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+    return pdf, fname
 
 
 app.include_router(api_router)

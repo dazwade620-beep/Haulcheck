@@ -7,6 +7,10 @@ import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const scoreColor = (s) => (s >= 85 ? "text-green-600" : s >= 60 ? "text-yellow-600" : "text-red-600");
@@ -31,6 +35,22 @@ export default function Dashboard() {
   const [insight, setInsight] = useState("");
   const [checklist, setChecklist] = useState([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState("");
+  const [emailMsg, setEmailMsg] = useState("");
+  const [emailBusy, setEmailBusy] = useState(false);
+
+  const sendPack = async () => {
+    const to = emailTo.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+    if (!to.length) { toast.error("Enter at least one email address"); return; }
+    setEmailBusy(true);
+    try {
+      const { data } = await api.post("/export/account/email", { to, message: emailMsg });
+      toast.success(`Audit pack emailed (${data.filename})`);
+      setEmailOpen(false); setEmailTo(""); setEmailMsg("");
+    } catch { toast.error("Could not send audit pack"); }
+    setEmailBusy(false);
+  };
 
   const load = async () => {
     const res = await api.get("/dashboard");
@@ -76,6 +96,9 @@ export default function Dashboard() {
               </DropdownMenuItem>
               <DropdownMenuItem data-testid="export-with-files" onClick={() => downloadPdf("/export/account?include_files=true", null)}>
                 Audit Pack (report + all evidence, dated)
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="email-audit-pack" onClick={() => setEmailOpen(true)}>
+                Email Audit Pack…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -177,6 +200,29 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Email Audit Pack</DialogTitle>
+            <DialogDescription>Sends the full compliance report + all evidence as a single branded PDF attachment.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Recipient email(s)</label>
+              <Input data-testid="email-pack-to" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="auditor@dvsa.gov.uk, me@company.com" />
+              <p className="text-xs text-slate-400 mt-1">Separate multiple addresses with commas.</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Message (optional)</label>
+              <Textarea data-testid="email-pack-message" rows={3} value={emailMsg} onChange={(e) => setEmailMsg(e.target.value)} placeholder="Please find our compliance audit pack attached." />
+            </div>
+            <DialogFooter>
+              <Button data-testid="send-audit-pack-button" onClick={sendPack} disabled={emailBusy} className="bg-black hover:bg-slate-800">{emailBusy ? "Sending…" : "Send Audit Pack"}</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

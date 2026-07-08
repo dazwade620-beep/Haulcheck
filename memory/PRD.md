@@ -98,6 +98,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Audit Pack export (2026-07-08)**: `/api/export/account?include_files=true` now returns a company-branded, dated filename (`{CompanySlug}-Audit-Pack-{YYYY-MM}.pdf`) bundling the full fleet report + all merged evidence PDFs. Dashboard Export menu item "Audit Pack" uses it; `downloadPdf` now falls back to the server's Content-Disposition filename when none is passed. Verified: filename `HaulCheck-Logistics-Ltd-Audit-Pack-2026-07.pdf`, 22-page merged output.
 
+- **Email Audit Pack (2026-07-08)**: `POST /api/export/account/email` builds the full audit pack and emails it as a PDF attachment via Resend (reuses RESEND_API_KEY/SENDER_EMAIL). Refactored account PDF generation into `_build_account_pdf(user, include_files)` shared by the GET export and the email endpoint. Dashboard Export menu → "Email Audit Pack…" opens a dialog (recipients + optional message). Verified via curl: send returned an email_id + correct dated filename; empty-recipient → 400.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
