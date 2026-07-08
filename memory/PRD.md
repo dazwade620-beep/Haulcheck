@@ -70,6 +70,12 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Edit / Regenerate letters (2026-07-08)**: generated documents now persist their `letter_data` (template, recipient, subject, body). A ↻ icon (`regenerate-document-button`) on the card reopens the generator pre-filled so wording can be tweaked; `PUT /api/documents/{id}/regenerate` rebuilds the branded PDF, replaces the attachment in place and retires the old file. Refactored the shared render logic into `_render_letter_attachment`. Verified end-to-end (curl): body updated, new attachment created, old file 404'd.
 
+- **Fuel & Emissions + Calendar PMI + doc links (2026-07-08)**:
+  - **Fuel & Emissions** tab in Fleet (`/api/fuel` CRUD + `/api/fuel/summary`): log diesel/AdBlue litres, cost, odometer per fill; auto **MPG** (imperial, tank-to-tank — miles between fills ÷ gallons, first fill excluded from averages), **CO₂** at 2.64 kg/L diesel, per-vehicle efficiency league (avg mpg, CO₂, cost/mile) + fleet totals strip (incl. CO₂ tonnes). New file `frontend/src/pages/Fuel.js`.
+  - **Calendar "Add PMI"**: pick vehicle + first date + interval (4/6/8/10/12/13 weeks); `GET /api/calendar` now projects recurring `pmi_due` events across a 52-week horizon (max 26), first carries real status, later marked "· planned".
+  - **Letter versioning**: generated docs store `letter_data.version`; a ↻ regenerate button reopens the generator pre-filled, `PUT /api/documents/{id}/regenerate` bumps the version and stamps notes "vN · updated <date>", soft-deleting the prior PDF.
+  - **Document web link**: `link_url` on ComplianceDoc/DocInput; Link2 icon on the card opens the URL. Verified via testing_agent (iteration_13.json): 11/11 tests + regression pass.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
