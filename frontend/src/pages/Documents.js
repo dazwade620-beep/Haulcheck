@@ -6,14 +6,14 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2, Eye, RefreshCw } from "lucide-react";
+import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2, Eye, RefreshCw, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Attestation Record", "Indoctrination Document", "Driver Infringement", "Infringement Report", "Warning Letter", "Adhoc Note", "Other"];
 const LETTER_TEMPLATES = ["Warning Letter", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work", "PRSI Letter"];
-const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", attachments: [] };
+const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", link_url: "", attachments: [] };
 const emptyGen = { template: "Warning Letter", title: "", recipient_name: "", recipient_address: "", points: "", subject: "", body: "" };
 
 export function DocumentsPanel({ embedded = false }) {
@@ -95,6 +95,9 @@ export function DocumentsPanel({ embedded = false }) {
                   {d.letter_data && d.notes && <p className="text-[11px] text-slate-400 mt-0.5">{d.notes}</p>}
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  {d.link_url && (
+                    <a data-testid="doc-link-button" href={d.link_url} target="_blank" rel="noopener noreferrer" title="Open web link" className="text-slate-400 hover:text-slate-900 p-1"><Link2 size={15} /></a>
+                  )}
                   {d.attachments?.length > 0 && (
                     <a data-testid="view-document-button" href={`${API}/files/${d.attachments[0].file_id}?auth=${localStorage.getItem("token") || ""}`} target="_blank" rel="noopener noreferrer" title="View / download" className="text-slate-400 hover:text-slate-900 p-1"><Eye size={15} /></a>
                   )}
@@ -134,6 +137,7 @@ export function DocumentsPanel({ embedded = false }) {
               <Field label="Expiry Date"><Input data-testid="doc-expiry" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
             </div>
             <Field label="Scan / Document"><FileUpload testid="doc-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
+            <Field label="Web link (optional)"><Input data-testid="doc-link" type="url" value={form.link_url} onChange={(e) => setForm({ ...form, link_url: e.target.value })} placeholder="https://… (e.g. VOL portal, shared drive)" /></Field>
             <DialogFooter><Button data-testid="save-document-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Document"}</Button></DialogFooter>
           </form>
         </DialogContent>

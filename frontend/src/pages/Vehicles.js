@@ -12,6 +12,7 @@ import { Plus, Truck, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
+import { FuelPanel } from "@/pages/Fuel";
 
 const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", notes: "" };
 
@@ -142,10 +143,12 @@ export default function Vehicles() {
         <TabsList className="mb-6">
           <TabsTrigger value="vehicles" data-testid="tab-vehicles">Vehicles</TabsTrigger>
           <TabsTrigger value="trailers" data-testid="tab-trailers">Trailers</TabsTrigger>
+          <TabsTrigger value="fuel" data-testid="tab-fuel">Fuel &amp; Emissions</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-test-history">Test History</TabsTrigger>
         </TabsList>
         <TabsContent value="vehicles"><VehiclesPanel /></TabsContent>
         <TabsContent value="trailers"><TrailersPanel /></TabsContent>
+        <TabsContent value="fuel"><FuelPanel /></TabsContent>
         <TabsContent value="history"><TestHistoryPanel embedded /></TabsContent>
       </Tabs>
     </div>
