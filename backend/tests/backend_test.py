@@ -636,3 +636,113 @@ class TestIsolation:
         listB = requests.get(f"{API}/vehicles", headers=hB, timeout=15).json()
         assert any(v["registration"] == reg for v in listA)
         assert not any(v["registration"] == reg for v in listB)
+
+
+# ---------- Insurance ----------
+class TestInsurance:
+    def test_create_list_edit_delete_and_statuses(self, auth_headers, token):
+        # Create three policies with different expiry buckets
+        payloads = [
+            {"policy_type": "Goods in Transit (GIT)", "insurer": "TEST Aviva", "policy_number": f"POL-{uuid.uuid4().hex[:6]}", "start_date": PAST_EXPIRED, "expiry_date": FUTURE_VALID, "cover_amount": "£250,000", "notes": "TEST GIT valid"},
+            {"policy_type": "Motor — Truck", "insurer": "TEST Zurich", "policy_number": f"POL-{uuid.uuid4().hex[:6]}", "expiry_date": FUTURE_DUE_SOON, "cover_amount": "£100,000"},
+            {"policy_type": "Employers' Liability (EL)", "insurer": "TEST AXA", "policy_number": f"POL-{uuid.uuid4().hex[:6]}", "expiry_date": PAST_EXPIRED, "cover_amount": "£10,000,000"},
+        ]
+        created_ids = []
+        expected = {"Goods in Transit (GIT)": "valid", "Motor — Truck": "due_soon", "Employers' Liability (EL)": "expired"}
+        for pl in payloads:
+            r = requests.post(f"{API}/insurance", json=pl, headers=auth_headers, timeout=15)
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["insurer"] == pl["insurer"]
+            assert body["policy_type"] == pl["policy_type"]
+            assert "id" in body
+            created_ids.append(body["id"])
+
+        # List and verify shape + computed status/days_left
+        r = requests.get(f"{API}/insurance", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        items = r.json()
+        for cid, pl in zip(created_ids, payloads):
+            item = next((x for x in items if x["id"] == cid), None)
+            assert item is not None
+            assert item["policy_type"] == pl["policy_type"]
+            assert item["status"] == expected[pl["policy_type"]], f"Expected {expected[pl['policy_type']]} for {pl['policy_type']}, got {item['status']}"
+            assert "days_left" in item
+
+        # Edit the GIT one: change insurer and expiry
+        gid = created_ids[0]
+        edit_payload = {**payloads[0], "insurer": "TEST Aviva EDITED", "expiry_date": FUTURE_DUE_SOON}
+        r = requests.put(f"{API}/insurance/{gid}", json=edit_payload, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/insurance", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == gid)
+        assert item["insurer"] == "TEST Aviva EDITED"
+        assert item["status"] == "due_soon"
+
+        # Attachment: upload a file and attach it
+        png = TestFileUpload.PNG_BYTES
+        up = requests.post(f"{API}/upload", files={"file": ("cert.png", png, "image/png")}, headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        assert up.status_code == 200
+        att = {"file_id": up.json()["file_id"], "filename": up.json()["filename"], "content_type": up.json()["content_type"], "url": up.json()["url"], "size": len(png)}
+        edit_payload_with_att = {**edit_payload, "attachments": [att]}
+        r = requests.put(f"{API}/insurance/{gid}", json=edit_payload_with_att, headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        r = requests.get(f"{API}/insurance", headers=auth_headers, timeout=15)
+        item = next(x for x in r.json() if x["id"] == gid)
+        assert item["attachments"] and item["attachments"][0]["file_id"] == att["file_id"]
+
+        # Dashboard alerts & counts include insurance
+        r = requests.get(f"{API}/dashboard", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        body = r.json()
+        assert "insurance" in body["counts"] and body["counts"]["insurance"] >= 3
+        el_alert = [a for a in body["alerts"] if a.get("type") == "insurance" and a.get("item") == "Employers' Liability (EL)"]
+        assert el_alert and el_alert[0]["status"] == "expired"
+
+        # Calendar contains type=insurance events
+        r = requests.get(f"{API}/calendar", headers=auth_headers, timeout=15)
+        assert r.status_code == 200
+        cal = r.json()
+        ins_events = [e for e in cal if e.get("type") == "insurance"]
+        assert ins_events, "Expected insurance events in calendar"
+        for e in ins_events:
+            assert "Insurance Renewal" in e.get("title", "")
+
+        # Delete all created
+        for cid in created_ids:
+            r = requests.delete(f"{API}/insurance/{cid}", headers=auth_headers, timeout=15)
+            assert r.status_code == 200
+        r = requests.get(f"{API}/insurance", headers=auth_headers, timeout=15)
+        remaining = {x["id"] for x in r.json()}
+        for cid in created_ids:
+            assert cid not in remaining
+
+    def test_edit_missing_returns_404(self, auth_headers):
+        r = requests.put(f"{API}/insurance/nonexistent", json={"policy_type": "Motor — Truck"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 404
+
+    def test_requires_auth(self):
+        assert requests.get(f"{API}/insurance", timeout=15).status_code == 401
+        assert requests.post(f"{API}/insurance", json={"policy_type": "Motor — Truck"}, timeout=15).status_code == 401
+
+    def test_insurance_isolation_between_users(self):
+        emailA = f"TEST_ins_a_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        emailB = f"TEST_ins_b_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        rA = requests.post(f"{API}/auth/register", json={"email": emailA, "password": "Password1!", "name": "A"}, timeout=15)
+        rB = requests.post(f"{API}/auth/register", json={"email": emailB, "password": "Password1!", "name": "B"}, timeout=15)
+        hA = {"Authorization": f"Bearer {rA.json()['token']}"}
+        hB = {"Authorization": f"Bearer {rB.json()['token']}"}
+        r = requests.post(f"{API}/insurance", json={"policy_type": "Green Card", "insurer": "TEST-Iso", "expiry_date": FUTURE_VALID}, headers=hA, timeout=15)
+        assert r.status_code == 200
+        iid = r.json()["id"]
+        listA = requests.get(f"{API}/insurance", headers=hA, timeout=15).json()
+        listB = requests.get(f"{API}/insurance", headers=hB, timeout=15).json()
+        assert any(x["id"] == iid for x in listA)
+        assert not any(x["id"] == iid for x in listB)
+        # User B cannot delete/edit A's policy
+        rDel = requests.delete(f"{API}/insurance/{iid}", headers=hB, timeout=15)
+        # server returns ok=true but doesn't affect data; verify A still has it
+        listA_after = requests.get(f"{API}/insurance", headers=hA, timeout=15).json()
+        assert any(x["id"] == iid for x in listA_after)
+
+

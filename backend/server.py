@@ -229,6 +229,31 @@ class DocInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class InsurancePolicy(BaseModel):
+    id: str = Field(default_factory=lambda: f"ins_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    policy_type: str = "Motor — Truck"
+    insurer: str = ""
+    policy_number: str = ""
+    start_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    cover_amount: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class InsuranceInput(BaseModel):
+    policy_type: str = "Motor — Truck"
+    insurer: str = ""
+    policy_number: str = ""
+    start_date: Optional[str] = None
+    expiry_date: Optional[str] = None
+    cover_amount: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class PMISchedule(BaseModel):
     id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -612,6 +637,37 @@ async def delete_document(docid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Insurance ----------
+@api_router.get("/insurance")
+async def list_insurance(user: User = Depends(get_current_user)):
+    docs = await db.insurance.find({"user_id": user.user_id}, {"_id": 0}).sort("expiry_date", 1).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("expiry_date")))
+        d["days_left"] = days_until(d.get("expiry_date"))
+    return docs
+
+
+@api_router.post("/insurance")
+async def create_insurance(data: InsuranceInput, user: User = Depends(get_current_user)):
+    p = InsurancePolicy(**data.model_dump(), user_id=user.user_id)
+    await db.insurance.insert_one(p.model_dump())
+    return p.model_dump()
+
+
+@api_router.put("/insurance/{iid}")
+async def update_insurance(iid: str, data: InsuranceInput, user: User = Depends(get_current_user)):
+    res = await db.insurance.update_one({"id": iid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Insurance policy not found")
+    return {"ok": True}
+
+
+@api_router.delete("/insurance/{iid}")
+async def delete_insurance(iid: str, user: User = Depends(get_current_user)):
+    await db.insurance.delete_one({"id": iid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Defects ----------
 async def summarise_defect(description: str, severity: str) -> str:
     try:
@@ -759,6 +815,14 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": f"{t.get('category', '')} · {t.get('course_name', '')}".strip(" ·"),
                 "status": compliance_status(days_until(t["expiry_date"])),
             })
+    insurance = await db.insurance.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for ins in insurance:
+        if ins.get("expiry_date"):
+            events.append({
+                "date": ins["expiry_date"], "type": "insurance", "title": f"Insurance Renewal — {ins.get('policy_type')}",
+                "subtitle": ins.get("insurer") or ins.get("policy_number") or "",
+                "status": compliance_status(days_until(ins["expiry_date"])),
+            })
     events = [e for e in events if e.get("date")]
     return events
 
@@ -772,6 +836,7 @@ async def gather_stats(user_id: str):
     pmi_schedules = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     trailers = await db.trailers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     training = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    insurance = await db.insurance.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
 
     alerts = []
     expired = due_soon = 0
@@ -839,6 +904,16 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "training", "name": t.get("driver_name") or t.get("course_name"), "item": t.get("course_name", "Training"), "status": "due_soon", "days": d})
 
+    for ins in insurance:
+        d = days_until(ins.get("expiry_date"))
+        st = compliance_status(d)
+        if st == "expired":
+            expired += 1
+            alerts.append({"type": "insurance", "name": ins.get("insurer") or ins.get("policy_type"), "item": ins.get("policy_type", "Insurance"), "status": "expired", "days": d})
+        elif st == "due_soon":
+            due_soon += 1
+            alerts.append({"type": "insurance", "name": ins.get("insurer") or ins.get("policy_type"), "item": ins.get("policy_type", "Insurance"), "status": "due_soon", "days": d})
+
     open_defects = [d for d in defects if d.get("status") == "open"]
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
@@ -847,6 +922,7 @@ async def gather_stats(user_id: str):
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
             "open_defects": len(open_defects), "major_defects": len(major_defects),
             "pmi": len(pmi_schedules), "trailers": len(trailers), "training": len(training),
+            "insurance": len(insurance),
             "expired": expired, "due_soon": due_soon,
         },
         "alerts": alerts,

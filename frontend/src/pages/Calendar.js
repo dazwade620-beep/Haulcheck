@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -14,6 +14,8 @@ const TYPE_META = {
   pmi_due: { icon: Wrench, label: "PMI Due" },
   pmi_done: { icon: CheckCircle2, label: "PMI Completed" },
   defect: { icon: FileWarning, label: "Defect" },
+  training: { icon: GraduationCap, label: "Training Expiry" },
+  insurance: { icon: ShieldCheck, label: "Insurance Renewal" },
 };
 
 const dotColor = (status) => (status === "expired" ? "bg-red-500" : status === "due_soon" ? "bg-yellow-500" : "bg-green-500");
