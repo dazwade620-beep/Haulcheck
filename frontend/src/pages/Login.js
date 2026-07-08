@@ -60,7 +60,7 @@ export default function Login() {
             Track MOTs, driver CPC, tachograph hours, defect reports and operator documents — with AI risk scoring built for UK road haulage operators.
           </p>
           <div className="mt-8 flex items-center gap-2 text-sm text-slate-400">
-            <ShieldCheck size={18} /> DVSA-aligned compliance tracking
+            <ShieldCheck size={18} /> DVSA & RSA-aligned compliance tracking
           </div>
         </div>
         <div className="relative text-xs text-slate-500 tracking-widest uppercase">Fleet Compliance Control Room</div>

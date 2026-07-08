@@ -11,6 +11,9 @@ import uuid
 import jwt
 import httpx
 import requests
+import json
+import base64
+import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 
@@ -107,6 +110,7 @@ class User(BaseModel):
     email: str
     name: str
     role: str = "manager"
+    region: str = "UK"
     picture: Optional[str] = None
 
 
@@ -239,6 +243,8 @@ class InsurancePolicy(BaseModel):
     expiry_date: Optional[str] = None
     cover_amount: str = ""
     notes: str = ""
+    needs_review: bool = False
+    ai_extracted: bool = False
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
@@ -251,6 +257,7 @@ class InsuranceInput(BaseModel):
     expiry_date: Optional[str] = None
     cover_amount: str = ""
     notes: str = ""
+    needs_review: bool = False
     attachments: List[Attachment] = []
 
 
@@ -362,12 +369,22 @@ async def register(data: RegisterInput):
         "email": data.email,
         "name": data.name,
         "role": data.role,
+        "region": "UK",
         "picture": None,
         "password_hash": pwd_context.hash(data.password),
         "created_at": now_iso(),
     })
     token = create_jwt(user_id)
-    return {"token": token, "user": {"user_id": user_id, "email": data.email, "name": data.name, "role": data.role}}
+    return {"token": token, "user": {"user_id": user_id, "email": data.email, "name": data.name, "role": data.role, "region": "UK"}}
+
+
+@api_router.put("/settings/region")
+async def set_region(payload: dict, user: User = Depends(get_current_user)):
+    region = payload.get("region", "UK")
+    if region not in ("UK", "IE"):
+        raise HTTPException(status_code=400, detail="Invalid region")
+    await db.users.update_one({"user_id": user.user_id}, {"$set": {"region": region}})
+    return {"ok": True, "region": region}
 
 
 @api_router.post("/auth/login")
@@ -668,6 +685,117 @@ async def delete_insurance(iid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+INSURANCE_TYPES = ["Goods in Transit (GIT)", "Motor — Truck", "Motor — Trailer", "Green Card", "Public Liability (PL)", "Employers' Liability (EL)", "Other"]
+
+
+def normalize_policy_type(raw: str) -> str:
+    if not raw:
+        return "Other"
+    if raw in INSURANCE_TYPES:
+        return raw
+    s = raw.lower()
+    if "goods in transit" in s or "git" in s:
+        return "Goods in Transit (GIT)"
+    if "employ" in s or s.strip() == "el":
+        return "Employers' Liability (EL)"
+    if "public" in s or s.strip() == "pl":
+        return "Public Liability (PL)"
+    if "green card" in s or "green" in s:
+        return "Green Card"
+    if "trailer" in s:
+        return "Motor — Trailer"
+    if "motor" in s or "truck" in s or "vehicle" in s or "fleet" in s:
+        return "Motor — Truck"
+    return "Other"
+
+
+async def ai_extract_insurance(file_bytes: bytes, mime: str, ext: str):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
+    system = (
+        "You read UK & Ireland commercial vehicle insurance documents (certificates, schedules, cover notes) "
+        "and extract structured data. Classify policy_type as EXACTLY one of: " + ", ".join(INSURANCE_TYPES) + ". "
+        "Goods in Transit=GIT; Motor for the tractor unit=Motor — Truck; Motor for trailers=Motor — Trailer; "
+        "international motor cover=Green Card; Public Liability=PL; Employers' Liability=EL. "
+        "Return ONLY minified JSON with keys: policy_type, insurer, policy_number, start_date (YYYY-MM-DD or null), "
+        "expiry_date (YYYY-MM-DD or null), cover_amount (string incl currency symbol or ''), confidence (0-1), "
+        "needs_review (true if you are unsure or the document is unclear). No prose, no code fences."
+    )
+    prompt = "Extract the insurance policy details from this document."
+    tmp_path = None
+    try:
+        if (mime or "").startswith("image/"):
+            b64 = base64.b64encode(file_bytes).decode("utf-8")
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ins_{uuid.uuid4().hex[:8]}", system_message=system).with_model("openai", "gpt-4o")
+            msg = UserMessage(text=prompt, file_contents=[ImageContent(b64)])
+        else:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+            tmp.write(file_bytes)
+            tmp.flush()
+            tmp.close()
+            tmp_path = tmp.name
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"ins_{uuid.uuid4().hex[:8]}", system_message=system).with_model("gemini", "gemini-2.5-flash")
+            msg = UserMessage(text=prompt, file_contents=[FileContentWithMimeType(mime or "application/pdf", tmp_path)])
+        resp = await chat.send_message(msg)
+        text = (resp if isinstance(resp, str) else str(resp)).strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        s, e = text.find("{"), text.rfind("}")
+        return json.loads(text[s:e + 1])
+    except Exception as ex:
+        logging.error(f"AI insurance extract failed: {ex}")
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@api_router.post("/insurance/ai-import")
+async def ai_import_insurance(files: List[UploadFile] = File(...), user: User = Depends(get_current_user)):
+    created = []
+    for file in files:
+        data = await file.read()
+        if not data:
+            continue
+        ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+        file_id = uuid.uuid4().hex
+        content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+        path = f"{APP_NAME}/uploads/{user.user_id}/{file_id}.{ext}"
+        try:
+            result = put_object(path, data, content_type)
+        except Exception as e:
+            logging.error(f"AI import upload failed: {e}")
+            continue
+        await db.files.insert_one({
+            "id": file_id, "user_id": user.user_id, "storage_path": result["path"],
+            "original_filename": file.filename, "content_type": content_type,
+            "size": result.get("size", len(data)), "is_deleted": False, "created_at": now_iso(),
+        })
+        attachment = Attachment(file_id=file_id, filename=file.filename or "", content_type=content_type)
+        extracted = await ai_extract_insurance(data, content_type, ext)
+        if extracted:
+            ptype = normalize_policy_type(extracted.get("policy_type"))
+            conf = extracted.get("confidence", 0) or 0
+            policy = InsurancePolicy(
+                user_id=user.user_id, policy_type=ptype,
+                insurer=extracted.get("insurer") or "", policy_number=extracted.get("policy_number") or "",
+                start_date=extracted.get("start_date") or None, expiry_date=extracted.get("expiry_date") or None,
+                cover_amount=str(extracted.get("cover_amount") or ""),
+                needs_review=bool(extracted.get("needs_review")) or conf < 0.6,
+                ai_extracted=True, attachments=[attachment],
+            )
+        else:
+            policy = InsurancePolicy(
+                user_id=user.user_id, policy_type="Other", needs_review=True, ai_extracted=True,
+                attachments=[attachment], notes="AI could not read this document — please review manually.",
+            )
+        await db.insurance.insert_one(policy.model_dump())
+        created.append({"id": policy.id, "filename": file.filename, "policy_type": policy.policy_type,
+                        "insurer": policy.insurer, "expiry_date": policy.expiry_date, "needs_review": policy.needs_review})
+    return {"count": len(created), "created": created}
+
+
 # ---------- Defects ----------
 async def summarise_defect(description: str, severity: str) -> str:
     try:
@@ -959,7 +1087,7 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"risk_{uuid.uuid4().hex[:8]}",
-            system_message="You are a UK O-licence compliance advisor for road haulage operators. Given fleet stats, write a short risk briefing (max 90 words) for a transport manager: state the biggest risks to the operator licence, and 2-3 prioritised actions. Be direct and practical.",
+            system_message="You are a UK & Ireland operator-licence compliance advisor for road haulage operators (DVSA in the UK, RSA in Ireland). Given fleet stats, write a short risk briefing (max 90 words) for a transport manager: state the biggest risks to the operator licence, and 2-3 prioritised actions. Be direct and practical.",
         ).with_model("openai", "gpt-5.4")
         prompt = (f"Compliance score: {score}/100. Vehicles: {c['vehicles']}, Drivers: {c['drivers']}, "
                   f"Documents: {c['documents']}. Expired items: {c['expired']}, Due soon: {c['due_soon']}, "

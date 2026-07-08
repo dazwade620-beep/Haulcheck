@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Trash2, Pencil, Container } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { getTerms } from "@/lib/terms";
 
 const TYPES = ["Curtainsider", "Flatbed", "Refrigerated", "Tanker", "Skeletal", "Box", "Low Loader", "Other"];
 const empty = { trailer_number: "", type: "Curtainsider", mot_due: "", service_due: "", notes: "" };
@@ -21,6 +23,8 @@ const LocalEmpty = ({ text }) => (
 );
 
 export function TrailersPanel() {
+  const { user } = useAuth();
+  const terms = getTerms(user?.region);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -56,7 +60,7 @@ export function TrailersPanel() {
               <tr className="text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-5 py-3 font-semibold">Trailer No.</th>
                 <th className="px-5 py-3 font-semibold">Type</th>
-                <th className="px-5 py-3 font-semibold">Annual Test</th>
+                <th className="px-5 py-3 font-semibold">{terms.trailerTest}</th>
                 <th className="px-5 py-3 font-semibold">Service</th>
                 <th className="px-5 py-3"></th>
               </tr>
@@ -91,7 +95,7 @@ export function TrailersPanel() {
               </Select>
             </LocalField>
             <div className="grid grid-cols-2 gap-4">
-              <LocalField label="Annual Test Due"><Input data-testid="trl-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></LocalField>
+              <LocalField label={`${terms.trailerTest} Due`}><Input data-testid="trl-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></LocalField>
               <LocalField label="Service Due"><Input data-testid="trl-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></LocalField>
             </div>
             <DialogFooter><Button data-testid="save-trailer-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Trailer"}</Button></DialogFooter>

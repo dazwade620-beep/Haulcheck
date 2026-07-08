@@ -34,6 +34,11 @@ export const AuthProvider = ({ children }) => {
     setUser(userData);
   }, []);
 
+  const updateRegion = useCallback(async (region) => {
+    await api.put("/settings/region", { region });
+    setUser((prev) => (prev ? { ...prev, region } : prev));
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout");
@@ -46,8 +51,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const value = useMemo(
-    () => ({ user, setUser, loading, loginWithToken, logout, checkAuth }),
-    [user, loading, loginWithToken, logout, checkAuth]
+    () => ({ user, setUser, loading, loginWithToken, logout, checkAuth, updateRegion }),
+    [user, loading, loginWithToken, logout, checkAuth, updateRegion]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

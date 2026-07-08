@@ -1,8 +1,9 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, FileWarning, FolderCheck, LogOut, Menu, X, CalendarDays, ClipboardCheck, GraduationCap, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Truck, Users, FileWarning, FolderCheck, LogOut, Menu, X, CalendarDays, ClipboardCheck, GraduationCap, ShieldCheck, Globe } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
@@ -17,8 +18,27 @@ const NAV = [
 ];
 
 export default function Layout({ children }) {
-  const { user, logout } = useAuth();
+  const { user, logout, updateRegion } = useAuth();
   const [open, setOpen] = useState(false);
+
+  const RegionSwitcher = () => (
+    <div className="px-4 pb-3" data-testid="region-switcher">
+      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-semibold mb-2 flex items-center gap-1.5"><Globe size={12} /> Jurisdiction</p>
+      <div className="flex gap-1 bg-slate-800 rounded-md p-1">
+        {[{ c: "UK", l: "UK · DVSA" }, { c: "IE", l: "IE · RSA" }].map((r) => (
+          <button
+            key={r.c}
+            data-testid={`region-${r.c}`}
+            onClick={async () => { try { await updateRegion(r.c); toast.success(`Switched to ${r.c === "UK" ? "United Kingdom (DVSA)" : "Ireland (RSA)"}`); } catch { toast.error("Could not switch region"); } }}
+            className={cn(
+              "flex-1 py-1.5 text-xs font-semibold rounded transition-all",
+              (user?.region || "UK") === r.c ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"
+            )}
+          >{r.l}</button>
+        ))}
+      </div>
+    </div>
+  );
 
   const NavItems = () => (
     <nav className="flex flex-col gap-1">
@@ -56,6 +76,9 @@ export default function Layout({ children }) {
           </div>
         </div>
         <div className="flex-1 py-4"><NavItems /></div>
+        <div className="border-t border-slate-800 pt-3">
+          <RegionSwitcher />
+        </div>
         <div className="border-t border-slate-800 p-4">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold">
@@ -90,6 +113,7 @@ export default function Layout({ children }) {
         {open && (
           <div className="md:hidden bg-slate-900 text-white pb-4">
             <NavItems />
+            <div className="border-t border-slate-800 mt-2 pt-3"><RegionSwitcher /></div>
             <button
               data-testid="mobile-logout-button"
               onClick={logout}

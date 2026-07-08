@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, ShieldCheck } from "lucide-react";
+import { Trash2, Pencil, ShieldCheck, Sparkles, Plus, Loader2, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { Header, Field, Empty } from "@/pages/Vehicles";
+import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = [
@@ -22,10 +24,17 @@ const TYPES = [
 const empty = { policy_type: "Motor — Truck", insurer: "", policy_number: "", start_date: "", expiry_date: "", cover_amount: "", notes: "", attachments: [] };
 
 export default function Insurance() {
+  const { user } = useAuth();
+  const terms = getTerms(user?.region);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiFiles, setAiFiles] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiResults, setAiResults] = useState(null);
 
   const load = async () => setItems((await api.get("/insurance")).data);
   useEffect(() => { load(); }, []);
@@ -38,7 +47,7 @@ export default function Insurance() {
 
   const save = async (e) => {
     e.preventDefault();
-    const payload = { ...form, start_date: form.start_date || null, expiry_date: form.expiry_date || null };
+    const payload = { ...form, start_date: form.start_date || null, expiry_date: form.expiry_date || null, needs_review: false };
     try {
       if (editId) await api.put(`/insurance/${editId}`, payload);
       else await api.post("/insurance", payload);
@@ -48,17 +57,51 @@ export default function Insurance() {
   };
   const remove = async (id) => { await api.delete(`/insurance/${id}`); toast.success("Policy removed"); load(); };
 
+  const openAi = () => { setAiFiles(null); setAiResults(null); setAiOpen(true); };
+  const runAiImport = async (e) => {
+    e.preventDefault();
+    if (!aiFiles?.length) { toast.error("Choose one or more files"); return; }
+    setAiBusy(true);
+    setAiResults(null);
+    try {
+      const fd = new FormData();
+      Array.from(aiFiles).forEach((f) => fd.append("files", f));
+      const res = await api.post("/insurance/ai-import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setAiResults(res.data.created);
+      toast.success(`AI imported ${res.data.count} polic${res.data.count === 1 ? "y" : "ies"}`);
+      load();
+    } catch {
+      toast.error("AI import failed");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   return (
     <div data-testid="insurance-page">
-      <Header title="Insurance" subtitle="GIT, motor, green card, PL & EL policy tracking" onAdd={openNew} addTestId="add-insurance-button" addLabel="Add Policy" />
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance · {terms.authority}</p>
+          <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Insurance</h1>
+          <p className="text-slate-500 text-sm mt-1">GIT, motor, green card, PL & EL policy tracking</p>
+        </div>
+        <div className="flex gap-2">
+          <Button data-testid="ai-import-button" onClick={openAi} variant="outline" className="border-slate-300 rounded-md gap-2"><Sparkles size={16} /> AI Import</Button>
+          <Button data-testid="add-insurance-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Policy</Button>
+        </div>
+      </div>
 
-      {items.length === 0 ? <Empty icon={ShieldCheck} text="No insurance policies yet. Track GIT, motor, green card, public & employers' liability cover." /> : (
+      {items.length === 0 ? <Empty icon={ShieldCheck} text="No insurance policies yet. Add one manually or use AI Import to upload them all at once." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {items.map((p) => (
             <div key={p.id} data-testid="insurance-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
               <div className="flex items-start justify-between">
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{p.policy_type}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">{p.policy_type}</p>
+                    {p.needs_review && <span data-testid="review-badge" className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-800"><AlertTriangle size={10} /> Review</span>}
+                    {p.ai_extracted && <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700"><Sparkles size={10} /> AI</span>}
+                  </div>
                   <h3 className="font-heading font-bold text-lg text-slate-900 truncate">{p.insurer || "Insurer TBC"}</h3>
                   {p.policy_number && <p className="text-xs text-slate-500 mt-0.5">Policy: {p.policy_number}</p>}
                   {p.cover_amount && <p className="text-xs text-slate-500">Cover: {p.cover_amount}</p>}
@@ -81,6 +124,7 @@ export default function Insurance() {
         </div>
       )}
 
+      {/* Manual add / edit */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Policy" : "Add Insurance Policy"}</DialogTitle><DialogDescription className="sr-only">Insurance policy form</DialogDescription></DialogHeader>
@@ -99,9 +143,52 @@ export default function Insurance() {
               <Field label="Start Date"><Input data-testid="ins-start" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></Field>
               <Field label="Expiry / Renewal *"><Input data-testid="ins-expiry" type="date" required value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
             </div>
-            <Field label="Cover Amount"><Input data-testid="ins-cover" value={form.cover_amount} onChange={(e) => setForm({ ...form, cover_amount: e.target.value })} placeholder="e.g. £250,000" /></Field>
+            <Field label="Cover Amount"><Input data-testid="ins-cover" value={form.cover_amount} onChange={(e) => setForm({ ...form, cover_amount: e.target.value })} placeholder={`e.g. ${terms.currency}250,000`} /></Field>
             <Field label="Certificate / Schedule"><FileUpload testid="ins-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-insurance-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Policy"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* AI bulk import */}
+      <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-heading flex items-center gap-2"><Sparkles size={18} /> AI Insurance Import</DialogTitle>
+            <DialogDescription>Upload all your insurance certificates (PDF or photo) at once. AI reads each one, detects the policy type, insurer, number and expiry, and creates the records for you to review.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={runAiImport} className="space-y-4">
+            <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-md py-6 px-3 text-sm text-slate-500 cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors">
+              <Upload size={18} />
+              <span>{aiFiles?.length ? `${aiFiles.length} file(s) selected` : "Choose insurance documents (PDF / image)"}</span>
+              <input data-testid="ai-import-input" type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => setAiFiles(e.target.files)} disabled={aiBusy} />
+            </label>
+
+            {aiResults && (
+              <div className="space-y-2" data-testid="ai-import-results">
+                {aiResults.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between border border-slate-100 rounded-md p-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 truncate">{r.insurer || r.filename}</p>
+                      <p className="text-xs text-slate-500">{r.policy_type}{r.expiry_date && ` · exp ${r.expiry_date}`}</p>
+                    </div>
+                    {r.needs_review
+                      ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800"><AlertTriangle size={11} /> Review</span>
+                      : <CheckCircle2 size={16} className="text-green-600 shrink-0" />}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter>
+              {aiResults ? (
+                <Button type="button" data-testid="ai-import-done" onClick={() => setAiOpen(false)} className="bg-black hover:bg-slate-800">Done</Button>
+              ) : (
+                <Button type="submit" data-testid="ai-import-run" disabled={aiBusy || !aiFiles?.length} className="bg-black hover:bg-slate-800 gap-2">
+                  {aiBusy ? <><Loader2 size={15} className="animate-spin" /> Reading documents…</> : <><Sparkles size={15} /> Import with AI</>}
+                </Button>
+              )}
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

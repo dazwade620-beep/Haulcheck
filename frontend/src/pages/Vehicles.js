@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +15,8 @@ import { TrailersPanel } from "@/pages/Trailers";
 const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", notes: "" };
 
 function VehiclesPanel() {
+  const { user } = useAuth();
+  const terms = getTerms(user?.region);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -55,7 +59,7 @@ function VehiclesPanel() {
               <tr className="text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-5 py-3 font-semibold">Registration</th>
                 <th className="px-5 py-3 font-semibold">Vehicle</th>
-                <th className="px-5 py-3 font-semibold">MOT</th>
+                <th className="px-5 py-3 font-semibold">{terms.vehicleTest}</th>
                 <th className="px-5 py-3 font-semibold">Service</th>
                 <th className="px-5 py-3 font-semibold">Tax</th>
                 <th className="px-5 py-3"></th>
@@ -89,7 +93,7 @@ function VehiclesPanel() {
               <Field label="Make"><Input data-testid="veh-make" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="DAF" /></Field>
               <Field label="Model"><Input data-testid="veh-model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="XF 480" /></Field>
             </div>
-            <Field label="MOT Due"><Input data-testid="veh-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></Field>
+            <Field label={`${terms.vehicleTest} Due`}><Input data-testid="veh-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Service Due"><Input data-testid="veh-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></Field>
               <Field label="Tax Due"><Input data-testid="veh-tax" type="date" value={form.tax_due} onChange={(e) => setForm({ ...form, tax_due: e.target.value })} /></Field>

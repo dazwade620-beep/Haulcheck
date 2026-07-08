@@ -725,6 +725,91 @@ class TestInsurance:
         assert requests.get(f"{API}/insurance", timeout=15).status_code == 401
         assert requests.post(f"{API}/insurance", json={"policy_type": "Motor — Truck"}, timeout=15).status_code == 401
 
+    def test_ai_import_creates_policy_from_text_certificate(self, auth_headers, token):
+        """AI Insurance Import: upload a plaintext certificate; LLM should extract insurer + expiry + policy_type."""
+        cert = (
+            b"CERTIFICATE OF MOTOR INSURANCE\n"
+            b"Insurer: Zurich Insurance plc\n"
+            b"Policy Number: TEST-Z-778991\n"
+            b"Policy Type: Motor Insurance - Commercial Truck\n"
+            b"Vehicle: DAF XF 480 tractor unit\n"
+            b"Period of Cover: 01 April 2026 to 31 March 2027\n"
+            b"Limit of Indemnity: GBP 5,000,000\n"
+            b"Territorial Limits: United Kingdom\n"
+        )
+        r = requests.post(
+            f"{API}/insurance/ai-import",
+            files={"files": ("TEST_cert.txt", cert, "text/plain")},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=90,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["count"] == 1, f"Expected 1 created, got {body}"
+        created = body["created"][0]
+        assert created["policy_type"] in {"Motor — Truck", "Motor — Trailer", "Other"}, created
+        # Confirm it appears in the list with ai_extracted flag
+        listing = requests.get(f"{API}/insurance", headers=auth_headers, timeout=15).json()
+        match = next((x for x in listing if x["id"] == created["id"]), None)
+        assert match is not None
+        assert match.get("ai_extracted") is True
+        # Cleanup
+        requests.delete(f"{API}/insurance/{created['id']}", headers=auth_headers, timeout=15)
+
+    def test_ai_import_requires_auth(self):
+        r = requests.post(f"{API}/insurance/ai-import", files={"files": ("x.txt", b"hello", "text/plain")}, timeout=15)
+        assert r.status_code == 401
+
+    def test_ai_import_multiple_files(self, auth_headers, token):
+        """Upload two docs at once - both should be processed and appear in results."""
+        f1 = b"Goods in Transit Insurance Policy\nInsurer: TEST Aviva GIT\nPolicy Number: GIT-1\nExpiry: 2027-01-15\nCover: GBP 250,000 per load\n"
+        f2 = b"Employers Liability Insurance\nInsurer: TEST AXA EL\nPolicy Number: EL-9\nExpiry: 2026-12-31\nLimit: GBP 10,000,000\n"
+        r = requests.post(
+            f"{API}/insurance/ai-import",
+            files=[("files", ("TEST_git.txt", f1, "text/plain")), ("files", ("TEST_el.txt", f2, "text/plain"))],
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=120,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["count"] == 2, body
+        for created in body["created"]:
+            assert "id" in created and "policy_type" in created and "needs_review" in created
+            requests.delete(f"{API}/insurance/{created['id']}", headers=auth_headers, timeout=15)
+
+
+# ---------- Region / Jurisdiction ----------
+class TestRegion:
+    def test_default_region_is_uk_on_register(self):
+        email = f"TEST_region_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
+        r = requests.post(f"{API}/auth/register", json={"email": email, "password": "Password1!", "name": "TEST Region"}, timeout=15)
+        assert r.status_code == 200
+        tok = r.json()["token"]
+        me = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {tok}"}, timeout=15).json()
+        assert me.get("region") == "UK"
+
+    def test_switch_region_persists(self, auth_headers, token):
+        h = {"Authorization": f"Bearer {token}"}
+        # Switch to IE
+        r = requests.put(f"{API}/settings/region", json={"region": "IE"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200 and r.json()["region"] == "IE"
+        me = requests.get(f"{API}/auth/me", headers=h, timeout=15).json()
+        assert me["region"] == "IE"
+        # Switch back to UK (leave account in default state)
+        r = requests.put(f"{API}/settings/region", json={"region": "UK"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 200 and r.json()["region"] == "UK"
+        me = requests.get(f"{API}/auth/me", headers=h, timeout=15).json()
+        assert me["region"] == "UK"
+
+    def test_invalid_region_rejected(self, auth_headers):
+        r = requests.put(f"{API}/settings/region", json={"region": "US"}, headers=auth_headers, timeout=15)
+        assert r.status_code == 400
+
+    def test_region_requires_auth(self):
+        r = requests.put(f"{API}/settings/region", json={"region": "UK"}, timeout=15)
+        assert r.status_code == 401
+
+
     def test_insurance_isolation_between_users(self):
         emailA = f"TEST_ins_a_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
         emailB = f"TEST_ins_b_{uuid.uuid4().hex[:6]}@haulcheck.co.uk"
