@@ -248,6 +248,7 @@ class ComplianceDoc(BaseModel):
     notes: str = ""
     driver_id: str = ""
     driver_name: str = ""
+    letter_data: Optional[dict] = None
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
@@ -895,32 +896,59 @@ async def draft_document(data: LetterDraftInput, user: User = Depends(get_curren
 
 @api_router.post("/documents/generate")
 async def generate_document(data: LetterGenerateInput, user: User = Depends(get_current_user)):
+    att = await _render_letter_attachment(user, data)
+    doc = ComplianceDoc(
+        user_id=user.user_id,
+        title=data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
+        doc_type=data.template,
+        reference=data.subject,
+        notes=f"Generated {datetime.now(timezone.utc).strftime('%d %B %Y')}",
+        letter_data=data.model_dump(),
+        attachments=[att],
+    )
+    await db.documents.insert_one(doc.model_dump())
+    return doc.model_dump()
+
+
+@api_router.put("/documents/{docid}/regenerate")
+async def regenerate_document(docid: str, data: LetterGenerateInput, user: User = Depends(get_current_user)):
+    existing = await db.documents.find_one({"id": docid, "user_id": user.user_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Document not found")
+    for old in (existing.get("attachments") or []):
+        if old.get("file_id"):
+            await db.files.update_one({"id": old["file_id"], "user_id": user.user_id}, {"$set": {"is_deleted": True}})
+    att = await _render_letter_attachment(user, data)
+    await db.documents.update_one({"id": docid, "user_id": user.user_id}, {"$set": {
+        "title": data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
+        "doc_type": data.template,
+        "reference": data.subject,
+        "notes": f"Updated {datetime.now(timezone.utc).strftime('%d %B %Y')}",
+        "letter_data": data.model_dump(),
+        "attachments": [att.model_dump()],
+    }})
+    return {"ok": True}
+
+
+async def _render_letter_attachment(user: User, data: LetterGenerateInput) -> Attachment:
     op = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
     signoff_name = data.signoff_name or op.get("tm_name") or ""
     signoff_role = data.signoff_role or ("Transport Manager" if op.get("tm_name") else "")
     date_str = datetime.now(timezone.utc).strftime("%d %B %Y")
-    logo_bytes = None
-    if op.get("logo_file_id"):
-        frec = await db.files.find_one({"id": op["logo_file_id"], "user_id": user.user_id, "is_deleted": False})
-        if frec:
-            try:
-                logo_bytes, _ = get_object(frec["storage_path"])
-            except Exception as e:
-                logging.error(f"Logo fetch failed: {e}")
+    logo_bytes = await _get_logo_bytes(user.user_id, op)
     try:
-        pdf_bytes = build_letter_pdf(
-            op, data.recipient_name, data.recipient_address, data.subject, data.body,
+        pdf_bytes = await asyncio.to_thread(
+            build_letter_pdf, op, data.recipient_name, data.recipient_address, data.subject, data.body,
             date_str, data.template, signoff_name, signoff_role, logo_bytes,
         )
     except Exception as e:
         logging.error(f"Letter PDF build failed: {e}")
         raise HTTPException(status_code=500, detail="Could not build PDF")
-
     file_id = uuid.uuid4().hex
     fname = f"{data.template.replace(' ', '_')}_{(data.recipient_name or 'letter').replace(' ', '_')}.pdf"
     path = f"{APP_NAME}/uploads/{user.user_id}/{file_id}.pdf"
     try:
-        result = put_object(path, pdf_bytes, "application/pdf")
+        result = await asyncio.to_thread(put_object, path, pdf_bytes, "application/pdf")
     except Exception as e:
         logging.error(f"Letter upload failed: {e}")
         raise HTTPException(status_code=502, detail="Upload failed")
@@ -929,16 +957,7 @@ async def generate_document(data: LetterGenerateInput, user: User = Depends(get_
         "original_filename": fname, "content_type": "application/pdf",
         "size": result.get("size", len(pdf_bytes)), "is_deleted": False, "created_at": now_iso(),
     })
-    doc = ComplianceDoc(
-        user_id=user.user_id,
-        title=data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
-        doc_type=data.template,
-        reference=data.subject,
-        notes=f"Generated {date_str}",
-        attachments=[Attachment(file_id=file_id, filename=fname, content_type="application/pdf")],
-    )
-    await db.documents.insert_one(doc.model_dump())
-    return doc.model_dump()
+    return Attachment(file_id=file_id, filename=fname, content_type="application/pdf")
 
 
 # ---------- Insurance ----------

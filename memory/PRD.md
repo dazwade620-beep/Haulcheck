@@ -68,6 +68,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **View button on document cards (2026-07-08)**: each document card in Office → Documents now shows an eye icon (`view-document-button`) that opens/downloads the first attachment (the generated/uploaded PDF) in a new tab via the authenticated `/api/files/{id}?auth=` URL. Verified in UI.
 
+- **Edit / Regenerate letters (2026-07-08)**: generated documents now persist their `letter_data` (template, recipient, subject, body). A ↻ icon (`regenerate-document-button`) on the card reopens the generator pre-filled so wording can be tweaked; `PUT /api/documents/{id}/regenerate` rebuilds the branded PDF, replaces the attachment in place and retires the old file. Refactored the shared render logic into `_render_letter_attachment`. Verified end-to-end (curl): body updated, new attachment created, old file 404'd.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2, Eye } from "lucide-react";
+import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2, Eye, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -23,6 +23,7 @@ export function DocumentsPanel({ embedded = false }) {
   const [editId, setEditId] = useState(null);
   const [genOpen, setGenOpen] = useState(false);
   const [gen, setGen] = useState(emptyGen);
+  const [genEditId, setGenEditId] = useState(null);
   const [drafting, setDrafting] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -45,7 +46,12 @@ export function DocumentsPanel({ embedded = false }) {
   };
   const remove = async (id) => { await api.delete(`/documents/${id}`); toast.success("Document removed"); load(); };
 
-  const openGen = () => { setGen(emptyGen); setGenOpen(true); };
+  const openGen = () => { setGen(emptyGen); setGenEditId(null); setGenOpen(true); };
+  const openRegen = (d) => {
+    const l = d.letter_data || {};
+    setGen({ ...emptyGen, ...l, points: "" });
+    setGenEditId(d.id); setGenOpen(true);
+  };
   const draft = async () => {
     setDrafting(true);
     try {
@@ -57,12 +63,13 @@ export function DocumentsPanel({ embedded = false }) {
   };
   const generate = async () => {
     setGenerating(true);
+    const payload = {
+      template: gen.template, title: gen.title, recipient_name: gen.recipient_name,
+      recipient_address: gen.recipient_address, subject: gen.subject, body: gen.body,
+    };
     try {
-      await api.post("/documents/generate", {
-        template: gen.template, title: gen.title, recipient_name: gen.recipient_name,
-        recipient_address: gen.recipient_address, subject: gen.subject, body: gen.body,
-      });
-      toast.success("Document generated & saved");
+      if (genEditId) { await api.put(`/documents/${genEditId}/regenerate`, payload); toast.success("Document updated"); }
+      else { await api.post("/documents/generate", payload); toast.success("Document generated & saved"); }
       setGenOpen(false); load();
     } catch { toast.error("Could not generate document"); }
     setGenerating(false);
@@ -89,6 +96,9 @@ export function DocumentsPanel({ embedded = false }) {
                 <div className="flex gap-1 shrink-0">
                   {d.attachments?.length > 0 && (
                     <a data-testid="view-document-button" href={`${API}/files/${d.attachments[0].file_id}?auth=${localStorage.getItem("token") || ""}`} target="_blank" rel="noopener noreferrer" title="View / download" className="text-slate-400 hover:text-slate-900 p-1"><Eye size={15} /></a>
+                  )}
+                  {d.letter_data && (
+                    <button data-testid="regenerate-document-button" onClick={() => openRegen(d)} title="Edit / regenerate" className="text-slate-400 hover:text-slate-900 p-1"><RefreshCw size={15} /></button>
                   )}
                   <button data-testid="edit-document-button" onClick={() => openEdit(d)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
                   <button data-testid="delete-document-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
@@ -130,7 +140,7 @@ export function DocumentsPanel({ embedded = false }) {
 
       <Dialog open={genOpen} onOpenChange={setGenOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><FileSignature size={18} /> Generate Company Document</DialogTitle><DialogDescription>Pick a template, add the details, let AI draft it, then edit &amp; save a branded PDF to your documents.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><FileSignature size={18} /> {genEditId ? "Edit / Regenerate Document" : "Generate Company Document"}</DialogTitle><DialogDescription>Pick a template, add the details, let AI draft it, then edit &amp; save a branded PDF to your documents.</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Template">
@@ -153,7 +163,7 @@ export function DocumentsPanel({ embedded = false }) {
             <Field label="Save as (document title, optional)"><Input data-testid="gen-title" value={gen.title} onChange={(e) => setGen({ ...gen, title: e.target.value })} placeholder="Defaults to template + recipient" /></Field>
             <DialogFooter>
               <Button data-testid="gen-generate-button" onClick={generate} disabled={generating || !gen.body} className="bg-black hover:bg-slate-800 gap-2">
-                {generating ? <><Loader2 size={16} className="animate-spin" /> Generating…</> : "Generate & Save PDF"}
+                {generating ? <><Loader2 size={16} className="animate-spin" /> {genEditId ? "Updating…" : "Generating…"}</> : (genEditId ? "Update & Save PDF" : "Generate & Save PDF")}
               </Button>
             </DialogFooter>
           </div>
