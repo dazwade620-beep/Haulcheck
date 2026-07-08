@@ -14,7 +14,7 @@ import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 const CATEGORIES = ["Driver CPC", "ADR", "First Aid", "Manual Handling", "Forklift / FLT", "Tacho / Drivers' Hours", "Load Security", "HIAB / Crane", "Health & Safety", "Other"];
 const empty = { driver_id: "", driver_name: "", course_name: "", category: "Driver CPC", completed_date: "", expiry_date: "", provider: "", notes: "", attachments: [] };
 
-export default function Training() {
+export function TrainingPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [open, setOpen] = useState(false);
@@ -53,7 +53,12 @@ export default function Training() {
 
   return (
     <div data-testid="training-page">
-      <Header title="Driver Training" subtitle="Qualifications, courses & certificate records" onAdd={openNew} addTestId="add-training-button" addLabel="Add Record" />
+      {!embedded && <Header title="Driver Training" subtitle="Qualifications, courses & certificate records" onAdd={openNew} addTestId="add-training-button" addLabel="Add Record" />}
+      {embedded && (
+        <div className="flex justify-end mb-4">
+          <Button data-testid="add-training-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Record</Button>
+        </div>
+      )}
 
       {items.length === 0 ? <Empty icon={GraduationCap} text="No training records yet. Log driver courses and upload certificates." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -114,4 +119,8 @@ export default function Training() {
       </Dialog>
     </div>
   );
+}
+
+export default function Training() {
+  return <TrainingPanel />;
 }

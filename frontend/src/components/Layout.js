@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, FolderCheck, LogOut, Menu, X, CalendarDays, GraduationCap, ShieldCheck, Globe, Gauge, Building2, Bell, Wrench } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -12,10 +12,8 @@ const NAV = [
   { to: "/maintenance", label: "Maintenance", icon: Wrench, id: "maintenance" },
   { to: "/vehicles", label: "Fleet", icon: Truck, id: "vehicles" },
   { to: "/drivers", label: "Drivers", icon: Users, id: "drivers" },
-  { to: "/training", label: "Training", icon: GraduationCap, id: "training" },
   { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
-  { to: "/insurance", label: "Insurance", icon: ShieldCheck, id: "insurance" },
-  { to: "/documents", label: "Documents", icon: FolderCheck, id: "documents" },
+  { to: "/office", label: "Office", icon: Briefcase, id: "office" },
   { to: "/reminders", label: "Reminders", icon: Bell, id: "reminders" },
 ];
 

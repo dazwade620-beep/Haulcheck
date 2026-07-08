@@ -9,11 +9,9 @@ import Dashboard from "@/pages/Dashboard";
 import Calendar from "@/pages/Calendar";
 import Vehicles from "@/pages/Vehicles";
 import Drivers from "@/pages/Drivers";
-import Training from "@/pages/Training";
-import Insurance from "@/pages/Insurance";
 import Tacho from "@/pages/Tacho";
-import Documents from "@/pages/Documents";
 import Maintenance from "@/pages/Maintenance";
+import Office from "@/pages/Office";
 import Operator from "@/pages/Operator";
 import Reminders from "@/pages/Reminders";
 import { Truck } from "lucide-react";
@@ -46,11 +44,12 @@ function AppRouter() {
       <Route path="/inspections" element={<Navigate to="/maintenance" replace />} />
       <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />
       <Route path="/drivers" element={<Protected><Drivers /></Protected>} />
-      <Route path="/training" element={<Protected><Training /></Protected>} />
-      <Route path="/insurance" element={<Protected><Insurance /></Protected>} />
       <Route path="/tacho" element={<Protected><Tacho /></Protected>} />
+      <Route path="/office" element={<Protected><Office /></Protected>} />
+      <Route path="/training" element={<Navigate to="/office" replace />} />
+      <Route path="/insurance" element={<Navigate to="/office" replace />} />
       <Route path="/defects" element={<Navigate to="/maintenance" replace />} />
-      <Route path="/documents" element={<Protected><Documents /></Protected>} />
+      <Route path="/documents" element={<Navigate to="/office" replace />} />
       <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

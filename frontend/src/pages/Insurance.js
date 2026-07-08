@@ -24,6 +24,10 @@ const TYPES = [
 const empty = { policy_type: "Motor — Truck", insurer: "", policy_number: "", start_date: "", expiry_date: "", cover_amount: "", notes: "", attachments: [] };
 
 export default function Insurance() {
+  return <InsurancePanel />;
+}
+
+export function InsurancePanel({ embedded = false }) {
   const { user } = useAuth();
   const terms = getTerms(user?.region);
   const [items, setItems] = useState([]);
@@ -98,11 +102,13 @@ export default function Insurance() {
   return (
     <div data-testid="insurance-page">
       <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance · {terms.authority}</p>
-          <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Insurance</h1>
-          <p className="text-slate-500 text-sm mt-1">GIT, motor, green card, PL & EL policy tracking</p>
-        </div>
+        {!embedded ? (
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance · {terms.authority}</p>
+            <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Insurance</h1>
+            <p className="text-slate-500 text-sm mt-1">GIT, motor, green card, PL & EL policy tracking</p>
+          </div>
+        ) : <div />}
         <div className="flex gap-2">
           {countFor("Other") > 0 && (
             <Button data-testid="sort-loose-button" onClick={sortLoose} disabled={sorting} variant="outline" className="border-slate-300 rounded-md gap-2">

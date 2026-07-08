@@ -13,7 +13,7 @@ import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Other"];
 const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", attachments: [] };
 
-export default function Documents() {
+export function DocumentsPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -40,7 +40,12 @@ export default function Documents() {
 
   return (
     <div data-testid="documents-page">
-      <Header title="Documents" subtitle="Operator licence, insurance, audits & wheel security" onAdd={openNew} addTestId="add-document-button" addLabel="Add Document" />
+      {!embedded && <Header title="Documents" subtitle="Operator licence, insurance, audits & wheel security" onAdd={openNew} addTestId="add-document-button" addLabel="Add Document" />}
+      {embedded && (
+        <div className="flex justify-end mb-4">
+          <Button data-testid="add-document-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Document</Button>
+        </div>
+      )}
 
       {items.length === 0 ? <Empty icon={FolderCheck} text="No documents yet. Track expiry of key operator documents." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -92,4 +97,8 @@ export default function Documents() {
       </Dialog>
     </div>
   );
+}
+
+export default function Documents() {
+  return <DocumentsPanel />;
 }
