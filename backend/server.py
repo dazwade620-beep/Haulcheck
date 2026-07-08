@@ -1883,6 +1883,12 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": w.get("torque_setting") or "Re-torque check",
                 "status": compliance_status(days_until(w["next_due"])),
             })
+    for sv in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if sv.get("next_service_due"):
+            events.append({
+                "date": sv["next_service_due"], "type": "service", "title": f"Service Due — {sv.get('vehicle_reg')}",
+                "subtitle": sv.get("service_type") or "Service", "status": compliance_status(days_until(sv["next_service_due"])),
+            })
     for v in await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         for label, key in [("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter Check", "speed_limiter_due")]:
             if v.get(key):
@@ -1920,6 +1926,17 @@ async def create_calendar_event(data: CalendarEventInput, user: User = Depends(g
 @api_router.delete("/calendar/events/{eid}")
 async def delete_calendar_event(eid: str, user: User = Depends(get_current_user)):
     await db.calendar_events.delete_one({"id": eid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.put("/calendar/events/{eid}")
+async def update_calendar_event(eid: str, data: CalendarEventInput, user: User = Depends(get_current_user)):
+    res = await db.calendar_events.update_one(
+        {"id": eid, "user_id": user.user_id},
+        {"$set": {"date": data.date, "title": data.title, "notes": data.notes, "status": data.status}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Event not found")
     return {"ok": True}
 
 
@@ -2197,13 +2214,13 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
 
 
 # ---------- Email reminders (Resend) ----------
-ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects"]
+ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects", "service"]
 AREA_OF = {"vehicle": "fleet", "trailer": "fleet", "driver": "drivers", "tacho": "tacho",
-           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects", "wheel": "pmi"}
+           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects", "wheel": "pmi", "service": "service"}
 AREA_PRESETS = {
     "Transport Manager": list(ALL_AREAS),
     "Driver": ["drivers", "tacho", "training"],
-    "Maintenance": ["fleet", "pmi", "defects"],
+    "Maintenance": ["fleet", "pmi", "defects", "service"],
 }
 
 
@@ -2332,11 +2349,17 @@ async def _reminder_alerts(user_id: str) -> list:
             "status": "expired" if sev in ("major", "safety_critical") else "due_soon",
             "days": None,
         })
+    services = await db.service_records.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    for sv in services:
+        d = days_until(sv.get("next_service_due"))
+        if d is not None and d <= 30:
+            alerts.append({
+                "type": "service", "name": sv.get("vehicle_reg", "Vehicle"),
+                "item": f"{sv.get('service_type', 'Service')} due", "status": "expired" if d < 0 else "due_soon", "days": d,
+            })
     for a in alerts:
         a["area"] = AREA_OF.get(a["type"], "documents")
     return alerts
-
-
 async def _process_daily_user(user_id: str, recipients: list) -> dict:
     """Per daily recipient, email only items that newly entered their filtered 30-day window (dedup)."""
     alerts = await _reminder_alerts(user_id)

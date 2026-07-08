@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -22,6 +22,10 @@ const TYPE_META = {
   training: { icon: GraduationCap, label: "Training Expiry" },
   insurance: { icon: ShieldCheck, label: "Insurance Renewal" },
   tacho: { icon: Gauge, label: "Tacho Download" },
+  wheel: { icon: Wrench, label: "Wheel Security" },
+  service: { icon: Cog, label: "Service Due" },
+  vehicle: { icon: Gauge, label: "Vehicle" },
+  driver: { icon: ShieldCheck, label: "Driver" },
   custom: { icon: Flag, label: "Event" },
 };
 
@@ -34,6 +38,7 @@ export default function Calendar() {
   const [selected, setSelected] = useState(new Date());
   const [evtOpen, setEvtOpen] = useState(false);
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
+  const [evtEditId, setEvtEditId] = useState(null);
   const [assets, setAssets] = useState([]);
   const [pmiOpen, setPmiOpen] = useState(false);
   const [pmiForm, setPmiForm] = useState({ vehicle_reg: "", next_due: "", frequency_weeks: 6, inspector: "" });
@@ -63,16 +68,22 @@ export default function Calendar() {
 
   const openAddEvent = () => {
     setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
+    setEvtEditId(null);
+    setEvtOpen(true);
+  };
+  const openEditEvent = (ev) => {
+    setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "" });
+    setEvtEditId(ev.id);
     setEvtOpen(true);
   };
   const saveEvent = async (e) => {
     e.preventDefault();
     try {
-      await api.post("/calendar/events", evtForm);
-      toast.success("Event added to calendar");
+      if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, evtForm); toast.success("Event updated"); }
+      else { await api.post("/calendar/events", evtForm); toast.success("Event added to calendar"); }
       setEvtOpen(false);
       loadEvents();
-    } catch { toast.error("Could not add event"); }
+    } catch { toast.error("Could not save event"); }
   };
   const deleteEvent = async (id) => {
     try { await api.delete(`/calendar/events/${id}`); toast.success("Event removed"); loadEvents(); }
@@ -175,7 +186,10 @@ export default function Calendar() {
                     </div>
                     <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
                     {e.type === "custom" && e.id && (
-                      <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button data-testid="edit-event-button" onClick={() => openEditEvent(e)} className="text-slate-300 hover:text-slate-900"><Pencil size={14} /></button>
+                        <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
+                      </div>
                     )}
                   </div>
                 );
@@ -195,8 +209,8 @@ export default function Calendar() {
       <Dialog open={evtOpen} onOpenChange={setEvtOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading">Add Calendar Event</DialogTitle>
-            <DialogDescription className="sr-only">Add a custom calendar event</DialogDescription>
+            <DialogTitle className="font-heading">{evtEditId ? "Edit Calendar Event" : "Add Calendar Event"}</DialogTitle>
+            <DialogDescription className="sr-only">Add or edit a custom calendar event</DialogDescription>
           </DialogHeader>
           <form onSubmit={saveEvent} className="space-y-4">
             <div>
@@ -211,7 +225,7 @@ export default function Calendar() {
               <label className="text-sm font-medium mb-1.5 block">Notes</label>
               <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
             </div>
-            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">Add Event</Button></DialogFooter>
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

@@ -86,6 +86,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Service tab + starter links (2026-07-08)**: added a "Service" tab to Maintenance (`/api/service-records` CRUD, `db.service_records`): vehicle, service type (Full/Interim/Oil/AdBlue/Repair/Other), date, odometer, provider, cost, next-service-due (colour-coded status via compliance_status), notes + invoice upload. New file `frontend/src/pages/Service.js`. Also added `POST /api/links/seed` + "Add starter links" button that inserts region-appropriate official links (6 UK DVSA / 5 IE RSA), idempotent by URL. Verified via curl (service status/days, seed added 6 then 0) + UI smoke.
 
+- **Calendar event editing + service on calendar (2026-07-08)**: added `PUT /api/calendar/events/{id}` and an edit (pencil) button on custom day events so date/title/notes can be corrected. Next-service-due dates from `service_records` now surface on the calendar (type "service", ⚙ icon, colour-coded) and feed email reminders via a new "service" area (registered in ALL_AREAS/AREA_OF, added to the Maintenance recipient preset; service due items within 30 days added in `_reminder_alerts`). Verified via curl (edit updates title/date; service event appears due_soon).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
