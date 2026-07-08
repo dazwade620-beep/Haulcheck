@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +18,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 const resultBadge = { pass: "bg-green-100 text-green-700", advisory: "bg-yellow-100 text-yellow-800", fail: "bg-red-100 text-red-700" };
 
 export function InspectionsPanel({ embedded = false }) {
+  const { user } = useAuth();
+  const isIE = user?.region === "IE";
   const [items, setItems] = useState([]);
   const [records, setRecords] = useState([]);
   const [open, setOpen] = useState(false);
@@ -166,12 +169,14 @@ export function InspectionsPanel({ embedded = false }) {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Laden?">
-                  <Select value={cForm.laden ? "yes" : "no"} onValueChange={(v) => setCForm({ ...cForm, laden: v === "yes" })}>
-                    <SelectTrigger data-testid="brake-laden-select"><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="yes">Laden</SelectItem><SelectItem value="no">Unladen</SelectItem></SelectContent>
-                  </Select>
-                </Field>
+                {!isIE && (
+                  <Field label="Laden?">
+                    <Select value={cForm.laden ? "yes" : "no"} onValueChange={(v) => setCForm({ ...cForm, laden: v === "yes" })}>
+                      <SelectTrigger data-testid="brake-laden-select"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="yes">Laden</SelectItem><SelectItem value="no">Unladen</SelectItem></SelectContent>
+                    </Select>
+                  </Field>
+                )}
                 <Field label="Service brake %"><Input data-testid="brake-service" value={cForm.service_brake_pct} onChange={(e) => setCForm({ ...cForm, service_brake_pct: e.target.value })} placeholder="e.g. 52" /></Field>
                 <Field label="Secondary brake %"><Input data-testid="brake-secondary" value={cForm.secondary_brake_pct} onChange={(e) => setCForm({ ...cForm, secondary_brake_pct: e.target.value })} placeholder="e.g. 28" /></Field>
                 <Field label="Parking brake %"><Input data-testid="brake-parking" value={cForm.parking_brake_pct} onChange={(e) => setCForm({ ...cForm, parking_brake_pct: e.target.value })} placeholder="e.g. 18" /></Field>

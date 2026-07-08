@@ -25,6 +25,8 @@ export default function Drivers() {
   const [editId, setEditId] = useState(null);
   const [docFor, setDocFor] = useState(null);
   const [docForm, setDocForm] = useState(emptyDoc);
+  const [cpcFor, setCpcFor] = useState(null);
+  const [cpcForm, setCpcForm] = useState({ course_name: "", hours: "", completed_date: new Date().toISOString().slice(0, 10), provider: "" });
 
   const load = async () => {
     const [d, t, docs] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents")]);
@@ -62,6 +64,19 @@ export default function Drivers() {
     } catch { toast.error("Could not save document"); }
   };
   const removeDoc = async (id) => { await api.delete(`/documents/${id}`); toast.success("Document removed"); load(); };
+
+  const openCpc = (d) => { setCpcFor(d); setCpcForm({ course_name: "", hours: "", completed_date: new Date().toISOString().slice(0, 10), provider: "" }); };
+  const saveCpc = async () => {
+    if (!cpcForm.course_name || !cpcForm.hours) { toast.error("Enter a course and hours"); return; }
+    try {
+      await api.post("/training", {
+        driver_id: cpcFor.id, driver_name: cpcFor.name, course_name: cpcForm.course_name,
+        category: "Driver CPC", hours: Number(cpcForm.hours), completed_date: cpcForm.completed_date || null,
+        expiry_date: cpcFor.cpc_expiry || null, provider: cpcForm.provider,
+      });
+      toast.success("CPC training logged"); setCpcFor(null); load();
+    } catch { toast.error("Could not log training"); }
+  };
 
   return (
     <div data-testid="drivers-page">
@@ -105,7 +120,10 @@ export default function Drivers() {
                 <div className="mt-3 rounded-md bg-slate-50 px-3 py-2.5" data-testid="driver-cpc-hours">
                   <div className="flex items-center justify-between text-sm mb-1.5">
                     <span className="text-slate-500">Driver CPC training</span>
-                    <span className={`font-bold ${(d.cpc_hours || 0) >= 35 ? "text-green-700" : "text-amber-600"}`}>{(d.cpc_hours || 0).toFixed(0)} / 35h</span>
+                    <div className="flex items-center gap-2">
+                      <button data-testid="log-cpc-button" onClick={() => openCpc(d)} className="text-[11px] font-semibold text-slate-500 hover:text-slate-900">+ Log</button>
+                      <span className={`font-bold ${(d.cpc_hours || 0) >= 35 ? "text-green-700" : "text-amber-600"}`}>{(d.cpc_hours || 0).toFixed(0)} / 35h</span>
+                    </div>
                   </div>
                   <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
                     <div data-testid="cpc-progress-bar" className={`h-full rounded-full transition-all duration-500 ${(d.cpc_hours || 0) >= 35 ? "bg-green-600" : "bg-amber-500"}`} style={{ width: `${Math.min(100, ((d.cpc_hours || 0) / 35) * 100)}%` }} />
@@ -210,6 +228,21 @@ export default function Drivers() {
             <Field label="Notes"><Input data-testid="ddoc-notes" value={docForm.notes} onChange={(e) => setDocForm({ ...docForm, notes: e.target.value })} /></Field>
             <Field label="Scan / File"><FileUpload testid="ddoc-upload" attachments={docForm.attachments} onChange={(a) => setDocForm({ ...docForm, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-driver-doc-button" onClick={saveDoc} disabled={!docForm.title} className="bg-black hover:bg-slate-800">Add Document</Button></DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!cpcFor} onOpenChange={(o) => !o && setCpcFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-heading">Log CPC training — {cpcFor?.name}</DialogTitle><DialogDescription>Adds a Driver CPC training record; the progress bar updates automatically.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <Field label="Course / module *"><Input data-testid="cpc-course" value={cpcForm.course_name} onChange={(e) => setCpcForm({ ...cpcForm, course_name: e.target.value })} placeholder="e.g. Drivers' Hours & WTD" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Hours *"><Input data-testid="cpc-hours" type="number" step="0.5" value={cpcForm.hours} onChange={(e) => setCpcForm({ ...cpcForm, hours: e.target.value })} placeholder="7" /></Field>
+              <Field label="Completed"><Input data-testid="cpc-date" type="date" value={cpcForm.completed_date} onChange={(e) => setCpcForm({ ...cpcForm, completed_date: e.target.value })} /></Field>
+            </div>
+            <Field label="Provider"><Input data-testid="cpc-provider" value={cpcForm.provider} onChange={(e) => setCpcForm({ ...cpcForm, provider: e.target.value })} placeholder="Training centre" /></Field>
+            <DialogFooter><Button data-testid="save-cpc-button" onClick={saveCpc} disabled={!cpcForm.course_name || !cpcForm.hours} className="bg-black hover:bg-slate-800">Log Training</Button></DialogFooter>
           </div>
         </DialogContent>
       </Dialog>
