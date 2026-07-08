@@ -1410,24 +1410,52 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
 
 
 # ---------- Email reminders (Resend) ----------
+ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects"]
+AREA_OF = {"vehicle": "fleet", "trailer": "fleet", "driver": "drivers", "tacho": "tacho",
+           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects"}
+AREA_PRESETS = {
+    "Transport Manager": list(ALL_AREAS),
+    "Driver": ["drivers", "tacho", "training"],
+    "Maintenance": ["fleet", "pmi", "defects"],
+}
+
+
+class Recipient(BaseModel):
+    email: EmailStr
+    areas: List[str] = Field(default_factory=lambda: list(ALL_AREAS))
+    frequency: str = "daily"  # daily | weekly
+
+
 class ReminderSettingsInput(BaseModel):
-    recipients: List[EmailStr] = []
+    recipients: List[Recipient] = []
+
+
+def _norm_recipient(r) -> dict:
+    if isinstance(r, str):
+        return {"email": r, "areas": list(ALL_AREAS), "frequency": "daily"}
+    return {
+        "email": r.get("email"),
+        "areas": r.get("areas") or list(ALL_AREAS),
+        "frequency": r.get("frequency", "daily") if r.get("frequency") in ("daily", "weekly") else "daily",
+    }
 
 
 @api_router.get("/reminders/settings")
 async def get_reminder_settings(user: User = Depends(get_current_user)):
     doc = await db.reminder_settings.find_one({"user_id": user.user_id}, {"_id": 0})
-    return {"recipients": (doc or {}).get("recipients", [])}
+    recipients = [_norm_recipient(r) for r in (doc or {}).get("recipients", [])]
+    return {"recipients": recipients, "areas": ALL_AREAS, "presets": AREA_PRESETS}
 
 
 @api_router.put("/reminders/settings")
 async def update_reminder_settings(data: ReminderSettingsInput, user: User = Depends(get_current_user)):
-    payload = {"user_id": user.user_id, "recipients": data.recipients, "updated_at": now_iso()}
+    recipients = [r.model_dump() for r in data.recipients]
+    payload = {"user_id": user.user_id, "recipients": recipients, "updated_at": now_iso()}
     await db.reminder_settings.update_one({"user_id": user.user_id}, {"$set": payload}, upsert=True)
-    return {"ok": True, "recipients": data.recipients}
+    return {"ok": True, "recipients": recipients}
 
 
-def build_reminder_html(company: str, alerts: list, authority: str) -> str:
+def build_reminder_html(company: str, alerts: list, authority: str, weekly: bool = False) -> str:
     if alerts:
         rows = ""
         for a in alerts:
@@ -1454,17 +1482,21 @@ def build_reminder_html(company: str, alerts: list, authority: str) -> str:
             "<th style='padding:10px 12px;text-align:left;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#cbd5e1;'>Status</th>"
             f"</tr>{rows}</table>"
         )
-        intro = f"The following <strong>{len(alerts)}</strong> compliance item(s) are expired or due within the next 30 days and need attention:"
+        intro = (f"Your weekly compliance summary — the following <strong>{len(alerts)}</strong> item(s) are expired or due within the next 30 days:"
+                 if weekly else
+                 f"The following <strong>{len(alerts)}</strong> compliance item(s) are expired or due within the next 30 days and need attention:")
     else:
         table = ""
-        intro = "Good news — no compliance items are expired or due within the next 30 days."
+        intro = ("Your weekly compliance summary — no items are expired or due within the next 30 days. Everything is up to date."
+                 if weekly else
+                 "Good news — no compliance items are expired or due within the next 30 days.")
 
     return (
         "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
         "<table role='presentation' width='600' align='center' cellpadding='0' cellspacing='0' style='background:#ffffff;border-radius:12px;padding:32px;margin:0 auto;'>"
         "<tr><td>"
         "<p style='margin:0;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck · " + authority + " compliance</p>"
-        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Compliance reminder</h1>"
+        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>" + ("Weekly compliance summary" if weekly else "Compliance reminder") + "</h1>"
         "<p style='margin:4px 0 0;font-size:14px;color:#475569;'>" + company + "</p>"
         "<p style='margin:20px 0 0;font-size:14px;color:#334155;line-height:1.6;'>" + intro + "</p>"
         + table +
@@ -1473,16 +1505,19 @@ def build_reminder_html(company: str, alerts: list, authority: str) -> str:
     )
 
 
-async def _deliver_reminder(user_id: str, recipients: list, alerts: list) -> str:
+async def _deliver_reminder(user_id: str, to_emails: list, alerts: list, weekly: bool = False) -> str:
     operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
     company = operator.get("company_name") or "Your fleet"
     udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     authority = "RSA" if udoc.get("region") == "IE" else "DVSA"
-    html = build_reminder_html(company, alerts, authority)
-    subject = f"HaulCheck reminder — {len(alerts)} compliance item(s) need attention" if alerts else "HaulCheck compliance reminder — all clear"
+    html = build_reminder_html(company, alerts, authority, weekly=weekly)
+    if weekly:
+        subject = f"HaulCheck weekly summary — {len(alerts)} item(s) need attention" if alerts else "HaulCheck weekly summary — all clear"
+    else:
+        subject = f"HaulCheck reminder — {len(alerts)} compliance item(s) need attention" if alerts else "HaulCheck compliance reminder — all clear"
     import resend
     resend.api_key = os.environ['RESEND_API_KEY']
-    params = {"from": os.environ['SENDER_EMAIL'], "to": recipients, "subject": subject, "html": html}
+    params = {"from": os.environ['SENDER_EMAIL'], "to": to_emails, "subject": subject, "html": html}
     result = await asyncio.to_thread(resend.Emails.send, params)
     return result.get("id") if isinstance(result, dict) else getattr(result, "id", None)
 
@@ -1491,39 +1526,96 @@ def _alert_key(a: dict) -> str:
     return f"{a['type']}|{a['name']}|{a['item']}"
 
 
-async def _process_scheduled_user(user_id: str, recipients: list) -> dict:
-    """Send a reminder only for items that newly entered the 30-day window (dedup)."""
+def _filter_alerts(alerts: list, areas: list) -> list:
+    allow = set(areas) if areas else set(ALL_AREAS)
+    return [a for a in alerts if a.get("area") in allow]
+
+
+async def _reminder_alerts(user_id: str) -> list:
+    """All items expired or due within 30 days (incl. open defects), each tagged with an area."""
     stats = await gather_stats(user_id)
-    alerts = [a for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
-    current_keys = {_alert_key(a) for a in alerts}
+    alerts = [dict(a) for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
+    defects = await db.defects.find({"user_id": user_id, "status": "open"}, {"_id": 0}).to_list(1000)
+    for d in defects:
+        sev = d.get("severity", "minor")
+        alerts.append({
+            "type": "defect",
+            "name": d.get("vehicle_reg", "Vehicle"),
+            "item": f"{sev.replace('_', ' ').title()} defect: {(d.get('description') or '')[:60]}",
+            "status": "expired" if sev in ("major", "safety_critical") else "due_soon",
+            "days": None,
+        })
+    for a in alerts:
+        a["area"] = AREA_OF.get(a["type"], "documents")
+    return alerts
+
+
+async def _process_daily_user(user_id: str, recipients: list) -> dict:
+    """Per daily recipient, email only items that newly entered their filtered 30-day window (dedup)."""
+    alerts = await _reminder_alerts(user_id)
     log_doc = await db.reminder_log.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    logged = set(log_doc.get("keys", [])) & current_keys  # drop keys that renewed/were deleted
-    new_items = [a for a in alerts if _alert_key(a) not in logged]
-    email_id = None
-    if new_items:
-        email_id = await _deliver_reminder(user_id, recipients, new_items)
-        logged |= {_alert_key(a) for a in new_items}
+    sent = log_doc.get("sent", {})
+    total_new = 0
+    for raw in recipients:
+        r = _norm_recipient(raw)
+        if r["frequency"] != "daily":
+            continue
+        r_alerts = _filter_alerts(alerts, r["areas"])
+        current_keys = {_alert_key(a) for a in r_alerts}
+        logged = set(sent.get(r["email"], [])) & current_keys  # drop renewed/deleted
+        new_items = [a for a in r_alerts if _alert_key(a) not in logged]
+        if new_items:
+            await _deliver_reminder(user_id, [r["email"]], new_items)
+            logged |= {_alert_key(a) for a in new_items}
+            total_new += len(new_items)
+        sent[r["email"]] = list(logged)
     await db.reminder_log.update_one(
         {"user_id": user_id},
-        {"$set": {"user_id": user_id, "keys": list(logged), "updated_at": now_iso()}},
+        {"$set": {"user_id": user_id, "sent": sent, "updated_at": now_iso()}},
         upsert=True,
     )
-    return {"new_item_count": len(new_items), "email_id": email_id}
+    return {"new_item_count": total_new}
+
+
+async def _process_weekly_user(user_id: str, recipients: list) -> int:
+    alerts = await _reminder_alerts(user_id)
+    count = 0
+    for raw in recipients:
+        r = _norm_recipient(raw)
+        if r["frequency"] != "weekly":
+            continue
+        r_alerts = _filter_alerts(alerts, r["areas"])
+        await _deliver_reminder(user_id, [r["email"]], r_alerts, weekly=True)
+        count += 1
+    return count
 
 
 async def run_daily_reminders():
     logger.info("Running daily reminder job")
     settings_list = await db.reminder_settings.find({"recipients": {"$exists": True, "$ne": []}}, {"_id": 0}).to_list(10000)
     for s in settings_list:
-        recipients = s.get("recipients", [])
-        if not recipients:
+        if not s.get("recipients"):
             continue
         try:
-            res = await _process_scheduled_user(s["user_id"], recipients)
+            res = await _process_daily_user(s["user_id"], s["recipients"])
             if res["new_item_count"]:
                 logger.info(f"Daily reminder sent to {s['user_id']} ({res['new_item_count']} new items)")
         except Exception as e:
             logger.error(f"Daily reminder failed for {s.get('user_id')}: {e}")
+
+
+async def run_weekly_reminders():
+    logger.info("Running weekly reminder job")
+    settings_list = await db.reminder_settings.find({"recipients": {"$exists": True, "$ne": []}}, {"_id": 0}).to_list(10000)
+    for s in settings_list:
+        if not s.get("recipients"):
+            continue
+        try:
+            sent = await _process_weekly_user(s["user_id"], s["recipients"])
+            if sent:
+                logger.info(f"Weekly summary sent to {s['user_id']} ({sent} recipients)")
+        except Exception as e:
+            logger.error(f"Weekly reminder failed for {s.get('user_id')}: {e}")
 
 
 @api_router.post("/reminders/send")
@@ -1532,14 +1624,18 @@ async def send_reminders(user: User = Depends(get_current_user)):
     recipients = settings.get("recipients", [])
     if not recipients:
         raise HTTPException(status_code=400, detail="No recipient emails configured. Add at least one in Settings.")
-    stats = await gather_stats(user.user_id)
-    upcoming = [a for a in stats["alerts"] if a["status"] in ("expired", "due_soon")]
+    alerts = await _reminder_alerts(user.user_id)
+    results = []
     try:
-        email_id = await _deliver_reminder(user.user_id, recipients, upcoming)
+        for raw in recipients:
+            r = _norm_recipient(raw)
+            r_alerts = _filter_alerts(alerts, r["areas"])
+            eid = await _deliver_reminder(user.user_id, [r["email"]], r_alerts)
+            results.append({"email": r["email"], "item_count": len(r_alerts), "email_id": eid})
     except Exception as e:
         logging.error(f"Reminder email failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
-    return {"ok": True, "sent_to": recipients, "item_count": len(upcoming), "email_id": email_id}
+    return {"ok": True, "results": results, "recipient_count": len(results)}
 
 
 @api_router.post("/reminders/run-scheduled")
@@ -1549,11 +1645,12 @@ async def run_scheduled_now(user: User = Depends(get_current_user)):
     if not recipients:
         raise HTTPException(status_code=400, detail="No recipient emails configured. Add at least one in Settings.")
     try:
-        res = await _process_scheduled_user(user.user_id, recipients)
+        daily = await _process_daily_user(user.user_id, recipients)
+        weekly_sent = await _process_weekly_user(user.user_id, recipients)
     except Exception as e:
         logging.error(f"Scheduled reminder run failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to run: {e}")
-    return {"ok": True, **res}
+    return {"ok": True, "new_item_count": daily["new_item_count"], "weekly_sent": weekly_sent}
 
 
 app.include_router(api_router)
@@ -1581,8 +1678,9 @@ async def startup_event():
         logger.error(f"Storage init failed: {e}")
     try:
         scheduler.add_job(run_daily_reminders, "cron", hour=7, minute=0, id="daily_reminders", replace_existing=True)
+        scheduler.add_job(run_weekly_reminders, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_reminders", replace_existing=True)
         scheduler.start()
-        logger.info("Reminder scheduler started (daily 07:00 UTC)")
+        logger.info("Reminder scheduler started (daily 07:00 UTC, weekly Mon 07:00 UTC)")
     except Exception as e:
         logger.error(f"Scheduler start failed: {e}")
 
