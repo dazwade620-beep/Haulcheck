@@ -108,6 +108,61 @@ def build_report_pdf(title, subtitle, meta_pairs, sections):
     return buf.getvalue()
 
 
+def build_letter_pdf(company, recipient_name, recipient_address, subject, body, date_str, doc_type, signoff_name="", signoff_role=""):
+    """Formal company letter. company: dict from operator details. body: plain text, \n\n = paragraphs."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20 * mm, bottomMargin=18 * mm,
+                            leftMargin=22 * mm, rightMargin=22 * mm, title=subject or doc_type)
+    ss = _styles()
+    if "Letter" not in ss:
+        ss.add(ParagraphStyle("Letter", fontName="Helvetica", fontSize=10.5, textColor=DARK, leading=15, spaceAfter=10))
+        ss.add(ParagraphStyle("LetterHead", fontName="Helvetica-Bold", fontSize=15, textColor=DARK, leading=18, spaceAfter=1))
+        ss.add(ParagraphStyle("LetterMeta", fontName="Helvetica", fontSize=9, textColor=SLATE, leading=12))
+        ss.add(ParagraphStyle("LetterSubject", fontName="Helvetica-Bold", fontSize=11, textColor=DARK, leading=14, spaceBefore=6, spaceAfter=10))
+    story = []
+    cname = (company or {}).get("company_name") or "Company Name"
+    story.append(Paragraph(cname, ss["LetterHead"]))
+    head_bits = []
+    if (company or {}).get("address"):
+        head_bits.append(company["address"].replace("\n", ", "))
+    if (company or {}).get("operator_licence_number"):
+        head_bits.append(f"O-Licence {company['operator_licence_number']}")
+    if (company or {}).get("company_number"):
+        head_bits.append(f"Co. No. {company['company_number']}")
+    if head_bits:
+        story.append(Paragraph(" &nbsp;·&nbsp; ".join(head_bits), ss["LetterMeta"]))
+    story.append(Spacer(1, 4))
+    story.append(Table([[""]], colWidths=[166 * mm], style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 1, DARK)])))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(date_str, ss["LetterMeta"]))
+    story.append(Spacer(1, 10))
+    if recipient_name:
+        story.append(Paragraph(f"<b>{recipient_name}</b>", ss["Letter"]))
+    if recipient_address:
+        for line in recipient_address.split("\n"):
+            if line.strip():
+                story.append(Paragraph(line.strip(), ss["LetterMeta"]))
+    story.append(Spacer(1, 8))
+    if subject:
+        story.append(Paragraph(f"Re: {subject}", ss["LetterSubject"]))
+    story.append(Paragraph(f"Dear {recipient_name or 'Sir/Madam'},", ss["Letter"]))
+    for para in (body or "").split("\n\n"):
+        p = para.strip().replace("\n", "<br/>")
+        if p:
+            story.append(Paragraph(p, ss["Letter"]))
+    story.append(Spacer(1, 16))
+    story.append(Paragraph("Yours sincerely,", ss["Letter"]))
+    story.append(Spacer(1, 18))
+    if signoff_name:
+        story.append(Paragraph(f"<b>{signoff_name}</b>", ss["Letter"]))
+    if signoff_role:
+        story.append(Paragraph(signoff_role, ss["LetterMeta"]))
+    doc.build(story)
+    return buf.getvalue()
+
+
+
+
 def _divider_pdf(title):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, leftMargin=16 * mm, rightMargin=16 * mm)

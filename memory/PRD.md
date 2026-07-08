@@ -60,6 +60,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Per-driver Documents folder (2026-07-08)**: each driver card now has a "Documents" folder (mirrors Training) with "+ Add" opening a dialog for driver-specific compliance paperwork: Driver Infringement, Infringement Report, Warning Letter, Attestation Record, Indoctrination Document, Adhoc Note, Other — with reference/date/notes + file upload. Documents are linked via `driver_id`/`driver_name` on `ComplianceDoc`/`DocInput`; driver-linked docs are excluded from the general Office → Documents list to avoid clutter. Verified via UI (create/persist/delete).
 
+- **Company Documents Generator (2026-07-08)**: In Office → Documents, a "Generate Document" button opens a generator: pick a template (Warning Letter, Employment Offer Letter, Contract of Employment, Reference Letter, Disciplinary Invite, Disciplinary Outcome, Return to Work), enter recipient name/address + key points, then "AI Draft Letter" (`POST /api/documents/draft`, gpt-5.4) writes an editable subject + body. "Generate & Save PDF" (`POST /api/documents/generate`) renders a branded formal letter PDF (company letterhead pulled from Operator Details, TM sign-off) via `build_letter_pdf` in pdf_export.py, uploads it to object storage, and saves it as a document in the Office Documents list with the PDF attached. Verified end-to-end (curl + UI).
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

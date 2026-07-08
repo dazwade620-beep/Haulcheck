@@ -5,19 +5,26 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, FolderCheck } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Attestation Record", "Indoctrination Document", "Driver Infringement", "Infringement Report", "Warning Letter", "Adhoc Note", "Other"];
+const LETTER_TEMPLATES = ["Warning Letter", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work"];
 const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", attachments: [] };
+const emptyGen = { template: "Warning Letter", title: "", recipient_name: "", recipient_address: "", points: "", subject: "", body: "" };
 
 export function DocumentsPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [genOpen, setGenOpen] = useState(false);
+  const [gen, setGen] = useState(emptyGen);
+  const [drafting, setDrafting] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const load = async () => setItems((await api.get("/documents")).data.filter((d) => !d.driver_id));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -38,14 +45,36 @@ export function DocumentsPanel({ embedded = false }) {
   };
   const remove = async (id) => { await api.delete(`/documents/${id}`); toast.success("Document removed"); load(); };
 
+  const openGen = () => { setGen(emptyGen); setGenOpen(true); };
+  const draft = async () => {
+    setDrafting(true);
+    try {
+      const { data } = await api.post("/documents/draft", { template: gen.template, recipient_name: gen.recipient_name, points: gen.points });
+      setGen((g) => ({ ...g, subject: data.subject || g.template, body: data.body || "" }));
+      toast.success("Draft ready — review & edit below");
+    } catch { toast.error("Could not draft letter"); }
+    setDrafting(false);
+  };
+  const generate = async () => {
+    setGenerating(true);
+    try {
+      await api.post("/documents/generate", {
+        template: gen.template, title: gen.title, recipient_name: gen.recipient_name,
+        recipient_address: gen.recipient_address, subject: gen.subject, body: gen.body,
+      });
+      toast.success("Document generated & saved");
+      setGenOpen(false); load();
+    } catch { toast.error("Could not generate document"); }
+    setGenerating(false);
+  };
+
   return (
     <div data-testid="documents-page">
       {!embedded && <Header title="Documents" subtitle="Operator licence, insurance, audits & wheel security" onAdd={openNew} addTestId="add-document-button" addLabel="Add Document" />}
-      {embedded && (
-        <div className="flex justify-end mb-4">
-          <Button data-testid="add-document-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Document</Button>
-        </div>
-      )}
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="generate-document-button" onClick={openGen} variant="outline" className="rounded-md gap-2 border-slate-300"><FileSignature size={16} /> Generate Document</Button>
+        {embedded && <Button data-testid="add-document-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Document</Button>}
+      </div>
 
       {items.length === 0 ? <Empty icon={FolderCheck} text="No documents yet. Track expiry of key operator documents." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -93,6 +122,38 @@ export function DocumentsPanel({ embedded = false }) {
             <Field label="Scan / Document"><FileUpload testid="doc-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-document-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Document"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={genOpen} onOpenChange={setGenOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><FileSignature size={18} /> Generate Company Document</DialogTitle><DialogDescription>Pick a template, add the details, let AI draft it, then edit &amp; save a branded PDF to your documents.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Template">
+                <Select value={gen.template} onValueChange={(v) => setGen({ ...gen, template: v })}>
+                  <SelectTrigger data-testid="gen-template"><SelectValue /></SelectTrigger>
+                  <SelectContent>{LETTER_TEMPLATES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              <Field label="Recipient name"><Input data-testid="gen-recipient" value={gen.recipient_name} onChange={(e) => setGen({ ...gen, recipient_name: e.target.value })} placeholder="John Smith" /></Field>
+            </div>
+            <Field label="Recipient address (optional)"><Textarea data-testid="gen-address" rows={2} value={gen.recipient_address} onChange={(e) => setGen({ ...gen, recipient_address: e.target.value })} placeholder="1 High Street&#10;Manchester&#10;M1 2AB" /></Field>
+            <Field label="Key points / context for the AI">
+              <Textarea data-testid="gen-points" rows={3} value={gen.points} onChange={(e) => setGen({ ...gen, points: e.target.value })} placeholder="e.g. 3rd speeding infringement in 6 months. Formal first written warning. Expect improvement within 3 months." />
+            </Field>
+            <Button data-testid="gen-draft-button" onClick={draft} disabled={drafting} variant="outline" className="w-full gap-2 border-slate-300">
+              {drafting ? <><Loader2 size={16} className="animate-spin" /> Drafting…</> : <><Sparkles size={16} /> AI Draft Letter</>}
+            </Button>
+            <Field label="Subject / reference line"><Input data-testid="gen-subject" value={gen.subject} onChange={(e) => setGen({ ...gen, subject: e.target.value })} placeholder="First Written Warning — Speeding" /></Field>
+            <Field label="Letter body (editable)"><Textarea data-testid="gen-body" rows={9} value={gen.body} onChange={(e) => setGen({ ...gen, body: e.target.value })} placeholder="Click ‘AI Draft Letter’ to generate, or write the body here…" /></Field>
+            <Field label="Save as (document title, optional)"><Input data-testid="gen-title" value={gen.title} onChange={(e) => setGen({ ...gen, title: e.target.value })} placeholder="Defaults to template + recipient" /></Field>
+            <DialogFooter>
+              <Button data-testid="gen-generate-button" onClick={generate} disabled={generating || !gen.body} className="bg-black hover:bg-slate-800 gap-2">
+                {generating ? <><Loader2 size={16} className="animate-spin" /> Generating…</> : "Generate & Save PDF"}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

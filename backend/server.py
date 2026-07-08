@@ -18,7 +18,7 @@ import base64
 import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
-from pdf_export import build_report_pdf, merge_pack
+from pdf_export import build_report_pdf, merge_pack, build_letter_pdf
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -261,6 +261,23 @@ class DocInput(BaseModel):
     driver_id: str = ""
     driver_name: str = ""
     attachments: List[Attachment] = []
+
+
+class LetterDraftInput(BaseModel):
+    template: str = "Warning Letter"
+    recipient_name: str = ""
+    points: str = ""
+
+
+class LetterGenerateInput(BaseModel):
+    template: str = "Warning Letter"
+    title: str = ""
+    recipient_name: str = ""
+    recipient_address: str = ""
+    subject: str = ""
+    body: str = ""
+    signoff_name: str = ""
+    signoff_role: str = ""
 
 
 class InsurancePolicy(BaseModel):
@@ -830,6 +847,88 @@ async def update_document(docid: str, data: DocInput, user: User = Depends(get_c
 async def delete_document(docid: str, user: User = Depends(get_current_user)):
     await db.documents.delete_one({"id": docid, "user_id": user.user_id})
     return {"ok": True}
+
+
+# ---------- Company document generator ----------
+LETTER_GUIDES = {
+    "Warning Letter": "a formal disciplinary warning letter to an employee driver. Reference the conduct/incident, state this is a formal warning, note expected improvement, consequences of repeat, and right to appeal.",
+    "Employment Offer Letter": "a formal job offer letter for a driver/employee. State the role, start date, salary/rate, hours, and that a contract will follow. Warm but professional.",
+    "Contract of Employment": "a concise contract of employment summary covering job title, start date, place of work, hours, pay, holiday, notice period and reference to company policies.",
+    "Reference Letter": "a professional employment reference confirming the person's role, dates of employment, conduct and reliability.",
+    "Disciplinary Invite": "a formal letter inviting the employee to a disciplinary hearing: date/time/place, the matter to be discussed, right to be accompanied, and possible outcomes.",
+    "Disciplinary Outcome": "a formal letter confirming the outcome of a disciplinary hearing, the decision reached, any sanction, improvement required and appeal rights.",
+    "Return to Work": "a return-to-work / fitness confirmation letter after absence, confirming duties resumed and any adjustments.",
+}
+
+
+@api_router.post("/documents/draft")
+async def draft_document(data: LetterDraftInput, user: User = Depends(get_current_user)):
+    op = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    guide = LETTER_GUIDES.get(data.template, f"a formal '{data.template}' business letter")
+    company = op.get("company_name") or "the company"
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        system = (
+            "You are a UK road-haulage HR and compliance assistant. You draft professional, legally-sensible "
+            "business letters for a transport operator. Use British English, a formal but human tone. "
+            "Do NOT include the date, addresses, 'Dear ...' greeting or 'Yours sincerely' sign-off — ONLY the subject line "
+            "and the body paragraphs (those are added by the template). "
+            "Return STRICT JSON: {\"subject\": \"...\", \"body\": \"...\"} where body uses \\n\\n between paragraphs."
+        )
+        prompt = (
+            f"Company: {company}. Draft {guide}\n"
+            f"Recipient: {data.recipient_name or 'the employee'}.\n"
+            f"Context / key points to include:\n{data.points or '(no specific points provided — write a sensible standard version)'}"
+        )
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"letter_{uuid.uuid4().hex[:8]}", system_message=system).with_model("openai", "gpt-5.4")
+        resp = await chat.send_message(UserMessage(text=prompt))
+        text = resp if isinstance(resp, str) else str(resp)
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        parsed = json.loads(m.group(0)) if m else {"subject": data.template, "body": text}
+        return {"subject": parsed.get("subject", data.template), "body": parsed.get("body", "")}
+    except Exception as e:
+        logging.error(f"Letter draft failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not draft letter")
+
+
+@api_router.post("/documents/generate")
+async def generate_document(data: LetterGenerateInput, user: User = Depends(get_current_user)):
+    op = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    signoff_name = data.signoff_name or op.get("tm_name") or ""
+    signoff_role = data.signoff_role or ("Transport Manager" if op.get("tm_name") else "")
+    date_str = datetime.now(timezone.utc).strftime("%d %B %Y")
+    try:
+        pdf_bytes = build_letter_pdf(
+            op, data.recipient_name, data.recipient_address, data.subject, data.body,
+            date_str, data.template, signoff_name, signoff_role,
+        )
+    except Exception as e:
+        logging.error(f"Letter PDF build failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not build PDF")
+
+    file_id = uuid.uuid4().hex
+    fname = f"{data.template.replace(' ', '_')}_{(data.recipient_name or 'letter').replace(' ', '_')}.pdf"
+    path = f"{APP_NAME}/uploads/{user.user_id}/{file_id}.pdf"
+    try:
+        result = put_object(path, pdf_bytes, "application/pdf")
+    except Exception as e:
+        logging.error(f"Letter upload failed: {e}")
+        raise HTTPException(status_code=502, detail="Upload failed")
+    await db.files.insert_one({
+        "id": file_id, "user_id": user.user_id, "storage_path": result["path"],
+        "original_filename": fname, "content_type": "application/pdf",
+        "size": result.get("size", len(pdf_bytes)), "is_deleted": False, "created_at": now_iso(),
+    })
+    doc = ComplianceDoc(
+        user_id=user.user_id,
+        title=data.title or f"{data.template} — {data.recipient_name}".strip(" —"),
+        doc_type=data.template,
+        reference=data.subject,
+        notes=f"Generated {date_str}",
+        attachments=[Attachment(file_id=file_id, filename=fname, content_type="application/pdf")],
+    )
+    await db.documents.insert_one(doc.model_dump())
+    return doc.model_dump()
 
 
 # ---------- Insurance ----------
