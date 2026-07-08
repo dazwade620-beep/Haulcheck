@@ -76,6 +76,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
   - **Letter versioning**: generated docs store `letter_data.version`; a ↻ regenerate button reopens the generator pre-filled, `PUT /api/documents/{id}/regenerate` bumps the version and stamps notes "vN · updated <date>", soft-deleting the prior PDF.
   - **Document web link**: `link_url` on ComplianceDoc/DocInput; Link2 icon on the card opens the URL. Verified via testing_agent (iteration_13.json): 11/11 tests + regression pass.
 
+- **CPC hours false-alarm fix (2026-07-08)**: the gap-detection "Driver CPC hours behind" flag previously fired for any driver with <35h logged CPC training regardless of DQC status. Now it only flags when the driver's CPC is within 12 months of expiry (medium priority ≤90 days), with clearer wording ("periodic training incomplete (Xh/35h) before CPC renewal <date>"). Verified via risk-insight on the test account.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

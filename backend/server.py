@@ -2008,8 +2008,10 @@ async def detect_gaps(user_id: str):
                         if (t.get("driver_id") == d["id"] or t.get("driver_name") == nm)
                         and "cpc" in (t.get("category") or "").lower()
                         and (t.get("completed_date") or "9999") >= cutoff)
-        if cpc_hours < 35:
-            gaps.append({"area": "Training", "item": f"{nm}: Driver CPC hours behind ({cpc_hours:.0f}/35 in 5 yrs)", "priority": "low"})
+        cpc_days = days_until(d.get("cpc_expiry"))
+        if cpc_hours < 35 and cpc_days is not None and cpc_days <= 365:
+            due = d.get("cpc_expiry") or ""
+            gaps.append({"area": "Training", "item": f"{nm}: Driver CPC periodic training incomplete ({cpc_hours:.0f}/35h) before CPC renewal {due}", "priority": "medium" if cpc_days <= 90 else "low"})
         if nm not in tacho_dc:
             gaps.append({"area": "Tacho", "item": f"{nm}: no driver-card tacho download record", "priority": "medium"})
         if nm not in training_drivers:
