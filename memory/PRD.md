@@ -56,6 +56,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **PMI/Defect dropdowns + Wheel Security Audits** (2026-07-08): PMI and Defect forms now use vehicle/trailer dropdowns (and driver dropdown for defect reporter) instead of free text. Added a Wheel Security Audits feature (`/api/wheel-audits` CRUD, `db.wheel_audits`): vehicle, date, result (pass/advisory/fail), torque setting, checked-by, next-due with status, notes, attachments — surfaced as a 3rd tab in the Maintenance folder and included in the account PDF export. New file: `frontend/src/pages/WheelSecurity.js`.
 
+- **100% DVSA/RSA compliance batch — VERIFIED (2026-07-08)**: Walkaround/Daily Checks (`/api/walkarounds` CRUD, Maintenance > Daily Checks tab), Test History/Prohibitions (`/api/test-history` CRUD, Fleet > Test History tab), Defect "Mark Rectified" flow (`PUT /api/defects/{id}/rectify` → status=rectified + rectified_date/by/notes, green banner on card), Wheel Security Audits (`/api/wheel-audits`), PMI brake-test fields (roller/laden/service/secondary/parking pct into pmi_records), CPC hours, fleet insurance summary strip, and 6 new document types (Attestation Record, Indoctrination Document, Driver Infringement, Adhoc Note, Warning Letter, Infringement Report). AI gap-detection (`detect_gaps`) now surfaces wheel/walkaround/test-history gaps per vehicle. Tested via testing_agent: 19/19 new + 64/64 regression PASS (iteration_12.json). New test file: `backend/tests/test_new_compliance.py`.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
