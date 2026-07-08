@@ -516,8 +516,16 @@ class WalkaroundCheck(BaseModel):
     result: str = "nil_defect"  # nil_defect | defects_found
     mileage: str = ""
     defects_noted: str = ""
+    rectified: bool = False
+    rectified_date: Optional[str] = None
+    rectified_notes: str = ""
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
+
+
+class WalkaroundRectifyInput(BaseModel):
+    rectified_date: Optional[str] = None
+    rectified_notes: str = ""
 
 
 class WalkaroundInput(BaseModel):
@@ -1772,6 +1780,17 @@ async def update_walkaround(wid: str, data: WalkaroundInput, user: User = Depend
 @api_router.delete("/walkarounds/{wid}")
 async def delete_walkaround(wid: str, user: User = Depends(get_current_user)):
     await db.walkaround_checks.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.put("/walkarounds/{wid}/rectify")
+async def rectify_walkaround(wid: str, data: WalkaroundRectifyInput, user: User = Depends(get_current_user)):
+    res = await db.walkaround_checks.update_one(
+        {"id": wid, "user_id": user.user_id},
+        {"$set": {"rectified": True, "rectified_date": data.rectified_date or now_iso()[:10], "rectified_notes": data.rectified_notes}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Walkaround check not found")
     return {"ok": True}
 
 
