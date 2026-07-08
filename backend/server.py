@@ -651,13 +651,14 @@ async def get_current_user(request: Request) -> User:
 
 @api_router.post("/auth/register")
 async def register(data: RegisterInput):
-    existing = await db.users.find_one({"email": data.email})
+    email = data.email.lower().strip()
+    existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     await db.users.insert_one({
         "user_id": user_id,
-        "email": data.email,
+        "email": email,
         "name": data.name,
         "role": data.role,
         "region": "UK",
@@ -666,7 +667,7 @@ async def register(data: RegisterInput):
         "created_at": now_iso(),
     })
     token = create_jwt(user_id)
-    return {"token": token, "user": {"user_id": user_id, "email": data.email, "name": data.name, "role": data.role, "region": "UK"}}
+    return {"token": token, "user": {"user_id": user_id, "email": email, "name": data.name, "role": data.role, "region": "UK"}}
 
 
 async def _seed_template(new_user_id: str, inviter_id: str, new_email: str):
@@ -791,7 +792,7 @@ async def update_operator(data: OperatorInput, user: User = Depends(get_current_
 
 @api_router.post("/auth/login")
 async def login(data: LoginInput):
-    user_doc = await db.users.find_one({"email": data.email})
+    user_doc = await db.users.find_one({"email": data.email.lower().strip()})
     if not user_doc or not user_doc.get("password_hash"):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not pwd_context.verify(data.password, user_doc["password_hash"]):
@@ -813,11 +814,12 @@ async def google_session(request: Request, response: Response):
     if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid session")
     data = r.json()
-    user_doc = await db.users.find_one({"email": data["email"]}, {"_id": 0})
+    email = (data.get("email") or "").lower().strip()
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
     if not user_doc:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         user_doc = {
-            "user_id": user_id, "email": data["email"], "name": data.get("name", ""),
+            "user_id": user_id, "email": email, "name": data.get("name", ""),
             "role": "manager", "picture": data.get("picture"), "created_at": now_iso(),
         }
         await db.users.insert_one(dict(user_doc))
@@ -832,7 +834,7 @@ async def google_session(request: Request, response: Response):
     })
     response.set_cookie(key="session_token", value=session_token, httponly=True,
                         secure=True, samesite="none", path="/", max_age=7 * 24 * 60 * 60)
-    return {"user": {"user_id": user_id, "email": data["email"], "name": data.get("name", ""),
+    return {"user": {"user_id": user_id, "email": email, "name": data.get("name", ""),
                      "role": "manager", "picture": data.get("picture")}}
 
 
