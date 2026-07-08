@@ -31,6 +31,7 @@ export function TrailersPanel() {
   const [editId, setEditId] = useState(null);
 
   const load = async () => setItems((await api.get("/trailers")).data);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };

@@ -15,6 +15,7 @@ import Insurance from "@/pages/Insurance";
 import Tacho from "@/pages/Tacho";
 import Defects from "@/pages/Defects";
 import Documents from "@/pages/Documents";
+import Operator from "@/pages/Operator";
 import { Truck } from "lucide-react";
 
 function Protected({ children }) {
@@ -39,6 +40,7 @@ function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
+      <Route path="/operator" element={<Protected><Operator /></Protected>} />
       <Route path="/calendar" element={<Protected><Calendar /></Protected>} />
       <Route path="/inspections" element={<Protected><Inspections /></Protected>} />
       <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />

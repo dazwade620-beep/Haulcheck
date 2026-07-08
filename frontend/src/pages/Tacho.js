@@ -30,6 +30,7 @@ export default function Tacho() {
     setDrivers((await api.get("/drivers")).data);
     setVehicles((await api.get("/vehicles")).data);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };

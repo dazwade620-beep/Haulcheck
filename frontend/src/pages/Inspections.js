@@ -29,6 +29,7 @@ export default function Inspections() {
     setItems((await api.get("/pmi")).data);
     setRecords((await api.get("/pmi/records")).data);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(emptySched); setEditId(null); setOpen(true); };

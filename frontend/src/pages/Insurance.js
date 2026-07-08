@@ -42,6 +42,7 @@ export default function Insurance() {
   const countFor = (val) => (val === "All" ? items.length : items.filter((i) => i.policy_type === val).length);
 
   const load = async () => setItems((await api.get("/insurance")).data);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };

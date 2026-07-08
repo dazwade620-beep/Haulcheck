@@ -25,6 +25,7 @@ export default function Training() {
     setItems((await api.get("/training")).data);
     setDrivers((await api.get("/drivers")).data);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };

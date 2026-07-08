@@ -23,6 +23,7 @@ export default function Defects() {
   const [busy, setBusy] = useState(false);
 
   const load = async () => setItems((await api.get("/defects")).data);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const save = async (e) => {

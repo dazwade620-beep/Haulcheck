@@ -25,7 +25,7 @@ export default function Operator() {
 
   useEffect(() => {
     api.get("/operator").then((r) => setForm({ ...empty, ...r.data }));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async (e) => {
     e.preventDefault();

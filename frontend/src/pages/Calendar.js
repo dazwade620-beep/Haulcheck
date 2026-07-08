@@ -35,6 +35,7 @@ export default function Calendar() {
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadEvents(); }, []);
 
   const openAddEvent = () => {

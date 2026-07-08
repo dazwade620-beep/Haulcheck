@@ -31,6 +31,7 @@ export default function Dashboard() {
     setData(res.data);
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
   const runAi = async () => {
