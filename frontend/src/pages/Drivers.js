@@ -102,9 +102,18 @@ export default function Drivers() {
                   <Row label="Tacho Card" status={d.tacho_status} date={d.tacho_card_expiry} />
                   <Row label="Licence Check" status={d.licence_check_status} date={d.licence_check_due} />
                 </div>
-                <div className="mt-3 flex items-center justify-between rounded-md bg-slate-50 px-3 py-2 text-sm" data-testid="driver-cpc-hours">
-                  <span className="text-slate-500">Driver CPC hours (5 yrs)</span>
-                  <span className={`font-bold ${(d.cpc_hours || 0) >= 35 ? "text-green-700" : "text-amber-600"}`}>{(d.cpc_hours || 0).toFixed(0)} / 35h</span>
+                <div className="mt-3 rounded-md bg-slate-50 px-3 py-2.5" data-testid="driver-cpc-hours">
+                  <div className="flex items-center justify-between text-sm mb-1.5">
+                    <span className="text-slate-500">Driver CPC training</span>
+                    <span className={`font-bold ${(d.cpc_hours || 0) >= 35 ? "text-green-700" : "text-amber-600"}`}>{(d.cpc_hours || 0).toFixed(0)} / 35h</span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
+                    <div data-testid="cpc-progress-bar" className={`h-full rounded-full transition-all duration-500 ${(d.cpc_hours || 0) >= 35 ? "bg-green-600" : "bg-amber-500"}`} style={{ width: `${Math.min(100, ((d.cpc_hours || 0) / 35) * 100)}%` }} />
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    {(d.cpc_hours || 0) >= 35 ? "Periodic training complete for this cycle" : `${Math.max(0, 35 - (d.cpc_hours || 0)).toFixed(0)}h remaining`}
+                    {d.cpc_expiry ? ` · renews ${d.cpc_expiry}` : ""}
+                  </p>
                 </div>
                 {d.penalty_points > 0 && (
                   <div className="mt-2 text-xs text-slate-500">Licence points: <span className="font-semibold text-slate-700">{d.penalty_points}</span>{d.licence_check_code ? ` · Check code ${d.licence_check_code}` : ""}</div>

@@ -78,6 +78,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **CPC hours false-alarm fix (2026-07-08)**: the gap-detection "Driver CPC hours behind" flag previously fired for any driver with <35h logged CPC training regardless of DQC status. Now it only flags when the driver's CPC is within 12 months of expiry (medium priority ≤90 days), with clearer wording ("periodic training incomplete (Xh/35h) before CPC renewal <date>"). Verified via risk-insight on the test account.
 
+- **CPC training progress bar (2026-07-08)**: each driver card now shows a colour-coded CPC periodic-training bar (amber until 35h, green when complete) with hours logged, hours remaining and the CPC renewal date — proactive planner replacing the plain hours row. `data-testid=cpc-progress-bar`.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
