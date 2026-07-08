@@ -18,6 +18,7 @@ import base64
 import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
+from pdf_export import build_report_pdf, merge_pack
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -355,6 +356,31 @@ class TrainingInput(BaseModel):
     completed_date: Optional[str] = None
     expiry_date: Optional[str] = None
     provider: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
+class WheelAudit(BaseModel):
+    id: str = Field(default_factory=lambda: f"wsa_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    audit_date: Optional[str] = None
+    result: str = "pass"  # pass | advisory | fail
+    torque_setting: str = ""
+    checked_by: str = ""
+    next_due: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class WheelAuditInput(BaseModel):
+    vehicle_reg: str
+    audit_date: Optional[str] = None
+    result: str = "pass"
+    torque_setting: str = ""
+    checked_by: str = ""
+    next_due: Optional[str] = None
     notes: str = ""
     attachments: List[Attachment] = []
 
@@ -1193,6 +1219,37 @@ async def list_pmi_records(user: User = Depends(get_current_user)):
     return docs
 
 
+# ---------- Wheel Security Audits ----------
+@api_router.get("/wheel-audits")
+async def list_wheel_audits(user: User = Depends(get_current_user)):
+    docs = await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).sort("audit_date", -1).to_list(1000)
+    for d in docs:
+        d["status"] = compliance_status(days_until(d.get("next_due")))
+        d["days_left"] = days_until(d.get("next_due"))
+    return docs
+
+
+@api_router.post("/wheel-audits")
+async def create_wheel_audit(data: WheelAuditInput, user: User = Depends(get_current_user)):
+    w = WheelAudit(**data.model_dump(), user_id=user.user_id)
+    await db.wheel_audits.insert_one(w.model_dump())
+    return w.model_dump()
+
+
+@api_router.put("/wheel-audits/{wid}")
+async def update_wheel_audit(wid: str, data: WheelAuditInput, user: User = Depends(get_current_user)):
+    res = await db.wheel_audits.update_one({"id": wid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Wheel security audit not found")
+    return {"ok": True}
+
+
+@api_router.delete("/wheel-audits/{wid}")
+async def delete_wheel_audit(wid: str, user: User = Depends(get_current_user)):
+    await db.wheel_audits.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Calendar ----------
 @api_router.get("/calendar")
 async def calendar(user: User = Depends(get_current_user)):
@@ -1750,7 +1807,140 @@ async def run_scheduled_now(user: User = Depends(get_current_user)):
     return {"ok": True, "new_item_count": daily["new_item_count"], "weekly_sent": weekly_sent}
 
 
+# ---------- PDF Export ----------
+def _fmt(v):
+    return v if v not in (None, "") else "—"
+
+
+async def _collect_files(user_id: str, file_ids: list):
+    files = []
+    seen = set()
+    for fid in file_ids:
+        if not fid or fid in seen:
+            continue
+        seen.add(fid)
+        frec = await db.files.find_one({"id": fid, "user_id": user_id, "is_deleted": False}, {"_id": 0})
+        if not frec:
+            continue
+        try:
+            data, ct = await asyncio.to_thread(get_object, frec["storage_path"])
+            files.append((data, frec.get("content_type") or ct, frec.get("original_filename") or fid))
+        except Exception as e:
+            logging.error(f"Export file fetch {fid} failed: {e}")
+    return files
+
+
+@api_router.get("/export/driver/{driver_id}")
+async def export_driver(driver_id: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
+    d = await db.drivers.find_one({"id": driver_id, "user_id": user.user_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    training = await db.training.find(
+        {"user_id": user.user_id, "$or": [{"driver_id": driver_id}, {"driver_name": d.get("name")}]}, {"_id": 0}
+    ).to_list(1000)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    sections = [
+        {"type": "kv", "heading": "Driver Details", "pairs": [
+            ("Name", d.get("name")), ("Licence number", d.get("licence_number")),
+            ("Weekly hours", f"{d.get('weekly_hours', 0)} / {d.get('max_weekly_hours', 56)}h"),
+            ("Notes", d.get("notes")),
+        ]},
+        {"heading": "Licences & Cards", "columns": ["Item", "Expiry", "Status"], "rows": [
+            {"cells": ["Driving Licence", _fmt(d.get("licence_expiry"))], "status": compliance_status(days_until(d.get("licence_expiry")))},
+            {"cells": ["Driver CPC", _fmt(d.get("cpc_expiry"))], "status": compliance_status(days_until(d.get("cpc_expiry")))},
+            {"cells": ["Tachograph Card", _fmt(d.get("tacho_card_expiry"))], "status": compliance_status(days_until(d.get("tacho_card_expiry")))},
+        ]},
+        {"heading": "Training Records", "columns": ["Course", "Category", "Provider", "Expiry", "Status"], "rows": [
+            {"cells": [t.get("course_name"), t.get("category"), t.get("provider"), _fmt(t.get("expiry_date"))],
+             "status": compliance_status(days_until(t.get("expiry_date")))} for t in training
+        ]},
+    ]
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Driver Compliance File", d.get("name", ""),
+        [("Operator", operator.get("company_name", "")), ("O-Licence", operator.get("operator_licence_number", ""))], sections)
+    if include_files:
+        fids = [a.get("file_id") for t in training for a in (t.get("attachments") or [])]
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"driver-{(d.get('name') or 'file').replace(' ', '_')}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.get("/export/account")
+async def export_account(include_files: bool = Query(False), user: User = Depends(get_current_user)):
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    vehicles = await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    trailers = await db.trailers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    drivers = await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    training = await db.training.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    pmi = await db.pmi_schedules.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    insurance = await db.insurance.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    tacho = await db.tacho.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    defects = await db.defects.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    wheel = await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    cs, du = compliance_status, days_until
+
+    def worst_vehicle(v):
+        sts = [cs(du(v.get(k))) for k in ("mot_due", "service_due", "tax_due")]
+        return "expired" if "expired" in sts else ("due_soon" if "due_soon" in sts else "valid")
+
+    sections = [
+        {"type": "kv", "heading": "Operator Details", "pairs": [
+            ("Company", operator.get("company_name")), ("Company number", operator.get("company_number")),
+            ("O-Licence number", operator.get("operator_licence_number")), ("Licence type", operator.get("licence_type")),
+            ("Operating centre", operator.get("address")),
+            ("Authorised vehicles / trailers", f"{operator.get('authorised_vehicles', 0)} / {operator.get('authorised_trailers', 0)}"),
+            ("Transport Manager", operator.get("tm_name")), ("TM CPC", operator.get("tm_cpc_number")),
+            ("TM email", operator.get("tm_email")),
+        ]},
+        {"heading": "Vehicles", "columns": ["Reg", "Make/Model", "Type", "MOT", "Service", "Tax", "Status"], "rows": [
+            {"cells": [v.get("registration"), f"{v.get('make', '')} {v.get('model', '')}".strip(), v.get("type"),
+                       _fmt(v.get("mot_due")), _fmt(v.get("service_due")), _fmt(v.get("tax_due"))], "status": worst_vehicle(v)} for v in vehicles
+        ]},
+        {"heading": "Trailers", "columns": ["Trailer", "Type", "Annual Test", "Service", "Status"], "rows": [
+            {"cells": [t.get("trailer_number"), t.get("type"), _fmt(t.get("mot_due")), _fmt(t.get("service_due"))],
+             "status": ("expired" if "expired" in [cs(du(t.get("mot_due"))), cs(du(t.get("service_due")))] else ("due_soon" if "due_soon" in [cs(du(t.get("mot_due"))), cs(du(t.get("service_due")))] else "valid"))} for t in trailers
+        ]},
+        {"heading": "Drivers", "columns": ["Name", "Licence", "CPC", "Tacho Card", "Hours", "Status"], "rows": [
+            {"cells": [dr.get("name"), _fmt(dr.get("licence_expiry")), _fmt(dr.get("cpc_expiry")), _fmt(dr.get("tacho_card_expiry")),
+                       f"{dr.get('weekly_hours', 0)}/{dr.get('max_weekly_hours', 56)}h"],
+             "status": ("expired" if "expired" in [cs(du(dr.get("licence_expiry"))), cs(du(dr.get("cpc_expiry"))), cs(du(dr.get("tacho_card_expiry")))] else ("due_soon" if "due_soon" in [cs(du(dr.get("licence_expiry"))), cs(du(dr.get("cpc_expiry"))), cs(du(dr.get("tacho_card_expiry")))] else "valid"))} for dr in drivers
+        ]},
+        {"heading": "Driver Training", "columns": ["Driver", "Course", "Category", "Expiry", "Status"], "rows": [
+            {"cells": [t.get("driver_name"), t.get("course_name"), t.get("category"), _fmt(t.get("expiry_date"))],
+             "status": cs(du(t.get("expiry_date")))} for t in training
+        ]},
+        {"heading": "PMI Inspections", "columns": ["Vehicle", "Frequency", "Next Due", "Inspector", "Status"], "rows": [
+            {"cells": [p.get("vehicle_reg"), f"{p.get('frequency_weeks', 6)} wks", _fmt(p.get("next_due")), p.get("inspector")],
+             "status": cs(du(p.get("next_due")))} for p in pmi
+        ]},
+        {"heading": "Insurance", "columns": ["Type", "Insurer", "Policy No", "Expiry", "Cover", "Status"], "rows": [
+            {"cells": [i.get("policy_type"), i.get("insurer"), i.get("policy_number"), _fmt(i.get("expiry_date")), i.get("cover_amount")],
+             "status": cs(du(i.get("expiry_date")))} for i in insurance
+        ]},
+        {"heading": "Tachograph Downloads", "columns": ["Source", "Reference", "Last Download", "Next Due", "Status"], "rows": [
+            {"cells": [t.get("source_type"), t.get("reference"), _fmt(t.get("last_download")), _fmt(t.get("next_due"))],
+             "status": cs(du(t.get("next_due")))} for t in tacho
+        ]},
+        {"heading": "Open Defects", "columns": ["Vehicle", "Severity", "Category", "Description", "Status"], "rows": [
+            {"cells": [d.get("vehicle_reg"), d.get("severity", "").replace("_", " "), d.get("category"), (d.get("description") or "")[:70], d.get("status")]} for d in defects if d.get("status") == "open"
+        ]},
+        {"heading": "Wheel Security Audits", "columns": ["Vehicle", "Date", "Result", "Torque", "Next Due", "Status"], "rows": [
+            {"cells": [w.get("vehicle_reg"), _fmt(w.get("audit_date")), w.get("result"), w.get("torque_setting"), _fmt(w.get("next_due"))],
+             "status": cs(du(w.get("next_due")))} for w in wheel
+        ]},
+    ]
+    subtitle = operator.get("company_name") or user.name
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Fleet Compliance Report", subtitle,
+        [("Authority", "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"), ("O-Licence", operator.get("operator_licence_number", ""))], sections)
+    if include_files:
+        all_files = await db.files.find({"user_id": user.user_id, "is_deleted": False}, {"_id": 0, "id": 1}).to_list(2000)
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, [f["id"] for f in all_files]))
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="fleet-compliance-report.pdf"'})
+
+
 app.include_router(api_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

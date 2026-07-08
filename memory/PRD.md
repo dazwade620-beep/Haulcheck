@@ -52,6 +52,10 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Drivers training view + persistent AI clean-up** (2026-07-08): each driver card on the Drivers page now shows that driver's training records (course + expiry status) alongside licence/CPC/tacho/hours. The Insurance "Sort loose docs" (AI clean-up) button is now always visible (previously only shown when loose docs existed).
 
+- **PDF export** (2026-07-08): `GET /api/export/account` and `GET /api/export/driver/{id}` (both `?include_files=`) generate colour-coded compliance summary PDFs (reportlab), optionally merging all uploaded documents (PDFs/images via pypdf + Pillow; non-mergeable .txt/.ddd skipped) into one pack. Frontend: Dashboard "Export PDF" dropdown (summary / full pack) and per-driver export dropdown on each driver card. New files: `backend/pdf_export.py`, `frontend/src/lib/download.js`.
+
+- **PMI/Defect dropdowns + Wheel Security Audits** (2026-07-08): PMI and Defect forms now use vehicle/trailer dropdowns (and driver dropdown for defect reporter) instead of free text. Added a Wheel Security Audits feature (`/api/wheel-audits` CRUD, `db.wheel_audits`): vehicle, date, result (pass/advisory/fail), torque setting, checked-by, next-due with status, notes, attachments — surfaced as a 3rd tab in the Maintenance folder and included in the account PDF export. New file: `frontend/src/pages/WheelSecurity.js`.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

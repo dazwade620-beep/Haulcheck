@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Trash2, Pencil, Users, Clock, GraduationCap } from "lucide-react";
+import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
+import { downloadPdf } from "@/lib/download";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
 
@@ -60,6 +62,19 @@ export default function Drivers() {
                     <p className="text-xs text-slate-500">{d.licence_number || "No licence no."}</p>
                   </div>
                   <div className="flex gap-1">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button data-testid="export-driver-button" className="text-slate-400 hover:text-slate-900 p-1" title="Export PDF"><FileDown size={15} /></button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem data-testid="export-driver-summary" onClick={() => downloadPdf(`/export/driver/${d.id}`, `driver-${(d.name || "file").replace(/ /g, "_")}.pdf`)}>
+                          Driver file (summary)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem data-testid="export-driver-files" onClick={() => downloadPdf(`/export/driver/${d.id}?include_files=true`, `driver-${(d.name || "file").replace(/ /g, "_")}-pack.pdf`)}>
+                          Driver file + certificates
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <button data-testid="edit-driver-button" onClick={() => openEdit(d)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
                     <button data-testid="delete-driver-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
                   </div>

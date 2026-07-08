@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -21,8 +20,15 @@ export function DefectsPanel({ embedded = false }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [busy, setBusy] = useState(false);
+  const [assets, setAssets] = useState([]);
+  const [drivers, setDrivers] = useState([]);
 
-  const load = async () => setItems((await api.get("/defects")).data);
+  const load = async () => {
+    const [d, v, t, dr] = await Promise.all([api.get("/defects"), api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]);
+    setItems(d.data);
+    setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.trailer_number)]);
+    setDrivers(dr.data.map((x) => x.name));
+  };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
@@ -88,8 +94,18 @@ export function DefectsPanel({ embedded = false }) {
           <DialogHeader><DialogTitle className="font-heading">Report a Defect</DialogTitle><DialogDescription className="sr-only">Defect report form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Vehicle Reg *"><Input data-testid="defect-reg" required value={form.vehicle_reg} onChange={(e) => setForm({ ...form, vehicle_reg: e.target.value })} placeholder="AB12 CDE" /></Field>
-              <Field label="Reported By"><Input data-testid="defect-reporter" value={form.reported_by} onChange={(e) => setForm({ ...form, reported_by: e.target.value })} placeholder="Driver name" /></Field>
+              <Field label="Vehicle *">
+                <Select value={form.vehicle_reg} onValueChange={(v) => setForm({ ...form, vehicle_reg: v })}>
+                  <SelectTrigger data-testid="defect-reg"><SelectValue placeholder={assets.length ? "Select vehicle / trailer" : "Add a vehicle first"} /></SelectTrigger>
+                  <SelectContent>{assets.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              <Field label="Reported By">
+                <Select value={form.reported_by} onValueChange={(v) => setForm({ ...form, reported_by: v })}>
+                  <SelectTrigger data-testid="defect-reporter"><SelectValue placeholder={drivers.length ? "Select driver" : "Add a driver first"} /></SelectTrigger>
+                  <SelectContent>{drivers.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Category">

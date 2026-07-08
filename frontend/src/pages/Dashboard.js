@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck } from "lucide-react";
+import { downloadPdf } from "@/lib/download";
+import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 const scoreColor = (s) => (s >= 85 ? "text-green-600" : s >= 60 ? "text-yellow-600" : "text-red-600");
@@ -57,9 +59,26 @@ export default function Dashboard() {
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance Control Room</p>
           <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Fleet Overview</h1>
         </div>
-        <Button data-testid="ai-insight-button" onClick={runAi} disabled={aiBusy} className="bg-black hover:bg-slate-800 rounded-md gap-2">
-          <Sparkles size={16} /> {aiBusy ? "Analysing…" : "AI Risk Briefing"}
-        </Button>
+        <div className="flex gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button data-testid="export-report-button" variant="outline" className="border-slate-300 rounded-md gap-2">
+                <FileDown size={16} /> Export PDF
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem data-testid="export-summary" onClick={() => downloadPdf("/export/account", "fleet-compliance-report.pdf")}>
+                Compliance report (summary)
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="export-with-files" onClick={() => downloadPdf("/export/account?include_files=true", "fleet-compliance-pack.pdf")}>
+                Report + all documents (full pack)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button data-testid="ai-insight-button" onClick={runAi} disabled={aiBusy} className="bg-black hover:bg-slate-800 rounded-md gap-2">
+            <Sparkles size={16} /> {aiBusy ? "Analysing…" : "AI Risk Briefing"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">

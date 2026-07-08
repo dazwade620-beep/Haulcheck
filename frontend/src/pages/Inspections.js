@@ -24,10 +24,12 @@ export function InspectionsPanel({ embedded = false }) {
   const [editId, setEditId] = useState(null);
   const [completeFor, setCompleteFor] = useState(null);
   const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "" });
+  const [assets, setAssets] = useState([]);
 
   const load = async () => {
-    setItems((await api.get("/pmi")).data);
-    setRecords((await api.get("/pmi/records")).data);
+    const [p, r, v, t] = await Promise.all([api.get("/pmi"), api.get("/pmi/records"), api.get("/vehicles"), api.get("/trailers")]);
+    setItems(p.data); setRecords(r.data);
+    setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.trailer_number)]);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
@@ -120,7 +122,12 @@ export function InspectionsPanel({ embedded = false }) {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit PMI Schedule" : "New PMI Schedule"}</DialogTitle><DialogDescription className="sr-only">PMI schedule form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
-            <Field label="Vehicle Reg *"><Input data-testid="pmi-reg" required value={form.vehicle_reg} onChange={(e) => setForm({ ...form, vehicle_reg: e.target.value })} placeholder="AB12 CDE" /></Field>
+            <Field label="Vehicle *">
+              <Select value={form.vehicle_reg} onValueChange={(v) => setForm({ ...form, vehicle_reg: v })}>
+                <SelectTrigger data-testid="pmi-reg"><SelectValue placeholder={assets.length ? "Select vehicle / trailer" : "Add a vehicle first"} /></SelectTrigger>
+                <SelectContent>{assets.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Frequency (weeks)"><Input data-testid="pmi-frequency" type="number" min="1" value={form.frequency_weeks} onChange={(e) => setForm({ ...form, frequency_weeks: e.target.value })} /></Field>
               <Field label="Next Due"><Input data-testid="pmi-next-due" type="date" value={form.next_due} onChange={(e) => setForm({ ...form, next_due: e.target.value })} /></Field>
