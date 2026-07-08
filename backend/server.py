@@ -289,6 +289,21 @@ class TachoParseInput(BaseModel):
     file_id: str
 
 
+class OperatorInput(BaseModel):
+    company_name: str = ""
+    company_number: str = ""
+    operator_licence_number: str = ""
+    licence_type: str = "Standard National"
+    address: str = ""
+    authorised_vehicles: int = 0
+    authorised_trailers: int = 0
+    tm_name: str = ""
+    tm_cpc_number: str = ""
+    tm_email: str = ""
+    tm_phone: str = ""
+    notes: str = ""
+
+
 class PMISchedule(BaseModel):
     id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -413,6 +428,21 @@ async def set_region(payload: dict, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Invalid region")
     await db.users.update_one({"user_id": user.user_id}, {"$set": {"region": region}})
     return {"ok": True, "region": region}
+
+
+@api_router.get("/operator")
+async def get_operator(user: User = Depends(get_current_user)):
+    doc = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0})
+    return doc or {}
+
+
+@api_router.put("/operator")
+async def update_operator(data: OperatorInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    payload["user_id"] = user.user_id
+    payload["updated_at"] = now_iso()
+    await db.operator.update_one({"user_id": user.user_id}, {"$set": payload}, upsert=True)
+    return {"ok": True}
 
 
 @api_router.post("/auth/login")
@@ -1288,6 +1318,65 @@ async def dashboard(user: User = Depends(get_current_user)):
     return stats
 
 
+async def detect_gaps(user_id: str):
+    vehicles = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    drivers = await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    insurance = await db.insurance.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    pmi = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    tacho = await db.tacho.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    training = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+
+    gaps = []
+    operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    if not operator.get("operator_licence_number"):
+        gaps.append({"area": "Operator", "item": "No Operator Licence number recorded", "priority": "high"})
+    if not operator.get("tm_name"):
+        gaps.append({"area": "Operator", "item": "No Transport Manager (TM) recorded", "priority": "high"})
+    if not operator.get("company_number"):
+        gaps.append({"area": "Operator", "item": "No company number recorded", "priority": "low"})
+
+    doc_types = {d.get("doc_type") for d in documents}
+    if "Operator Licence" not in doc_types:
+        gaps.append({"area": "Documents", "item": "No Operator Licence document on file", "priority": "high"})
+
+    ins_types = {i.get("policy_type") for i in insurance}
+    for req, short in [("Goods in Transit (GIT)", "Goods in Transit (GIT)"), ("Motor — Truck", "Motor (Truck) insurance"),
+                       ("Public Liability (PL)", "Public Liability (PL)"), ("Employers' Liability (EL)", "Employers' Liability (EL)")]:
+        if req not in ins_types:
+            gaps.append({"area": "Insurance", "item": f"Missing {short} policy", "priority": "high" if req == "Employers' Liability (EL)" else "medium"})
+
+    pmi_regs = {p.get("vehicle_reg") for p in pmi}
+    tacho_vu = {t.get("reference") for t in tacho if t.get("source_type") == "Vehicle Unit"}
+    for v in vehicles:
+        reg = v.get("registration")
+        if not v.get("mot_due"):
+            gaps.append({"area": "Fleet", "item": f"{reg}: no MOT/CVRT date recorded", "priority": "medium"})
+        if reg not in pmi_regs:
+            gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
+        if reg not in tacho_vu:
+            gaps.append({"area": "Tacho", "item": f"{reg}: no vehicle-unit tacho download record", "priority": "medium"})
+
+    tacho_dc = {t.get("reference") for t in tacho if t.get("source_type") == "Driver Card"}
+    training_drivers = {t.get("driver_name") for t in training}
+    for d in drivers:
+        nm = d.get("name")
+        if not d.get("licence_expiry"):
+            gaps.append({"area": "Drivers", "item": f"{nm}: no driving licence expiry recorded", "priority": "medium"})
+        if not d.get("cpc_expiry"):
+            gaps.append({"area": "Drivers", "item": f"{nm}: no Driver CPC expiry recorded", "priority": "medium"})
+        if nm not in tacho_dc:
+            gaps.append({"area": "Tacho", "item": f"{nm}: no driver-card tacho download record", "priority": "medium"})
+        if nm not in training_drivers:
+            gaps.append({"area": "Training", "item": f"{nm}: no training records", "priority": "low"})
+
+    if not vehicles:
+        gaps.append({"area": "Fleet", "item": "No vehicles recorded", "priority": "high"})
+    if not drivers:
+        gaps.append({"area": "Drivers", "item": "No drivers recorded", "priority": "high"})
+    return gaps
+
+
 @api_router.post("/ai/risk-insight")
 async def ai_risk_insight(user: User = Depends(get_current_user)):
     stats = await gather_stats(user.user_id)
@@ -1296,22 +1385,27 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
     score = max(0, 100 - penalty)
     top = stats["alerts"][:8]
     alert_text = "; ".join([f"{a['name']} {a['item']} {a['status']}" for a in top]) or "No outstanding alerts"
+    gaps = await detect_gaps(user.user_id)
+    order = {"high": 0, "medium": 1, "low": 2}
+    gaps.sort(key=lambda g: order.get(g["priority"], 3))
+    gap_text = "; ".join([f"[{g['priority']}] {g['item']}" for g in gaps[:14]]) or "No obvious record gaps detected"
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         chat = LlmChat(
             api_key=EMERGENT_LLM_KEY,
             session_id=f"risk_{uuid.uuid4().hex[:8]}",
-            system_message="You are a UK & Ireland operator-licence compliance advisor for road haulage operators (DVSA in the UK, RSA in Ireland). Given fleet stats, write a short risk briefing (max 90 words) for a transport manager: state the biggest risks to the operator licence, and 2-3 prioritised actions. Be direct and practical.",
+            system_message="You are a UK & Ireland operator-licence compliance auditor for road haulage operators (DVSA in the UK, RSA in Ireland). Given fleet stats, outstanding alerts and detected record gaps, write a concise audit briefing (max 110 words) for a transport manager: state the biggest risks to the operator licence and the top prioritised actions, explicitly calling out the most important MISSING records/documents. Be direct and practical.",
         ).with_model("openai", "gpt-5.4")
         prompt = (f"Compliance score: {score}/100. Vehicles: {c['vehicles']}, Drivers: {c['drivers']}, "
-                  f"Documents: {c['documents']}. Expired items: {c['expired']}, Due soon: {c['due_soon']}, "
-                  f"Open defects: {c['open_defects']} (major: {c['major_defects']}). Top alerts: {alert_text}.")
+                  f"Documents: {c['documents']}, Insurance: {c.get('insurance', 0)}, Tacho: {c.get('tacho', 0)}. "
+                  f"Expired: {c['expired']}, Due soon: {c['due_soon']}, Open defects: {c['open_defects']} (major {c['major_defects']}). "
+                  f"Top alerts: {alert_text}. Detected gaps: {gap_text}.")
         resp = await chat.send_message(UserMessage(text=prompt))
         insight = resp if isinstance(resp, str) else str(resp)
     except Exception as e:
         logging.error(f"AI risk insight failed: {e}")
-        insight = "AI insight unavailable right now. Review expired and due-soon items in the alerts panel and clear major defects first."
-    return {"score": score, "insight": insight}
+        insight = "AI insight unavailable right now. Review the audit checklist below, clear expired items and add any missing mandatory documents/insurance first."
+    return {"score": score, "insight": insight, "checklist": gaps}
 
 
 app.include_router(api_router)

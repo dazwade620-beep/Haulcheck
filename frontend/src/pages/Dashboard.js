@@ -23,6 +23,7 @@ function Kpi({ icon: Icon, label, value, tone, testid, delay }) {
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [insight, setInsight] = useState("");
+  const [checklist, setChecklist] = useState([]);
   const [aiBusy, setAiBusy] = useState(false);
 
   const load = async () => {
@@ -37,6 +38,7 @@ export default function Dashboard() {
     try {
       const res = await api.post("/ai/risk-insight");
       setInsight(res.data.insight);
+      setChecklist(res.data.checklist || []);
     } finally {
       setAiBusy(false);
     }
@@ -89,7 +91,22 @@ export default function Dashboard() {
           {insight ? (
             <p data-testid="ai-insight-text" className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">{insight}</p>
           ) : (
-            <p className="text-slate-400 text-sm">Click <strong>AI Risk Briefing</strong> to generate a prioritised action plan for your operator licence based on current fleet data.</p>
+            <p className="text-slate-400 text-sm">Click <strong>AI Risk Briefing</strong> to generate a prioritised action plan and a live audit checklist of any missing mandatory records for your operator licence.</p>
+          )}
+          {checklist.length > 0 && (
+            <div className="mt-4" data-testid="ai-checklist">
+              <p className="text-xs uppercase tracking-[0.15em] text-slate-500 font-semibold mb-2">AI Audit Checklist — {checklist.length} item{checklist.length !== 1 && "s"}</p>
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                {checklist.map((g, i) => (
+                  <div key={i} data-testid="checklist-item" className="flex items-center gap-2 text-sm border border-slate-100 rounded-md px-3 py-2">
+                    <span className={cn("text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0",
+                      g.priority === "high" ? "bg-red-100 text-red-700" : g.priority === "medium" ? "bg-yellow-100 text-yellow-800" : "bg-slate-100 text-slate-500")}>{g.priority}</span>
+                    <span className="text-slate-400 text-[10px] uppercase tracking-wider w-20 shrink-0">{g.area}</span>
+                    <span className="text-slate-700 min-w-0">{g.item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
