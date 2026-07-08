@@ -94,6 +94,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Authority badge on AI Briefing (2026-07-08)**: added a DVSA/RSA pill badge (`ai-authority-badge`) to the AI Compliance Briefing card on the Dashboard, driven by `getTerms(user.region).authority`, so the applied jurisdiction is always visible and updates with the region toggle. Verified in UI (shows DVSA for UK).
 
+- **Jurisdiction on PDF headers (2026-07-08)**: `build_report_pdf` now takes an `authority` arg and prints it in the brand line ("HAULCHECK · COMPLIANCE · DVSA (UK)" / "RSA (Ireland)"). Applied to both `/api/export/account` and `/api/export/driver/{id}` (driver export also now carries the authority). Logo already renders above it. Verified via PDF text extraction.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

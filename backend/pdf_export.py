@@ -53,7 +53,7 @@ def _logo_flowable(logo_bytes, max_w_mm=48, max_h_mm=24):
         return None
 
 
-def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None):
+def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None, authority=None):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=18 * mm, bottomMargin=16 * mm,
                             leftMargin=16 * mm, rightMargin=16 * mm, title=title)
@@ -64,7 +64,8 @@ def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None):
         if lf:
             story.append(lf)
             story.append(Spacer(1, 8))
-    story.append(Paragraph("HAULCHECK · COMPLIANCE", ss["Brand"]))
+    brand = "HAULCHECK · COMPLIANCE" + (f" · {authority}" if authority else "")
+    story.append(Paragraph(brand, ss["Brand"]))
     story.append(Paragraph(title, ss["BigTitle"]))
     if subtitle:
         story.append(Paragraph(subtitle, ss["Sub"]))

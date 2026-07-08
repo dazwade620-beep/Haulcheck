@@ -2534,7 +2534,7 @@ async def export_driver(driver_id: str, include_files: bool = Query(False), user
     pdf = await asyncio.to_thread(
         build_report_pdf, "Driver Compliance File", d.get("name", ""),
         [("Operator", operator.get("company_name", "")), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
-        await _get_logo_bytes(user.user_id, operator))
+        await _get_logo_bytes(user.user_id, operator), "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)")
     if include_files:
         fids = [a.get("file_id") for t in training for a in (t.get("attachments") or [])]
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
@@ -2607,10 +2607,11 @@ async def export_account(include_files: bool = Query(False), user: User = Depend
         ]},
     ]
     subtitle = operator.get("company_name") or user.name
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
     pdf = await asyncio.to_thread(
         build_report_pdf, "Fleet Compliance Report", subtitle,
-        [("Authority", "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
-        await _get_logo_bytes(user.user_id, operator))
+        [("Authority", authority), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
     if include_files:
         all_files = await db.files.find({"user_id": user.user_id, "is_deleted": False}, {"_id": 0, "id": 1}).to_list(2000)
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, [f["id"] for f in all_files]))
