@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Trash2, Pencil, Users, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
@@ -75,7 +75,7 @@ export default function Drivers() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Driver" : "Add Driver"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Driver" : "Add Driver"}</DialogTitle><DialogDescription className="sr-only">Driver details form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <Field label="Name *"><Input data-testid="drv-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="John Smith" /></Field>
             <Field label="Licence Number"><Input data-testid="drv-licence-no" value={form.licence_number} onChange={(e) => setForm({ ...form, licence_number: e.target.value })} /></Field>

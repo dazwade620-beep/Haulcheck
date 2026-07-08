@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-react";
 import { toast } from "sonner";
@@ -112,7 +112,7 @@ export default function Inspections() {
       {/* Add / edit schedule */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit PMI Schedule" : "New PMI Schedule"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit PMI Schedule" : "New PMI Schedule"}</DialogTitle><DialogDescription className="sr-only">PMI schedule form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <Field label="Vehicle Reg *"><Input data-testid="pmi-reg" required value={form.vehicle_reg} onChange={(e) => setForm({ ...form, vehicle_reg: e.target.value })} placeholder="AB12 CDE" /></Field>
             <div className="grid grid-cols-2 gap-4">
@@ -128,7 +128,7 @@ export default function Inspections() {
       {/* Record inspection */}
       <Dialog open={!!completeFor} onOpenChange={(v) => !v && setCompleteFor(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">Record PMI — {completeFor?.vehicle_reg}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">Record PMI — {completeFor?.vehicle_reg}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
           <form onSubmit={submitComplete} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Inspection Date *"><Input data-testid="complete-date" type="date" required value={cForm.inspection_date} onChange={(e) => setCForm({ ...cForm, inspection_date: e.target.value })} /></Field>

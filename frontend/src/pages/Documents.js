@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Pencil, FolderCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -69,7 +69,7 @@ export default function Documents() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Document" : "Add Document"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Document" : "Add Document"}</DialogTitle><DialogDescription className="sr-only">Document details form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <Field label="Title *"><Input data-testid="doc-title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Standard National O-Licence" /></Field>
             <Field label="Type">

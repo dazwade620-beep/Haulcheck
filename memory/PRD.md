@@ -19,18 +19,20 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 ## Implemented (2026-07-08)
 - Email/password register+login (JWT) and Google OAuth (cookie session).
-- Dashboard: risk score gauge, AI risk briefing, KPI cards, prioritised alerts feed.
+- Dashboard: risk score gauge, AI risk briefing, KPI cards (incl. PMI), prioritised alerts feed (incl. PMI due).
 - Vehicles CRUD (MOT/service/tax tracking with badges).
 - Drivers CRUD (licence/CPC/tacho + weekly-hours over-limit flag).
 - Documents CRUD (operator licence, insurance, audit, wheel security, etc.).
 - Defects: report + AI summary + status workflow (open/monitoring/resolved).
-- Fully tested: backend 16/16 pytest, all critical frontend flows pass.
+- **PMI Inspections**: recurring maintenance schedules per vehicle (frequency in weeks, auto next-due), record completed inspections (pass/advisory/fail) which advance next-due, and inspection history.
+- **Calendar**: month grid combining PMI due dates, completed PMIs and driver defect reports; day-detail panel + legend.
+- Fully tested: backend 24/24 pytest, all critical frontend flows pass. Fixed dev-mode ResizeObserver overlay + Dialog a11y descriptions.
 
 ## Backlog
-- P1: Add `<DialogDescription>` to dialogs (minor a11y console warning).
 - P1: File uploads/attachments for documents & defect photos (object storage).
-- P2: Role-based views (driver vs manager), scheduled email reminders for expiries.
+- P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
+- P2: UI delete for inspection history records.
 
 ## Next Tasks
 - Await user feedback; then tackle P1 items (file uploads, roles).

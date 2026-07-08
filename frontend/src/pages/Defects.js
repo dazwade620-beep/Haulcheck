@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, FileWarning, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -77,7 +77,7 @@ export default function Defects() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">Report a Defect</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">Report a Defect</DialogTitle><DialogDescription className="sr-only">Defect report form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <Field label="Vehicle Reg *"><Input data-testid="defect-reg" required value={form.vehicle_reg} onChange={(e) => setForm({ ...form, vehicle_reg: e.target.value })} placeholder="AB12 CDE" /></Field>

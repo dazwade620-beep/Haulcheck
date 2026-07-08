@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck } from "lucide-react";
+import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -95,11 +95,12 @@ export default function Dashboard() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         <Kpi testid="kpi-vehicles" icon={Truck} label="Vehicles" value={counts.vehicles} tone="text-slate-900" delay={0} />
         <Kpi testid="kpi-drivers" icon={Users} label="Drivers" value={counts.drivers} tone="text-slate-900" delay={60} />
-        <Kpi testid="kpi-documents" icon={FolderCheck} label="Documents" value={counts.documents} tone="text-slate-900" delay={120} />
-        <Kpi testid="kpi-defects" icon={FileWarning} label="Open Defects" value={counts.open_defects} tone={counts.open_defects ? "text-red-600" : "text-slate-900"} delay={180} />
+        <Kpi testid="kpi-pmi" icon={ClipboardCheck} label="PMI Schedules" value={counts.pmi ?? 0} tone="text-slate-900" delay={120} />
+        <Kpi testid="kpi-documents" icon={FolderCheck} label="Documents" value={counts.documents} tone="text-slate-900" delay={180} />
+        <Kpi testid="kpi-defects" icon={FileWarning} label="Open Defects" value={counts.open_defects} tone={counts.open_defects ? "text-red-600" : "text-slate-900"} delay={240} />
       </div>
 
       {/* Alerts feed */}

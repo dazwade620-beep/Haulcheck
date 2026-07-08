@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Plus, Truck, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
@@ -79,7 +79,7 @@ export default function Vehicles() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Vehicle" : "Add Vehicle"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{editId ? "Edit Vehicle" : "Add Vehicle"}</DialogTitle><DialogDescription className="sr-only">Vehicle details form</DialogDescription></DialogHeader>
           <form onSubmit={save} className="space-y-4">
             <Field label="Registration *"><Input data-testid="veh-registration" required value={form.registration} onChange={(e) => setForm({ ...form, registration: e.target.value })} placeholder="AB12 CDE" /></Field>
             <div className="grid grid-cols-2 gap-4">
