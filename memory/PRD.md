@@ -66,6 +66,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Logo on all PDFs (2026-07-08)**: extracted a shared `_logo_flowable` helper in pdf_export.py; `build_report_pdf` now accepts `logo_bytes` and renders the company logo as letterhead. Wired into both `/api/export/account` (Fleet Compliance Report) and `/api/export/driver/{id}` (Driver Compliance File) via new `_get_logo_bytes` helper, plus the existing generated-document PDFs. Set the account's real logo (DLZ International Limited). Verified: account export PDF embeds the logo image on page 1.
 
+- **View button on document cards (2026-07-08)**: each document card in Office → Documents now shows an eye icon (`view-document-button`) that opens/downloads the first attachment (the generated/uploaded PDF) in a new tab via the authenticated `/api/files/{id}?auth=` URL. Verified in UI.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.

@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import api from "@/lib/api";
+import api, { API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2 } from "lucide-react";
+import { Trash2, Pencil, FolderCheck, Sparkles, FileSignature, Loader2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -87,6 +87,9 @@ export function DocumentsPanel({ embedded = false }) {
                   {d.reference && <p className="text-xs text-slate-500 mt-0.5">Ref: {d.reference}</p>}
                 </div>
                 <div className="flex gap-1 shrink-0">
+                  {d.attachments?.length > 0 && (
+                    <a data-testid="view-document-button" href={`${API}/files/${d.attachments[0].file_id}?auth=${localStorage.getItem("token") || ""}`} target="_blank" rel="noopener noreferrer" title="View / download" className="text-slate-400 hover:text-slate-900 p-1"><Eye size={15} /></a>
+                  )}
                   <button data-testid="edit-document-button" onClick={() => openEdit(d)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
                   <button data-testid="delete-document-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
                 </div>
