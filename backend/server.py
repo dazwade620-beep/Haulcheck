@@ -2102,6 +2102,7 @@ async def detect_gaps(user_id: str):
     udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     is_ie = udoc.get("region") == "IE"
     mot_label = "CVRT" if is_ie else "MOT"
+    test_label = "CVRT test" if is_ie else "annual test"
 
     gaps = []
     operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
@@ -2147,7 +2148,7 @@ async def detect_gaps(user_id: str):
         if reg not in walk_regs:
             gaps.append({"area": "Maintenance", "item": f"{reg}: no daily walkaround checks recorded", "priority": "medium"})
         if reg not in test_regs:
-            gaps.append({"area": "Fleet", "item": f"{reg}: no annual test/prohibition history recorded", "priority": "low"})
+            gaps.append({"area": "Fleet", "item": f"{reg}: no {test_label}/prohibition history recorded", "priority": "low"})
         if reg not in tacho_vu:
             gaps.append({"area": "Tacho", "item": f"{reg}: no vehicle-unit tacho download record", "priority": "medium"})
 

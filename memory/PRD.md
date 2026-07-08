@@ -90,6 +90,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **AI briefing region fix (2026-07-08)**: the laden brake-test gap in `detect_gaps` is now skipped for IE, and the AI risk-insight prompt is region-aware (reads region from db.users; injects a note telling the model NOT to recommend laden brake tests / DVSA-only requirements for RSA operators, and not to invent gaps). Verified: IE checklist has no brake gap and the briefing no longer mentions "laden".
 
+- **Full region audit of AI checklist (2026-07-08)**: audited every `detect_gaps` rule for DVSA vs RSA. Findings: only the laden brake test is UK-only (suppressed for IE); vehicle-test & annual-test wording now switches MOT↔CVRT via `mot_label`/`test_label`; all other rules (operator licence, TM, insurance GIT/Motor/PL/EL, tacho calibration & downloads, speed limiter, PMI, wheel security, walkarounds, licence/CPC expiry, CPC 35h, training) are EU-derived and correct for both. AI prompt already region-aware + instructed not to invent jurisdiction requirements.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
