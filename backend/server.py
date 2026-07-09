@@ -2118,9 +2118,15 @@ async def calendar(user: User = Depends(get_current_user)):
     for tc in tacho_latest.values():
         if tc.get("next_due"):
             events.append({
-                "date": tc["next_due"], "type": "tacho", "title": f"Tacho Download — {tc.get('reference') or tc.get('source_type')}",
+                "date": tc["next_due"], "type": "tacho", "title": f"Tacho Due — {tc.get('reference') or tc.get('source_type')}",
                 "subtitle": tc.get("source_type", ""),
                 "status": compliance_status(days_until(tc["next_due"]), soon_days=TACHO_SOON_DAYS),
+            })
+    for tc in tacho:
+        if tc.get("last_download"):
+            events.append({
+                "date": tc["last_download"], "type": "tacho", "title": f"Tacho Downloaded — {tc.get('reference') or tc.get('source_type')}",
+                "subtitle": tc.get("source_type", ""), "status": "valid",
             })
     for ev in await db.calendar_events.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         events.append({

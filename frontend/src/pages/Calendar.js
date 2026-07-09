@@ -59,14 +59,21 @@ export default function Calendar() {
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
   const [evtEditId, setEvtEditId] = useState(null);
   const [assets, setAssets] = useState([]);
+  const [vehicleRegs, setVehicleRegs] = useState([]);
+  const [driverNames, setDriverNames] = useState([]);
   const [maintOpen, setMaintOpen] = useState(false);
+  const [evtMode, setEvtMode] = useState("event"); // event | tacho
+  const [tachoForm, setTachoForm] = useState({ source_type: "Vehicle Unit", reference: "", last_download: "", frequency_days: 90 });
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     loadEvents();
-    Promise.all([api.get("/vehicles"), api.get("/trailers")]).then(([v, t]) => {
-      setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.trailer_number)].filter(Boolean));
+    Promise.all([api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]).then(([v, t, dr]) => {
+      const vr = v.data.map((x) => x.registration).filter(Boolean);
+      setVehicleRegs([...vr, ...t.data.map((x) => x.trailer_number).filter(Boolean)]);
+      setDriverNames(dr.data.map((x) => x.name).filter(Boolean));
+      setAssets([...vr, ...t.data.map((x) => x.trailer_number)].filter(Boolean));
     });
   }, []);
 
@@ -74,16 +81,28 @@ export default function Calendar() {
 
   const openAddEvent = () => {
     setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
+    setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: format(selected, "yyyy-MM-dd"), frequency_days: 90 });
+    setEvtMode("event");
     setEvtEditId(null);
     setEvtOpen(true);
   };
   const openEditEvent = (ev) => {
     setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "" });
+    setEvtMode("event");
     setEvtEditId(ev.id);
     setEvtOpen(true);
   };
   const saveEvent = async (e) => {
     e.preventDefault();
+    if (evtMode === "tacho") {
+      if (!tachoForm.reference) { toast.error("Select a vehicle or driver"); return; }
+      try {
+        await api.post("/tacho", { ...tachoForm, frequency_days: Number(tachoForm.frequency_days) });
+        toast.success("Tacho download logged — next due added to calendar");
+        setEvtOpen(false); loadEvents();
+      } catch { toast.error("Could not log tacho download"); }
+      return;
+    }
     try {
       if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, evtForm); toast.success("Event updated"); }
       else { await api.post("/calendar/events", evtForm); toast.success("Event added to calendar"); }
@@ -228,23 +247,74 @@ export default function Calendar() {
       <Dialog open={evtOpen} onOpenChange={setEvtOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading">{evtEditId ? "Edit Calendar Event" : "Add Calendar Event"}</DialogTitle>
-            <DialogDescription className="sr-only">Add or edit a custom calendar event</DialogDescription>
+            <DialogTitle className="font-heading">{evtEditId ? "Edit Calendar Event" : "Add to Calendar"}</DialogTitle>
+            <DialogDescription className="sr-only">Add a custom event or log a tacho download</DialogDescription>
           </DialogHeader>
+
+          {!evtEditId && (
+            <div className="flex gap-2" data-testid="event-mode-picker">
+              <button type="button" data-testid="event-mode-event" onClick={() => setEvtMode("event")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "event" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+                <Flag size={13} /> General event
+              </button>
+              <button type="button" data-testid="event-mode-tacho" onClick={() => setEvtMode("tacho")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "tacho" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+                <Gauge size={13} /> Tacho download
+              </button>
+            </div>
+          )}
+
           <form onSubmit={saveEvent} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Date</label>
-              <Input data-testid="event-date" type="date" required value={evtForm.date} onChange={(e) => setEvtForm({ ...evtForm, date: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Title</label>
-              <Input data-testid="event-title" required value={evtForm.title} onChange={(e) => setEvtForm({ ...evtForm, title: e.target.value })} placeholder="e.g. Tacho analysis meeting" />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Notes</label>
-              <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
-            </div>
-            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
+            {evtMode === "event" ? (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Date</label>
+                  <Input data-testid="event-date" type="date" required value={evtForm.date} onChange={(e) => setEvtForm({ ...evtForm, date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Title</label>
+                  <Input data-testid="event-title" required value={evtForm.title} onChange={(e) => setEvtForm({ ...evtForm, title: e.target.value })} placeholder="e.g. Tacho analysis meeting" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Notes</label>
+                  <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Download type</label>
+                  <Select value={tachoForm.source_type} onValueChange={(v) => setTachoForm({ ...tachoForm, source_type: v, reference: "", frequency_days: v === "Driver Card" ? 28 : 90 })}>
+                    <SelectTrigger data-testid="tacho-source"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Vehicle Unit">Vehicle Unit (truck)</SelectItem>
+                      <SelectItem value="Driver Card">Driver Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">{tachoForm.source_type === "Driver Card" ? "Driver" : "Vehicle / trailer"}</label>
+                  <Select value={tachoForm.reference} onValueChange={(v) => setTachoForm({ ...tachoForm, reference: v })}>
+                    <SelectTrigger data-testid="tacho-reference"><SelectValue placeholder="Select…" /></SelectTrigger>
+                    <SelectContent>
+                      {(tachoForm.source_type === "Driver Card" ? driverNames : vehicleRegs).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Download date</label>
+                    <Input data-testid="tacho-date" type="date" value={tachoForm.last_download} onChange={(e) => setTachoForm({ ...tachoForm, last_download: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Next due in (days)</label>
+                    <Input data-testid="tacho-freq" type="number" min="1" value={tachoForm.frequency_days} onChange={(e) => setTachoForm({ ...tachoForm, frequency_days: e.target.value })} />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">Logs the download and schedules the next due date on the calendar & Tacho Portal. (Driver cards typically every 28 days, vehicle units every 90 days.)</p>
+              </>
+            )}
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
