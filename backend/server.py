@@ -1900,6 +1900,12 @@ async def list_pmi_records(user: User = Depends(get_current_user)):
     return docs
 
 
+@api_router.delete("/pmi/records/{rid}")
+async def delete_pmi_record(rid: str, user: User = Depends(get_current_user)):
+    await db.pmi_records.delete_one({"id": rid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Wheel Security Audits ----------
 @api_router.get("/wheel-audits")
 async def list_wheel_audits(user: User = Depends(get_current_user)):

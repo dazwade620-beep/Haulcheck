@@ -54,6 +54,8 @@ export function InspectionsPanel({ embedded = false }) {
   };
   const remove = async (id) => { await api.delete(`/pmi/${id}`); toast.success("Schedule removed"); load(); };
 
+  const removeRecord = async (id) => { await api.delete(`/pmi/records/${id}`); toast.success("Inspection record removed"); load(); };
+
   const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "" }); };
   const submitComplete = async (e) => {
     e.preventDefault();
@@ -129,7 +131,10 @@ export function InspectionsPanel({ embedded = false }) {
                   <p className="font-semibold text-slate-900 text-sm">{r.vehicle_reg}</p>
                   <p className="text-xs text-slate-500">{r.inspection_date}{r.inspector && ` · ${r.inspector}`}{r.notes && ` · ${r.notes}`}</p>
                 </div>
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                <div className="flex items-center gap-3">
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                  <button data-testid="delete-pmi-record-button" onClick={() => removeRecord(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                </div>
               </div>
             ))}
           </div>
