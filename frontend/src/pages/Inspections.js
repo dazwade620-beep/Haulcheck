@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
-import { RegFolders, matchesReg } from "@/components/RegFolders";
+import { RegFolders, matchesReg, normReg } from "@/components/RegFolders";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
 const RESULTS = [["pass", "Pass"], ["advisory", "Advisory"], ["fail", "Fail"]];
@@ -102,6 +102,14 @@ export function InspectionsPanel({ embedded = false }) {
                 </div>
                 <StatusBadge status={p.status} />
               </div>
+              {(() => {
+                const last = records
+                  .filter((r) => normReg(r.vehicle_reg) === normReg(p.vehicle_reg) && r.inspection_date)
+                  .map((r) => r.inspection_date)
+                  .sort()
+                  .pop();
+                return <p className="text-xs text-slate-400 mt-2">Last inspection: <span className="font-medium text-slate-600">{last || "—"}</span></p>;
+              })()}
               <Button data-testid="complete-pmi-button" onClick={() => openComplete(p)} variant="outline" className="w-full mt-4 gap-2 border-slate-300">
                 <CheckCircle2 size={15} /> Record Inspection
               </Button>
