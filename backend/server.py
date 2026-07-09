@@ -360,9 +360,9 @@ class FuelRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"fuel_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
     vehicle_reg: str
+    fill_type: str = "diesel"  # diesel | adblue
     fill_date: Optional[str] = None
-    diesel_litres: float = 0
-    adblue_litres: float = 0
+    litres: float = 0
     cost: float = 0
     odometer: float = 0
     notes: str = ""
@@ -371,9 +371,9 @@ class FuelRecord(BaseModel):
 
 class FuelInput(BaseModel):
     vehicle_reg: str
+    fill_type: str = "diesel"
     fill_date: Optional[str] = None
-    diesel_litres: float = 0
-    adblue_litres: float = 0
+    litres: float = 0
     cost: float = 0
     odometer: float = 0
     notes: str = ""
@@ -1327,9 +1327,11 @@ CO2_PER_LITRE_DIESEL = 2.64
 
 
 def _enrich_fuel(records: list) -> list:
-    """Sort per vehicle by odometer, compute miles since previous fill, MPG (imperial) and CO2."""
+    """Diesel fills drive MPG/CO2 (miles from odometer between diesel fills). AdBlue fills are usage-only."""
+    diesel = [r for r in records if (r.get("fill_type") or "diesel") == "diesel"]
+    adblue = [r for r in records if (r.get("fill_type") or "diesel") == "adblue"]
     by_veh = {}
-    for r in records:
+    for r in diesel:
         by_veh.setdefault(r.get("vehicle_reg"), []).append(r)
     out = []
     for reg, recs in by_veh.items():
@@ -1337,15 +1339,20 @@ def _enrich_fuel(records: list) -> list:
         prev_odo = None
         for r in recs:
             odo = r.get("odometer") or 0
-            diesel = r.get("diesel_litres") or 0
+            litres = r.get("litres") or 0
             miles = (odo - prev_odo) if (prev_odo is not None and odo and odo > prev_odo) else None
-            gallons = diesel / LITRES_PER_GALLON if diesel else 0
+            gallons = litres / LITRES_PER_GALLON if litres else 0
             r["miles"] = round(miles, 1) if miles is not None else None
             r["mpg"] = round(miles / gallons, 1) if (miles is not None and gallons) else None
-            r["co2_kg"] = round(diesel * CO2_PER_LITRE_DIESEL, 1)
+            r["co2_kg"] = round(litres * CO2_PER_LITRE_DIESEL, 1)
             out.append(r)
             if odo:
                 prev_odo = odo
+    for r in adblue:
+        r["miles"] = None
+        r["mpg"] = None
+        r["co2_kg"] = 0
+        out.append(r)
     out.sort(key=lambda x: (x.get("fill_date") or "", x.get("created_at") or ""), reverse=True)
     return out
 
@@ -1362,34 +1369,45 @@ async def fuel_summary(user: User = Depends(get_current_user)):
     per_vehicle = {}
     for r in recs:
         reg = r.get("vehicle_reg")
-        pv = per_vehicle.setdefault(reg, {"vehicle_reg": reg, "diesel_litres": 0, "adblue_litres": 0, "cost": 0, "miles": 0, "co2_kg": 0, "fills": 0, "_mpg_litres": 0})
-        pv["diesel_litres"] += r.get("diesel_litres") or 0
-        pv["adblue_litres"] += r.get("adblue_litres") or 0
-        pv["cost"] += r.get("cost") or 0
-        pv["miles"] += r.get("miles") or 0
-        pv["co2_kg"] += r.get("co2_kg") or 0
-        pv["fills"] += 1
-        if r.get("miles") is not None:
-            pv["_mpg_litres"] += r.get("diesel_litres") or 0
+        is_diesel = (r.get("fill_type") or "diesel") == "diesel"
+        pv = per_vehicle.setdefault(reg, {"vehicle_reg": reg, "diesel_litres": 0, "adblue_litres": 0,
+                                          "diesel_cost": 0, "adblue_cost": 0, "miles": 0, "co2_kg": 0,
+                                          "diesel_fills": 0, "adblue_fills": 0, "_mpg_litres": 0})
+        if is_diesel:
+            pv["diesel_litres"] += r.get("litres") or 0
+            pv["diesel_cost"] += r.get("cost") or 0
+            pv["miles"] += r.get("miles") or 0
+            pv["co2_kg"] += r.get("co2_kg") or 0
+            pv["diesel_fills"] += 1
+            if r.get("miles") is not None:
+                pv["_mpg_litres"] += r.get("litres") or 0
+        else:
+            pv["adblue_litres"] += r.get("litres") or 0
+            pv["adblue_cost"] += r.get("cost") or 0
+            pv["adblue_fills"] += 1
     vehicles = []
     fleet_mpg_litres = 0
     for pv in per_vehicle.values():
         gallons = pv["_mpg_litres"] / LITRES_PER_GALLON if pv["_mpg_litres"] else 0
         pv["avg_mpg"] = round(pv["miles"] / gallons, 1) if (pv["miles"] and gallons) else None
-        pv["cost_per_mile"] = round(pv["cost"] / pv["miles"], 2) if pv["miles"] else None
+        pv["cost_per_mile"] = round(pv["diesel_cost"] / pv["miles"], 2) if pv["miles"] else None
         fleet_mpg_litres += pv["_mpg_litres"]
         pv.pop("_mpg_litres", None)
-        for k in ("diesel_litres", "adblue_litres", "cost", "miles", "co2_kg"):
+        pv["cost"] = round(pv["diesel_cost"] + pv["adblue_cost"], 1)
+        for k in ("diesel_litres", "adblue_litres", "diesel_cost", "adblue_cost", "miles", "co2_kg"):
             pv[k] = round(pv[k], 1)
         vehicles.append(pv)
     vehicles.sort(key=lambda x: x["vehicle_reg"] or "")
     totals = {
         "diesel_litres": round(sum(v["diesel_litres"] for v in vehicles), 1),
         "adblue_litres": round(sum(v["adblue_litres"] for v in vehicles), 1),
+        "diesel_cost": round(sum(v["diesel_cost"] for v in vehicles), 1),
+        "adblue_cost": round(sum(v["adblue_cost"] for v in vehicles), 1),
         "cost": round(sum(v["cost"] for v in vehicles), 1),
         "miles": round(sum(v["miles"] for v in vehicles), 1),
         "co2_kg": round(sum(v["co2_kg"] for v in vehicles), 1),
-        "fills": sum(v["fills"] for v in vehicles),
+        "diesel_fills": sum(v["diesel_fills"] for v in vehicles),
+        "adblue_fills": sum(v["adblue_fills"] for v in vehicles),
     }
     g = fleet_mpg_litres / LITRES_PER_GALLON if fleet_mpg_litres else 0
     totals["avg_mpg"] = round(totals["miles"] / g, 1) if (totals["miles"] and g) else None
@@ -1416,52 +1434,67 @@ async def fuel_report(
     per = {}
     for r in recs:
         reg = r.get("vehicle_reg")
-        pv = per.setdefault(reg, {"diesel": 0, "adblue": 0, "cost": 0, "miles": 0, "co2": 0, "fills": 0, "mpg_litres": 0})
-        pv["diesel"] += r.get("diesel_litres") or 0
-        pv["adblue"] += r.get("adblue_litres") or 0
-        pv["cost"] += r.get("cost") or 0
-        pv["miles"] += r.get("miles") or 0
-        pv["co2"] += r.get("co2_kg") or 0
-        pv["fills"] += 1
-        if r.get("miles") is not None:
-            pv["mpg_litres"] += r.get("diesel_litres") or 0
+        is_diesel = (r.get("fill_type") or "diesel") == "diesel"
+        pv = per.setdefault(reg, {"diesel": 0, "adblue": 0, "diesel_cost": 0, "adblue_cost": 0,
+                                  "miles": 0, "co2": 0, "diesel_fills": 0, "adblue_fills": 0, "mpg_litres": 0})
+        if is_diesel:
+            pv["diesel"] += r.get("litres") or 0
+            pv["diesel_cost"] += r.get("cost") or 0
+            pv["miles"] += r.get("miles") or 0
+            pv["co2"] += r.get("co2_kg") or 0
+            pv["diesel_fills"] += 1
+            if r.get("miles") is not None:
+                pv["mpg_litres"] += r.get("litres") or 0
+        else:
+            pv["adblue"] += r.get("litres") or 0
+            pv["adblue_cost"] += r.get("cost") or 0
+            pv["adblue_fills"] += 1
 
     veh_rows = []
     for reg in sorted(per):
         pv = per[reg]
         gal = pv["mpg_litres"] / LITRES_PER_GALLON if pv["mpg_litres"] else 0
         mpg = round(pv["miles"] / gal, 1) if (pv["miles"] and gal) else None
-        cpm = round(pv["cost"] / pv["miles"], 2) if pv["miles"] else None
+        cost = pv["diesel_cost"] + pv["adblue_cost"]
+        cpm = round(pv["diesel_cost"] / pv["miles"], 2) if pv["miles"] else None
         veh_rows.append({"cells": [reg, round(pv["diesel"], 1), round(pv["adblue"], 1),
                                    round(pv["miles"], 1), mpg if mpg is not None else "—",
-                                   round(pv["co2"], 1), f"{cur}{round(pv['cost'], 2)}",
+                                   round(pv["co2"], 1), f"{cur}{round(cost, 2)}",
                                    f"{cur}{cpm}" if cpm is not None else "—"]})
 
     tot_diesel = round(sum(p["diesel"] for p in per.values()), 1)
     tot_adblue = round(sum(p["adblue"] for p in per.values()), 1)
-    tot_cost = round(sum(p["cost"] for p in per.values()), 2)
+    tot_diesel_cost = round(sum(p["diesel_cost"] for p in per.values()), 2)
+    tot_adblue_cost = round(sum(p["adblue_cost"] for p in per.values()), 2)
+    tot_cost = round(tot_diesel_cost + tot_adblue_cost, 2)
     tot_miles = round(sum(p["miles"] for p in per.values()), 1)
     tot_co2 = round(sum(p["co2"] for p in per.values()), 1)
     tot_mpg_l = sum(p["mpg_litres"] for p in per.values())
     g = tot_mpg_l / LITRES_PER_GALLON if tot_mpg_l else 0
     fleet_mpg = round(tot_miles / g, 1) if (tot_miles and g) else None
 
-    detail_rows = [{"cells": [r.get("fill_date"), r.get("vehicle_reg"), r.get("diesel_litres") or 0,
-                              r.get("adblue_litres") or 0, r.get("odometer") or "—",
-                              r.get("miles") if r.get("miles") is not None else "—",
+    diesel_recs = [r for r in recs if (r.get("fill_type") or "diesel") == "diesel"]
+    adblue_recs = [r for r in recs if (r.get("fill_type") or "diesel") == "adblue"]
+    diesel_rows = [{"cells": [r.get("fill_date"), r.get("vehicle_reg"), r.get("litres") or 0,
+                              r.get("odometer") or "—", r.get("miles") if r.get("miles") is not None else "—",
                               r.get("mpg") if r.get("mpg") is not None else "—",
                               r.get("co2_kg") or 0, f"{cur}{r.get('cost') or 0}"]}
-                   for r in sorted(recs, key=lambda x: (x.get("fill_date") or ""), reverse=True)]
+                   for r in sorted(diesel_recs, key=lambda x: (x.get("fill_date") or ""), reverse=True)]
+    adblue_rows = [{"cells": [r.get("fill_date"), r.get("vehicle_reg"), r.get("litres") or 0, f"{cur}{r.get('cost') or 0}"]}
+                   for r in sorted(adblue_recs, key=lambda x: (x.get("fill_date") or ""), reverse=True)]
 
     sections = [
         {"type": "kv", "heading": "Summary", "pairs": [
-            ("Diesel used", f"{tot_diesel} L"), ("AdBlue used", f"{tot_adblue} L"),
+            ("Diesel used", f"{tot_diesel} L  ({cur}{tot_diesel_cost})"),
+            ("AdBlue used", f"{tot_adblue} L  ({cur}{tot_adblue_cost})"),
             ("Distance", f"{tot_miles} miles"), ("Fleet average MPG", fleet_mpg if fleet_mpg is not None else "—"),
             ("CO₂ emitted", f"{tot_co2} kg ({round(tot_co2/1000, 2)} t)"),
-            ("Total spend", f"{cur}{tot_cost}"), ("Fills", len(recs)),
+            ("Total spend", f"{cur}{tot_cost}"),
+            ("Fills", f"{len(diesel_recs)} diesel · {len(adblue_recs)} AdBlue"),
         ]},
         {"heading": "Per-vehicle breakdown", "columns": ["Vehicle", "Diesel (L)", "AdBlue (L)", "Miles", "MPG", "CO₂ (kg)", "Spend", "Cost/mi"], "rows": veh_rows},
-        {"heading": "Fill-by-fill detail", "columns": ["Date", "Vehicle", "Diesel", "AdBlue", "Odo", "Miles", "MPG", "CO₂", "Cost"], "rows": detail_rows},
+        {"heading": "Diesel fills", "columns": ["Date", "Vehicle", "Litres", "Odo", "Miles", "MPG", "CO₂", "Cost"], "rows": diesel_rows},
+        {"heading": "AdBlue fills", "columns": ["Date", "Vehicle", "Litres", "Cost"], "rows": adblue_rows},
     ]
     period = f"{from_date or 'start'} → {to_date or 'today'}"
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
