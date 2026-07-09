@@ -17,6 +17,24 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Compliance status computed from expiry dates: valid / due_soon (≤30d) / expired.
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
+## Implemented (2026-07-09 — Calendar & Fleet session)
+- **Calendar = full compliance hub**: now plots ALL work & expiry dates — vehicle MOT/CVRT (region-aware), Tax/Motor Tax, Service Due, Tacho Calibration, Speed Limiter; driver Licence/CPC/Tacho-card expiry + Licence Check; PMI due (recurring; freq **0 = one-off/interim**) + PMI completed; defects (user-picked `defect_date` + mileage); wheel audits (audit_date + next_due); daily walkarounds (`walkaround_checks` collection — note collection name); service (service_date + next_service_due); training (completed_date + expiry); insurance; tacho downloads + due; holidays; custom events.
+- **Add Maintenance dialog** (`MaintenanceQuickAdd.js`) from calendar Maintenance button + per-day "Add": type picker (PMI/Service/Defect/Daily Check/Wheel) → posts to existing endpoints. Vehicles+trailers in dropdown (trailers use `trailer_number`). Service odometer/cost coerced to numbers (was causing 422 "could not save").
+- **Add to Calendar dialog** now 3 modes: General event / **Tacho download** (Vehicle Unit or Driver Card → logs download + schedules next due) / **Holiday** (from–to range auto-expands to每 day via `/holidays` collection; `create_holiday`/`delete_holiday`).
+- Auto-generated calendar entries deep-link "View / edit record →" to source page+tab (`?tab=` on Maintenance & Office).
+- **Fuel split (option c)**: FuelRecord now `fill_type` (diesel|adblue) + single `litres`. Separate Add Diesel / Add AdBlue, All/Diesel/AdBlue filter tabs, separate stat cards. Diesel drives MPG (odometer between fills) + CO₂; AdBlue usage-only. **PDF report** `GET /api/fuel/report?from_date&to_date&vehicle_reg` (branded, per-vehicle breakdown + separate diesel/AdBlue tables).
+- **VOR** (vehicle off road): `vor`+`vor_reason` on Vehicle/Trailer; badge in list; excluded from `gather_stats` alerts.
+- **Defect mileage**: `odometer` field on defects (form + card + MQA).
+- **PMI report copy**: attachments on `PMICompleteInput`/record — upload signed PMI sheet in Record Inspection dialog, shown on Recent Inspections row.
+- **Maintenance registration folders** across all 5 tabs (`RegFolders.js`, normalised via `normReg`/`matchesReg`). PMI schedule cards show "Last inspection"; Recent Inspections rows deletable (`DELETE /api/pmi/records/{id}`). Service tab → "Vehicles Service".
+- **Training completed date now required** (Office Training form + driver CPC quick-log).
+- **AI briefing markdown render**: Dashboard now renders `**bold**` + paragraphs (was showing raw asterisks).
+- **Company doc templates**: added CMR Consignment Note, POD, Waste Transfer Note.
+- **Team**: invitations + accept-invite, member last-login/activation, Deactivate/Reactivate (`PUT /api/invitations/{id}/member-status`).
+
+### KNOWN ISSUE — Resend in TEST MODE (P0 for user)
+`SENDER_EMAIL=onboarding@resend.dev` → Resend can only deliver to the account owner's own email (dazwade620@gmail.com); external invite/audit/reminder emails are REJECTED. Invite endpoint now returns `email_sent`/`email_error`; Team page warns + auto-copies invite link as fallback. **Fix requires the user to verify a domain at resend.com/domains and set SENDER_EMAIL to it** — cannot be done from the app.
+
 ## Implemented (2026-07-08)
 - Email/password register+login (JWT) and Google OAuth (cookie session).
 - Dashboard: risk score gauge, AI risk briefing, KPI cards, prioritised alerts feed (vehicles, trailers, drivers, PMI, training, documents, defects).
