@@ -56,6 +56,7 @@ export default function Calendar() {
   const [cursor, setCursor] = useState(new Date());
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(new Date());
+  const [dayOpen, setDayOpen] = useState(false);
   const [evtOpen, setEvtOpen] = useState(false);
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
   const [evtEditId, setEvtEditId] = useState(null);
@@ -139,6 +140,40 @@ export default function Calendar() {
   });
 
   const selectedEvents = eventsForDay(selected);
+  const openDay = (day) => { setSelected(day); setDayOpen(true); };
+
+  const renderEvent = (e, i) => {
+    const M = TYPE_META[e.type] || TYPE_META.defect;
+    const link = e.type !== "custom" ? EVENT_LINK[e.type] : null;
+    return (
+      <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
+        <M.icon size={16} className="text-slate-500 mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900">{e.title}</p>
+          <p className="text-xs text-slate-500">{e.subtitle}</p>
+          {link && (
+            <button
+              data-testid="calendar-view-record-button"
+              onClick={() => navigate(link)}
+              className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
+            >
+              View / edit record <ArrowRight size={12} />
+            </button>
+          )}
+        </div>
+        <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
+        {e.type === "custom" && e.id && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button data-testid="edit-event-button" onClick={() => openEditEvent(e)} className="text-slate-300 hover:text-slate-900"><Pencil size={14} /></button>
+            <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
+          </div>
+        )}
+        {e.type === "holiday" && e.id && (
+          <button data-testid="delete-holiday-button" onClick={() => deleteHoliday(e.id)} className="text-slate-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div data-testid="calendar-page">
@@ -158,9 +193,9 @@ export default function Calendar() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Grid */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-md overflow-hidden animate-in-up">
+        <div className="lg:col-span-3 bg-white border border-slate-200 rounded-md overflow-hidden animate-in-up">
           <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200">
             {WEEKDAYS.map((d) => (
               <div key={d} className="px-2 py-2.5 text-center text-xs uppercase tracking-wider text-slate-500 font-semibold">{d}</div>
@@ -175,7 +210,7 @@ export default function Calendar() {
                 <button
                   key={day.toISOString()}
                   data-testid="calendar-day"
-                  onClick={() => setSelected(day)}
+                  onClick={() => openDay(day)}
                   className={cn(
                     "min-h-[120px] border-b border-r border-slate-100 p-1.5 text-left align-top transition-colors relative",
                     !inMonth && "bg-slate-50/60 text-slate-300",
@@ -188,13 +223,13 @@ export default function Calendar() {
                     isToday(day) ? "bg-black text-white" : inMonth ? "text-slate-700" : "text-slate-300"
                   )}>{format(day, "d")}</span>
                   <div className="mt-1 space-y-0.5">
-                    {evs.slice(0, 3).map((e, i) => (
+                    {evs.slice(0, 4).map((e, i) => (
                       <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-center gap-1 truncate">
                         <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor(e.status))} />
                         <span className="text-[10px] text-slate-600 truncate">{e.title}</span>
                       </div>
                     ))}
-                    {evs.length > 3 && <span className="text-[10px] text-slate-400">+{evs.length - 3} more</span>}
+                    {evs.length > 4 && <span className="text-[10px] text-slate-400">+{evs.length - 4} more</span>}
                   </div>
                 </button>
               );
@@ -203,51 +238,20 @@ export default function Calendar() {
         </div>
 
         {/* Day detail */}
-        <div className="bg-white border border-slate-200 rounded-md p-5 animate-in-up" style={{ animationDelay: "80ms" }}>
+        <div className="bg-white border border-slate-200 rounded-md p-4 animate-in-up" style={{ animationDelay: "80ms" }}>
           <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="flex items-center gap-2">
-              <CalendarDays size={18} className="text-slate-900" />
-              <h3 className="font-heading font-bold text-lg tracking-tight">{format(selected, "EEEE d MMM")}</h3>
+            <div className="flex items-center gap-2 min-w-0">
+              <CalendarDays size={16} className="text-slate-900 shrink-0" />
+              <h3 className="font-heading font-bold text-base tracking-tight truncate">{format(selected, "EEE d")}</h3>
             </div>
             <Button data-testid="day-add-maintenance" size="sm" variant="outline" className="border-slate-300 rounded-md gap-1.5 h-8" onClick={openAddMaint}><Wrench size={14} /> Add</Button>
           </div>
-          <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"} · click Add to log maintenance for this day</p>
+          <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"}{selectedEvents.length > 0 && " · click a day to enlarge"}</p>
           {selectedEvents.length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">Nothing scheduled for this day.</p>
           ) : (
             <div className="space-y-3" data-testid="day-events">
-              {selectedEvents.map((e, i) => {
-                const M = TYPE_META[e.type] || TYPE_META.defect;
-                const link = e.type !== "custom" ? EVENT_LINK[e.type] : null;
-                return (
-                  <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
-                    <M.icon size={16} className="text-slate-500 mt-0.5 shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900 truncate">{e.title}</p>
-                      <p className="text-xs text-slate-500">{e.subtitle}</p>
-                      {link && (
-                        <button
-                          data-testid="calendar-view-record-button"
-                          onClick={() => navigate(link)}
-                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
-                        >
-                          View / edit record <ArrowRight size={12} />
-                        </button>
-                      )}
-                    </div>
-                    <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
-                    {e.type === "custom" && e.id && (
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button data-testid="edit-event-button" onClick={() => openEditEvent(e)} className="text-slate-300 hover:text-slate-900"><Pencil size={14} /></button>
-                        <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
-                      </div>
-                    )}
-                    {e.type === "holiday" && e.id && (
-                      <button data-testid="delete-holiday-button" onClick={() => deleteHoliday(e.id)} className="text-slate-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
-                    )}
-                  </div>
-                );
-              })}
+              {selectedEvents.map(renderEvent)}
             </div>
           )}
 
@@ -259,6 +263,26 @@ export default function Calendar() {
           </div>
         </div>
       </div>
+
+      {/* Enlarged day view */}
+      <Dialog open={dayOpen} onOpenChange={setDayOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-heading flex items-center gap-2"><CalendarDays size={18} /> {format(selected, "EEEE d MMMM yyyy")}</DialogTitle>
+            <DialogDescription>{selectedEvents.length} event{selectedEvents.length !== 1 && "s"} scheduled for this day</DialogDescription>
+          </DialogHeader>
+          {selectedEvents.length === 0 ? (
+            <p className="text-sm text-slate-400 py-6 text-center">Nothing scheduled for this day.</p>
+          ) : (
+            <div className="space-y-3" data-testid="day-dialog-events">
+              {selectedEvents.map(renderEvent)}
+            </div>
+          )}
+          <DialogFooter>
+            <Button data-testid="day-dialog-add" variant="outline" className="border-slate-300 rounded-md gap-1.5" onClick={() => { setDayOpen(false); openAddMaint(); }}><Wrench size={14} /> Add maintenance for this day</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={evtOpen} onOpenChange={setEvtOpen}>
         <DialogContent className="max-w-md">
