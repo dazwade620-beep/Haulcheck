@@ -12,7 +12,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Attestation Record", "Indoctrination Document", "Driver Infringement", "Infringement Report", "Warning Letter", "Adhoc Note", "Other"];
-const LETTER_TEMPLATES = ["Warning Letter", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work", "PRSI Letter"];
+const LETTER_TEMPLATES = ["Warning Letter", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work", "PRSI Letter", "CMR Consignment Note", "Proof of Delivery (POD)", "Waste Transfer Note"];
 const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", link_url: "", attachments: [] };
 const emptyGen = { template: "Warning Letter", title: "", recipient_name: "", recipient_address: "", points: "", subject: "", body: "" };
 
