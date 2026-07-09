@@ -66,7 +66,7 @@ export default function Calendar() {
   useEffect(() => {
     loadEvents();
     Promise.all([api.get("/vehicles"), api.get("/trailers")]).then(([v, t]) => {
-      setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.registration)].filter(Boolean));
+      setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.trailer_number)].filter(Boolean));
     });
   }, []);
 
