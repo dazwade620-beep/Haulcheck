@@ -32,7 +32,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
     const defaults = {
       pmi: { vehicle_reg: "", next_due: d, frequency_weeks: "6", inspector: "" },
       service: { vehicle_reg: "", service_date: d, service_type: "Full service", odometer: "", provider: "", cost: "", next_service_due: "", notes: "" },
-      defect: { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "" },
+      defect: { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: d },
       walkaround: { vehicle_reg: "", driver_name: "", check_date: d, result: "nil_defect", mileage: "", defects_noted: "" },
       wheel: { vehicle_reg: "", audit_date: d, result: "pass", torque_setting: "", checked_by: "", next_due: "", notes: "" },
     };
@@ -62,7 +62,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
         toast.success("Service record added");
       } else if (type === "defect") {
         if (!form.description) { toast.error("Enter a description"); setBusy(false); return; }
-        await api.post("/defects", { ...form, attachments: [] });
+        await api.post("/defects", { ...form, defect_date: form.defect_date || null, attachments: [] });
         toast.success("Defect logged");
       } else if (type === "walkaround") {
         await api.post("/walkarounds", { ...form, check_date: form.check_date || null, attachments: [] });
@@ -161,6 +161,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
                     <SelectContent>{[["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
                   </Select>
                 </F>
+                <F label="Date"><Input data-testid="mqa-defect-date" type="date" value={form.defect_date} onChange={(e) => set("defect_date", e.target.value)} /></F>
               </div>
               <F label="Description *"><Textarea data-testid="mqa-defect-desc" rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Describe the defect…" /></F>
             </>

@@ -239,6 +239,7 @@ class DefectReport(BaseModel):
     description: str
     ai_summary: str = ""
     status: str = "open"
+    defect_date: Optional[str] = None
     rectified_date: Optional[str] = None
     rectified_by: str = ""
     rectification_notes: str = ""
@@ -258,6 +259,7 @@ class DefectInput(BaseModel):
     category: str = "General"
     severity: str = "minor"
     description: str
+    defect_date: Optional[str] = None
     attachments: List[Attachment] = []
 
 
@@ -2085,7 +2087,7 @@ async def calendar(user: User = Depends(get_current_user)):
     defects = await db.defects.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
     for d in defects:
         events.append({
-            "date": (d.get("created_at") or "")[:10], "type": "defect", "title": f"Defect — {d['vehicle_reg']}",
+            "date": d.get("defect_date") or (d.get("created_at") or "")[:10], "type": "defect", "title": f"Defect — {d['vehicle_reg']}",
             "subtitle": f"{d.get('category', 'General')} · {d.get('severity', 'minor').replace('_', ' ')}",
             "status": "expired" if d.get("severity") in ("major", "safety_critical") else "due_soon",
         })
