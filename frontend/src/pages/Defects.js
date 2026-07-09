@@ -6,12 +6,12 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, FileWarning, Sparkles, Wrench, FileDown } from "lucide-react";
+import { Trash2, FileWarning, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
-import { downloadPdf } from "@/lib/download";
+import { ReportDownload } from "@/components/ReportDownload";
 
 const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", odometer: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
@@ -66,7 +66,7 @@ export function DefectsPanel({ embedded = false }) {
     <div data-testid="defects-page">
       {!embedded && <Header title="Defect Reports" subtitle="Driver defect reporting with AI safety triage" onAdd={() => { setForm(empty); setOpen(true); }} addTestId="add-defect-button" addLabel="Report Defect" />}
       <div className="flex justify-end gap-2 mb-4">
-        <Button data-testid="download-defects-pdf" variant="outline" onClick={() => downloadPdf("/reports/defects", "defects-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
+        <ReportDownload path="/reports/defects" filename="defects-report.pdf" testid="download-defects-pdf" evidence />
         {embedded && <Button data-testid="add-defect-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Report Defect</Button>}
       </div>
 

@@ -1568,8 +1568,25 @@ _REPORT_BUILDERS = {
 }
 
 
+_REPORT_FILE_KEYS = {
+    "defects": ["defects"], "service": ["service"], "wheel": ["wheel"],
+    "walkaround": ["walkaround"], "pmi": ["pmi_records"],
+    "audit": ["defects", "service", "wheel", "walkaround", "pmi_records"],
+}
+
+
+def _report_file_ids(kind, data):
+    fids = []
+    for key in _REPORT_FILE_KEYS.get(kind, []):
+        for rec in data.get(key, []):
+            for a in (rec.get("attachments") or []):
+                if a.get("file_id"):
+                    fids.append(a["file_id"])
+    return fids
+
+
 @api_router.get("/reports/{kind}")
-async def download_report(kind: str, user: User = Depends(get_current_user)):
+async def download_report(kind: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
     spec = _REPORT_BUILDERS.get(kind)
     if not spec:
         raise HTTPException(status_code=404, detail="Unknown report type")
@@ -1582,7 +1599,10 @@ async def download_report(kind: str, user: User = Depends(get_current_user)):
         build_report_pdf, title, subtitle,
         [("Operator", operator.get("company_name", ""))], sections,
         await _get_logo_bytes(user.user_id, operator), authority)
-    fname = f"{kind}-report-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    if include_files:
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, _report_file_ids(kind, data)))
+    suffix = "-pack" if include_files else ""
+    fname = f"{kind}-report{suffix}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
@@ -2111,7 +2131,7 @@ async def delete_pmi_record(rid: str, user: User = Depends(get_current_user)):
 
 
 @api_router.get("/pmi/{pid}/report")
-async def pmi_history_report(pid: str, user: User = Depends(get_current_user)):
+async def pmi_history_report(pid: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
     sched = await db.pmi_schedules.find_one({"id": pid, "user_id": user.user_id}, {"_id": 0})
     if not sched:
         raise HTTPException(status_code=404, detail="PMI schedule not found")
@@ -2123,6 +2143,9 @@ async def pmi_history_report(pid: str, user: User = Depends(get_current_user)):
         build_report_pdf, title, subtitle,
         [("Operator", operator.get("company_name", ""))], sections,
         await _get_logo_bytes(user.user_id, operator), authority)
+    if include_files:
+        fids = [a.get("file_id") for r in recs for a in (r.get("attachments") or [])]
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
     fname = f"pmi-history-{(sched.get('vehicle_reg') or 'vehicle').replace(' ', '_')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 

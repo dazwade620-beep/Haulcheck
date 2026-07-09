@@ -14,6 +14,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { downloadPdf } from "@/lib/download";
+import { ReportDownload } from "@/components/ReportDownload";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
 const RESULTS = [["pass", "Pass"], ["advisory", "Advisory"], ["fail", "Fail"]];
@@ -73,7 +74,7 @@ export function InspectionsPanel({ embedded = false }) {
     <div data-testid="inspections-page">
       {!embedded && <Header title="PMI Inspections" subtitle="Recurring maintenance schedules & inspection records" onAdd={openNew} addTestId="add-pmi-button" addLabel="New Schedule" />}
       <div className="flex justify-end gap-2 mb-4">
-        <Button data-testid="download-pmi-pdf" variant="outline" onClick={() => downloadPdf("/reports/pmi", "pmi-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
+        <ReportDownload path="/reports/pmi" filename="pmi-report.pdf" testid="download-pmi-pdf" evidence />
         {embedded && <Button data-testid="add-pmi-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">New Schedule</Button>}
       </div>
 
@@ -127,7 +128,7 @@ export function InspectionsPanel({ embedded = false }) {
                               <p className="font-heading font-bold text-sm text-slate-900">{p.vehicle_reg} · Inspection history</p>
                               <p className="text-xs text-slate-400">Every {p.frequency_weeks} weeks</p>
                             </div>
-                            <button data-testid="pmi-history-pdf-button" onClick={() => downloadPdf(`/pmi/${p.id}/report`, `pmi-history-${p.vehicle_reg}.pdf`)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 shrink-0"><FileDown size={13} /> PDF</button>
+                            <button data-testid="pmi-history-pdf-button" onClick={() => downloadPdf(`/pmi/${p.id}/report?include_files=true`, `pmi-history-${p.vehicle_reg}.pdf`)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 shrink-0"><FileDown size={13} /> PDF + sheets</button>
                           </div>
                           <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
                             {schedRecords.map((r) => (
