@@ -10,6 +10,7 @@ import { Trash2, Pencil, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
+import { RegFolders } from "@/components/RegFolders";
 
 const TYPES = ["Full service", "Interim service", "Oil & filter", "Air-con / AdBlue", "Repair", "Other"];
 const empty = { vehicle_reg: "", service_date: new Date().toISOString().slice(0, 10), service_type: "Full service", odometer: "", provider: "", cost: "", next_service_due: "", notes: "", attachments: [] };
@@ -19,6 +20,7 @@ export function ServicePanel() {
   const cur = user?.region === "IE" ? "€" : "£";
   const [items, setItems] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [regFilter, setRegFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
@@ -55,8 +57,10 @@ export function ServicePanel() {
       </div>
 
       {items.length === 0 ? <Empty icon={Wrench} text="No service records yet. Log routine servicing, repairs and the next service due." /> : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((r) => (
+        <div>
+          <RegFolders items={items} value={regFilter} onChange={setRegFilter} />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {items.filter((r) => !regFilter || r.vehicle_reg === regFilter).map((r) => (
             <div key={r.id} data-testid="service-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
               <div className="flex items-start justify-between">
                 <div>
@@ -81,6 +85,7 @@ export function ServicePanel() {
               <AttachmentThumbs attachments={r.attachments} />
             </div>
           ))}
+          </div>
         </div>
       )}
 

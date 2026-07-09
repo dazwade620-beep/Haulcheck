@@ -9,12 +9,14 @@ import { Trash2, ClipboardCheck, Wrench, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
+import { RegFolders } from "@/components/RegFolders";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", attachments: [] };
 
 export function WalkaroundPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
+  const [regFilter, setRegFilter] = useState("");
   const [assets, setAssets] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [open, setOpen] = useState(false);
@@ -53,8 +55,10 @@ export function WalkaroundPanel({ embedded = false }) {
         <Button data-testid="add-walkaround-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Log Daily Check</Button>
       </div>
       {items.length === 0 ? <Empty icon={ClipboardCheck} text="No daily walkaround checks yet. Log driver first-use nil-defect / defect checks here." /> : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((a) => (
+        <div>
+          <RegFolders items={items} value={regFilter} onChange={setRegFilter} />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {items.filter((a) => !regFilter || a.vehicle_reg === regFilter).map((a) => (
             <div key={a.id} className="bg-white border border-slate-200 rounded-md p-5" data-testid="walkaround-card">
               <div className="flex items-start justify-between mb-2">
                 <div>
@@ -79,6 +83,7 @@ export function WalkaroundPanel({ embedded = false }) {
               {a.attachments?.length > 0 && <div className="mt-3"><AttachmentThumbs attachments={a.attachments} /></div>}
             </div>
           ))}
+          </div>
         </div>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
