@@ -12,7 +12,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 
-const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", attachments: [] };
+const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", odometer: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
 const CATEGORY = ["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"];
 const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["rectified", "Rectified"]];
@@ -100,7 +100,7 @@ export function DefectsPanel({ embedded = false }) {
                       </p>
                     </div>
                   )}
-                  <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{new Date(d.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{d.odometer && `${d.odometer} · `}{new Date(d.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
                   <Select value={d.status} onValueChange={(v) => setStatus(d.id, v)}>
@@ -152,6 +152,7 @@ export function DefectsPanel({ embedded = false }) {
                 </Select>
               </Field>
             </div>
+            <Field label="Mileage / Odometer"><Input data-testid="defect-odometer" value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} placeholder="e.g. 128,400 mi" /></Field>
             <Field label="Description *"><Textarea data-testid="defect-description" required rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the defect in detail…" /></Field>
             <Field label="Photos"><FileUpload testid="defect-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-defect-button" type="submit" disabled={busy} className="bg-black hover:bg-slate-800 gap-2"><Sparkles size={15} /> {busy ? "Analysing…" : "Log & Summarise"}</Button></DialogFooter>

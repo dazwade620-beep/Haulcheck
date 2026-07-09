@@ -32,7 +32,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
     const defaults = {
       pmi: { vehicle_reg: "", next_due: d, frequency_weeks: "6", inspector: "" },
       service: { vehicle_reg: "", service_date: d, service_type: "Full service", odometer: "", provider: "", cost: "", next_service_due: "", notes: "" },
-      defect: { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: d },
+      defect: { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: d, odometer: "" },
       walkaround: { vehicle_reg: "", driver_name: "", check_date: d, result: "nil_defect", mileage: "", defects_noted: "" },
       wheel: { vehicle_reg: "", audit_date: d, result: "pass", torque_setting: "", checked_by: "", next_due: "", notes: "" },
     };
@@ -162,6 +162,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
                   </Select>
                 </F>
                 <F label="Date"><Input data-testid="mqa-defect-date" type="date" value={form.defect_date} onChange={(e) => set("defect_date", e.target.value)} /></F>
+                <F label="Mileage / Odometer"><Input data-testid="mqa-defect-odometer" value={form.odometer} onChange={(e) => set("odometer", e.target.value)} placeholder="e.g. 128,400" /></F>
               </div>
               <F label="Description *"><Textarea data-testid="mqa-defect-desc" rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Describe the defect…" /></F>
             </>

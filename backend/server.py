@@ -240,6 +240,7 @@ class DefectReport(BaseModel):
     ai_summary: str = ""
     status: str = "open"
     defect_date: Optional[str] = None
+    odometer: str = ""
     rectified_date: Optional[str] = None
     rectified_by: str = ""
     rectification_notes: str = ""
@@ -260,6 +261,7 @@ class DefectInput(BaseModel):
     severity: str = "minor"
     description: str
     defect_date: Optional[str] = None
+    odometer: str = ""
     attachments: List[Attachment] = []
 
 
