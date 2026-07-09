@@ -128,6 +128,16 @@ function VehiclesPanel() {
               <Field label="Speed Limiter Check Due"><Input data-testid="veh-speedlimiter" type="date" value={form.speed_limiter_due} onChange={(e) => setForm({ ...form, speed_limiter_due: e.target.value })} /></Field>
             </div>
             <Field label="Date of First Use"><Input data-testid="veh-firstuse" type="date" value={form.first_use_date} onChange={(e) => setForm({ ...form, first_use_date: e.target.value })} /></Field>
+            <div className="rounded-md border border-slate-200 p-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input data-testid="veh-vor" type="checkbox" checked={!!form.vor} onChange={(e) => setForm({ ...form, vor: e.target.checked })} className="h-4 w-4 rounded border-slate-300 accent-red-600" />
+                <span className="text-sm font-semibold text-slate-800">Vehicle Off Road (VOR)</span>
+              </label>
+              {form.vor && (
+                <Input data-testid="veh-vor-reason" value={form.vor_reason} onChange={(e) => setForm({ ...form, vor_reason: e.target.value })} placeholder="Reason (e.g. awaiting parts, accident damage)" className="mt-3" />
+              )}
+              <p className="text-xs text-slate-400 mt-2">VOR vehicles are flagged and excluded from compliance due/overdue alerts while off road.</p>
+            </div>
             <DialogFooter><Button data-testid="save-vehicle-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Vehicle"}</Button></DialogFooter>
           </form>
         </DialogContent>

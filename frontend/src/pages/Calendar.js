@@ -13,6 +13,7 @@ import {
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
 } from "date-fns";
 import { cn } from "@/lib/utils";
+import { MaintenanceQuickAdd } from "@/components/MaintenanceQuickAdd";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -56,8 +57,7 @@ export default function Calendar() {
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
   const [evtEditId, setEvtEditId] = useState(null);
   const [assets, setAssets] = useState([]);
-  const [pmiOpen, setPmiOpen] = useState(false);
-  const [pmiForm, setPmiForm] = useState({ vehicle_reg: "", next_due: "", frequency_weeks: 6, inspector: "" });
+  const [maintOpen, setMaintOpen] = useState(false);
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -68,19 +68,7 @@ export default function Calendar() {
     });
   }, []);
 
-  const openAddPmi = () => {
-    setPmiForm({ vehicle_reg: "", next_due: format(selected, "yyyy-MM-dd"), frequency_weeks: 6, inspector: "" });
-    setPmiOpen(true);
-  };
-  const savePmi = async (e) => {
-    e.preventDefault();
-    if (!pmiForm.vehicle_reg) { toast.error("Select a vehicle"); return; }
-    try {
-      await api.post("/pmi", { ...pmiForm, frequency_weeks: Number(pmiForm.frequency_weeks) });
-      toast.success(`PMI scheduled every ${pmiForm.frequency_weeks} weeks — dates added to calendar`);
-      setPmiOpen(false); loadEvents();
-    } catch { toast.error("Could not schedule PMI"); }
-  };
+  const openAddMaint = () => setMaintOpen(true);
 
   const openAddEvent = () => {
     setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
@@ -131,8 +119,7 @@ export default function Calendar() {
           <span data-testid="cal-month-label" className="font-heading font-bold text-lg tracking-tight w-40 text-center">{format(cursor, "MMMM yyyy")}</span>
           <Button data-testid="cal-next" variant="outline" size="icon" className="border-slate-300" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight size={18} /></Button>
           <Button data-testid="cal-today" variant="outline" className="border-slate-300 ml-2" onClick={() => { setCursor(new Date()); setSelected(new Date()); }}>Today</Button>
-          <Button data-testid="cal-goto-maintenance" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={() => navigate("/maintenance")}><Wrench size={16} /> Maintenance</Button>
-          <Button data-testid="cal-add-pmi" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={openAddPmi}><Wrench size={16} /> Add PMI</Button>
+          <Button data-testid="cal-add-maintenance" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={openAddMaint}><Wrench size={16} /> Maintenance</Button>
           <Button data-testid="cal-add-event" className="bg-black hover:bg-slate-800 rounded-md gap-2 ml-1" onClick={openAddEvent}><Plus size={16} /> Add Event</Button>
         </div>
       </div>
@@ -257,39 +244,13 @@ export default function Calendar() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pmiOpen} onOpenChange={setPmiOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-heading">Schedule PMI Inspections</DialogTitle>
-            <DialogDescription>Pick a vehicle, the first inspection date and how often — we'll plot every due date on the calendar for the year.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={savePmi} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Vehicle / Trailer</label>
-              <Select value={pmiForm.vehicle_reg} onValueChange={(v) => setPmiForm({ ...pmiForm, vehicle_reg: v })}>
-                <SelectTrigger data-testid="pmi-vehicle"><SelectValue placeholder={assets.length ? "Select vehicle" : "Add a vehicle first"} /></SelectTrigger>
-                <SelectContent>{assets.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">First inspection date</label>
-              <Input data-testid="pmi-date" type="date" required value={pmiForm.next_due} onChange={(e) => setPmiForm({ ...pmiForm, next_due: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Frequency (weeks)</label>
-              <Select value={String(pmiForm.frequency_weeks)} onValueChange={(v) => setPmiForm({ ...pmiForm, frequency_weeks: v })}>
-                <SelectTrigger data-testid="pmi-frequency"><SelectValue /></SelectTrigger>
-                <SelectContent>{[4, 6, 8, 10, 12, 13].map((w) => <SelectItem key={w} value={String(w)}>Every {w} weeks</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Inspector (optional)</label>
-              <Input data-testid="pmi-inspector" value={pmiForm.inspector} onChange={(e) => setPmiForm({ ...pmiForm, inspector: e.target.value })} placeholder="Garage / fitter" />
-            </div>
-            <DialogFooter><Button data-testid="save-pmi-button" type="submit" className="bg-black hover:bg-slate-800">Schedule PMI</Button></DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <MaintenanceQuickAdd
+        open={maintOpen}
+        onOpenChange={setMaintOpen}
+        defaultDate={format(selected, "yyyy-MM-dd")}
+        assets={assets}
+        onSaved={loadEvents}
+      />
     </div>
   );
 }

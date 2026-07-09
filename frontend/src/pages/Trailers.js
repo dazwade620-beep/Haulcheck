@@ -12,7 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 
 const TYPES = ["Curtainsider", "Flatbed", "Refrigerated", "Tanker", "Skeletal", "Box", "Low Loader", "Other"];
-const empty = { trailer_number: "", type: "Curtainsider", mot_due: "", service_due: "", notes: "" };
+const empty = { trailer_number: "", type: "Curtainsider", mot_due: "", service_due: "", vor: false, vor_reason: "", notes: "" };
 
 const LocalField = ({ label, children }) => (<div><Label className="mb-1.5 block">{label}</Label>{children}</div>);
 const LocalEmpty = ({ text }) => (
@@ -69,7 +69,12 @@ export function TrailersPanel() {
             <tbody className="divide-y divide-slate-100">
               {items.map((t) => (
                 <tr key={t.id} data-testid="trailer-row" className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-3 font-bold text-slate-900">{t.trailer_number}</td>
+                  <td className="px-5 py-3 font-bold text-slate-900">
+                    <div className="flex items-center gap-2">
+                      {t.trailer_number}
+                      {t.vor && <span data-testid="trailer-vor-badge" className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-100 text-red-700" title={t.vor_reason || "Off road"}>VOR</span>}
+                    </div>
+                  </td>
                   <td className="px-5 py-3 text-slate-600">{t.type}</td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={t.mot_status} /><span className="text-xs text-slate-400">{t.mot_due || "—"}</span></div></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={t.service_status} /><span className="text-xs text-slate-400">{t.service_due || "—"}</span></div></td>
@@ -98,6 +103,16 @@ export function TrailersPanel() {
             <div className="grid grid-cols-2 gap-4">
               <LocalField label={`${terms.trailerTest} Due`}><Input data-testid="trl-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></LocalField>
               <LocalField label="Service Due"><Input data-testid="trl-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></LocalField>
+            </div>
+            <div className="rounded-md border border-slate-200 p-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input data-testid="trl-vor" type="checkbox" checked={!!form.vor} onChange={(e) => setForm({ ...form, vor: e.target.checked })} className="h-4 w-4 rounded border-slate-300 accent-red-600" />
+                <span className="text-sm font-semibold text-slate-800">Trailer Off Road (VOR)</span>
+              </label>
+              {form.vor && (
+                <Input data-testid="trl-vor-reason" value={form.vor_reason} onChange={(e) => setForm({ ...form, vor_reason: e.target.value })} placeholder="Reason (e.g. awaiting parts)" className="mt-3" />
+              )}
+              <p className="text-xs text-slate-400 mt-2">Off-road trailers are flagged and excluded from compliance due/overdue alerts.</p>
             </div>
             <DialogFooter><Button data-testid="save-trailer-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Trailer"}</Button></DialogFooter>
           </form>
