@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
-import { RegFolders, matchesReg, normReg } from "@/components/RegFolders";
+import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
@@ -107,7 +107,7 @@ export function InspectionsPanel({ embedded = false }) {
               </div>
               {(() => {
                 const last = records
-                  .filter((r) => normReg(r.vehicle_reg) === normReg(p.vehicle_reg) && r.inspection_date)
+                  .filter((r) => r.pmi_id === p.id && r.inspection_date)
                   .map((r) => r.inspection_date)
                   .sort()
                   .pop();
