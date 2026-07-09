@@ -13,6 +13,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+// Render inline markdown: **bold** and numbered/bulleted points, preserving line breaks.
+function renderBriefing(text) {
+  const boldify = (line, keyPrefix) =>
+    line.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).map((seg, i) =>
+      seg.startsWith("**") && seg.endsWith("**")
+        ? <strong key={`${keyPrefix}-${i}`} className="font-semibold text-slate-900">{seg.slice(2, -2)}</strong>
+        : <span key={`${keyPrefix}-${i}`}>{seg}</span>
+    );
+  return text.split(/\n+/).filter((l) => l.trim()).map((line, i) => (
+    <p key={i} className="mb-2 last:mb-0">{boldify(line.trim(), i)}</p>
+  ));
+}
+
 const scoreColor = (s) => (s >= 85 ? "text-green-600" : s >= 60 ? "text-yellow-600" : "text-red-600");
 const scoreRing = (s) => (s >= 85 ? "#16A34A" : s >= 60 ? "#EAB308" : "#DC2626");
 
@@ -139,7 +152,7 @@ export default function Dashboard() {
             <span data-testid="ai-authority-badge" title={`Applying ${terms.authority} (${terms.label}) rules`} className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-slate-900 text-white shrink-0">{terms.authority}</span>
           </div>
           {insight ? (
-            <p data-testid="ai-insight-text" className="text-slate-700 text-sm leading-relaxed whitespace-pre-line">{insight}</p>
+            <div data-testid="ai-insight-text" className="text-slate-700 text-sm leading-relaxed">{renderBriefing(insight)}</div>
           ) : (
             <p className="text-slate-400 text-sm">Click <strong>AI Risk Briefing</strong> to generate a prioritised action plan and a live audit checklist of any missing mandatory records for your operator licence.</p>
           )}
