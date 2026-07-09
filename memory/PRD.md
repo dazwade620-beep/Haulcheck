@@ -113,6 +113,16 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Member deactivation (2026-06)**: inviting managers can suspend an activated team member (e.g. for non-payment) from the Team page. `PUT /api/invitations/{id}/member-status {active}` sets `users.active` (scoped to inviter's own members) and clears the member's sessions on deactivate. `_authenticate` and `/auth/login` now reject inactive users (401 on token, 403 with clear message on login). Team page shows a red "Suspended" pill + Deactivate/Reactivate buttons. Verified via curl (activate→me 200, deactivate→me 401 + login 403, reactivate→login 200) + regression 14/14.
 
+- **Vehicles/Trailers VOR (2026-06)**: `vor` + `vor_reason` added to Vehicle/Trailer models. Fleet vehicle & trailer add/edit forms have a "Vehicle/Trailer Off Road (VOR)" checkbox + reason; list rows show a red VOR badge. VOR vehicles/trailers are skipped in `gather_stats` alert generation (no due/overdue noise while off road). Verified via UI + dashboard alert exclusion.
+
+- **Calendar one-stop Maintenance quick-add (2026-06)**: replaced the calendar "Add PMI" button with a **Maintenance** button + a per-day **Add** button in the day-detail panel. Both open `MaintenanceQuickAdd` (`components/MaintenanceQuickAdd.js`): a type picker (PMI Schedule / Service Record / Defect / Daily Check / Wheel Security Audit) → the matching compact form → posts to the existing endpoints (`/pmi`, `/service-records`, `/defects`, `/walkarounds`, `/wheel-audits`) and refreshes the calendar. The day-panel Add pre-fills the clicked day's date. Auto-generated calendar entries now show a "View / edit record →" deep-link to the source page+tab (Maintenance/Office/Fleet/Drivers/Tacho via `?tab=` on Maintenance & Office). Verified end-to-end (defect created via dialog persisted; date prefill confirmed).
+
+- **Maintenance registration folders (2026-06)**: all five Maintenance tabs group records into per-registration "folders" (`components/RegFolders.js`, normalised case/whitespace via `normReg`/`matchesReg` so one truck = one folder). PMI schedule cards show a "Last inspection" date; Recent Inspections rows have a delete button (`DELETE /api/pmi/records/{id}`) that removes the record from both the list and the calendar. Service tab renamed "Vehicles Service".
+
+- **Company Document Generator — transport templates (2026-06)**: added CMR Consignment Note, Proof of Delivery (POD) and Waste Transfer Note to the generator (backend `LETTER_GUIDES` + frontend `LETTER_TEMPLATES`), producing structured branded PDFs.
+
+- **User Invitation, Team overview & member deactivation (2026-06 — VERIFIED, testing_agent iter 18, 14/14)**: managers invite operators (Team page `/team`) to their own isolated accounts pre-seeded with Links + reminder template; `/accept-invite?token=` page. Team page shows Active members with name/activation/last-active (via `last_login_at`), and Deactivate/Reactivate (`PUT /api/invitations/{id}/member-status`) that blocks a member's tokens (401) + login (403). Email case-normalised on all auth paths.
+
 ## Backlog
 - P2: Role-based views (driver vs manager), scheduled email reminders for expiries/PMI due.
 - P2: Export compliance report (PDF), tachograph infringement log detail.
