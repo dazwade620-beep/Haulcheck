@@ -18,7 +18,7 @@ export default function Maintenance() {
           <TabsTrigger value="pmi" data-testid="tab-pmi">PMI Inspections</TabsTrigger>
           <TabsTrigger value="walkaround" data-testid="tab-walkaround">Daily Checks</TabsTrigger>
           <TabsTrigger value="defects" data-testid="tab-defects">Defects</TabsTrigger>
-          <TabsTrigger value="service" data-testid="tab-service">Service</TabsTrigger>
+          <TabsTrigger value="service" data-testid="tab-service">Vehicles Service</TabsTrigger>
           <TabsTrigger value="wheel" data-testid="tab-wheel">Wheel Security</TabsTrigger>
         </TabsList>
         <TabsContent value="pmi"><InspectionsPanel embedded /></TabsContent>
