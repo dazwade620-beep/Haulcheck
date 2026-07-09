@@ -2524,8 +2524,10 @@ async def gather_stats(user_id: str):
 def _score_and_band(counts, gaps):
     penalty = counts["expired"] * 25 + counts["due_soon"] * 8 + counts["major_defects"] * 15 + counts["open_defects"] * 3
     gap_weights = {"high": 10, "medium": 4, "low": 1}
-    gap_penalty = sum(gap_weights.get(g.get("priority"), 0) for g in gaps)
-    score = max(0, 100 - penalty - gap_penalty)
+    penalty += sum(gap_weights.get(g.get("priority"), 0) for g in gaps)
+    # Smooth exponential decay (half-life 45) so heavy non-compliance approaches — but never flat-lines at — 0,
+    # keeping the relative ordering visible (e.g. UK laden-brake requirement scores strictly below Ireland).
+    score = round(100 * (0.5 ** (penalty / 45.0)))
     band = "Low Risk" if score >= 85 else "Moderate Risk" if score >= 60 else "High Risk"
     return score, band
 
