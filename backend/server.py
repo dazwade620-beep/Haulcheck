@@ -2094,6 +2094,12 @@ async def calendar(user: User = Depends(get_current_user)):
     events = [e for e in events if e.get("date")]
     training = await db.training.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
     for t in training:
+        if t.get("completed_date"):
+            events.append({
+                "date": t["completed_date"], "type": "training", "title": f"Training Completed — {t.get('driver_name') or t.get('course_name')}",
+                "subtitle": f"{t.get('category', '')} · {t.get('course_name', '')}".strip(" ·"),
+                "status": "valid",
+            })
         if t.get("expiry_date"):
             events.append({
                 "date": t["expiry_date"], "type": "training", "title": f"Training Expiry — {t.get('driver_name') or t.get('course_name')}",
