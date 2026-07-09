@@ -8,11 +8,12 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench, History } from "lucide-react";
+import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench, History, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
+import { downloadPdf } from "@/lib/download";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
 const RESULTS = [["pass", "Pass"], ["advisory", "Advisory"], ["fail", "Fail"]];
@@ -71,11 +72,10 @@ export function InspectionsPanel({ embedded = false }) {
   return (
     <div data-testid="inspections-page">
       {!embedded && <Header title="PMI Inspections" subtitle="Recurring maintenance schedules & inspection records" onAdd={openNew} addTestId="add-pmi-button" addLabel="New Schedule" />}
-      {embedded && (
-        <div className="flex justify-end mb-4">
-          <Button data-testid="add-pmi-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">New Schedule</Button>
-        </div>
-      )}
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="download-pmi-pdf" variant="outline" onClick={() => downloadPdf("/reports/pmi", "pmi-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
+        {embedded && <Button data-testid="add-pmi-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">New Schedule</Button>}
+      </div>
 
       {(items.length > 0 || records.length > 0) && (
         <RegFolders items={[...items, ...records]} value={regFilter} onChange={setRegFilter} />
@@ -122,9 +122,12 @@ export function InspectionsPanel({ embedded = false }) {
                           </button>
                         </PopoverTrigger>
                         <PopoverContent align="end" className="w-80 p-0" data-testid="pmi-history-popover">
-                          <div className="px-4 py-3 border-b border-slate-100">
-                            <p className="font-heading font-bold text-sm text-slate-900">{p.vehicle_reg} · Inspection history</p>
-                            <p className="text-xs text-slate-400">Every {p.frequency_weeks} weeks</p>
+                          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2">
+                            <div>
+                              <p className="font-heading font-bold text-sm text-slate-900">{p.vehicle_reg} · Inspection history</p>
+                              <p className="text-xs text-slate-400">Every {p.frequency_weeks} weeks</p>
+                            </div>
+                            <button data-testid="pmi-history-pdf-button" onClick={() => downloadPdf(`/pmi/${p.id}/report`, `pmi-history-${p.vehicle_reg}.pdf`)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900 shrink-0"><FileDown size={13} /> PDF</button>
                           </div>
                           <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
                             {schedRecords.map((r) => (

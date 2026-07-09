@@ -5,11 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, ClipboardCheck, Wrench, CheckCircle2 } from "lucide-react";
+import { Trash2, ClipboardCheck, Wrench, CheckCircle2, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
+import { downloadPdf } from "@/lib/download";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", attachments: [] };
@@ -51,7 +52,8 @@ export function WalkaroundPanel({ embedded = false }) {
 
   return (
     <div data-testid="walkaround-page">
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="download-walkaround-pdf" variant="outline" onClick={() => downloadPdf("/reports/walkaround", "daily-checks-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
         <Button data-testid="add-walkaround-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Log Daily Check</Button>
       </div>
       {items.length === 0 ? <Empty icon={ClipboardCheck} text="No daily walkaround checks yet. Log driver first-use nil-defect / defect checks here." /> : (

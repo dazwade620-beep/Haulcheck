@@ -9,8 +9,8 @@ import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText } from 
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
-import { downloadPdf } from "@/lib/download";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { downloadPdf } from "@/lib/download";
 
 const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
 const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
@@ -82,6 +82,9 @@ export default function Drivers() {
   return (
     <div data-testid="drivers-page">
       <Header title="Drivers" subtitle="Licence, CPC, tachograph card & weekly hours" onAdd={openNew} addTestId="add-driver-button" addLabel="Add Driver" />
+      <div className="flex justify-end mb-4 -mt-4">
+        <Button data-testid="download-drivers-pdf" variant="outline" onClick={() => downloadPdf("/reports/drivers", "drivers-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
+      </div>
 
       {items.length === 0 ? <Empty icon={Users} text="No drivers yet. Add drivers to track licences and hours." /> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

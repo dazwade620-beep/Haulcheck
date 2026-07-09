@@ -6,11 +6,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Disc3 } from "lucide-react";
+import { Trash2, Pencil, Disc3, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
+import { downloadPdf } from "@/lib/download";
 
 const RESULTS = { pass: "text-green-700 bg-green-50", advisory: "text-amber-700 bg-amber-50", fail: "text-red-700 bg-red-50" };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -49,7 +50,8 @@ export function WheelSecurityPanel({ embedded = false }) {
 
   return (
     <div data-testid="wheel-security-page">
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="download-wheel-pdf" variant="outline" onClick={() => downloadPdf("/reports/wheel", "wheel-audits-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
         <Button data-testid="add-wheel-audit-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Log Wheel Audit</Button>
       </div>
 

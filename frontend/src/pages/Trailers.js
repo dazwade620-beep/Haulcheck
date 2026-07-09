@@ -6,10 +6,11 @@ import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Trash2, Pencil, Container } from "lucide-react";
+import { Plus, Trash2, Pencil, Container, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
+import { downloadPdf } from "@/lib/download";
 
 const TYPES = ["Curtainsider", "Flatbed", "Refrigerated", "Tanker", "Skeletal", "Box", "Low Loader", "Other"];
 const empty = { trailer_number: "", type: "Curtainsider", mot_due: "", service_due: "", vor: false, vor_reason: "", notes: "" };
@@ -51,7 +52,8 @@ export function TrailersPanel() {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="download-trailers-pdf" variant="outline" onClick={() => downloadPdf("/reports/trailers", "trailers-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
         <Button data-testid="add-trailer-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Trailer</Button>
       </div>
       {items.length === 0 ? <LocalEmpty text="No trailers yet. Add trailers to track annual tests and servicing." /> : (

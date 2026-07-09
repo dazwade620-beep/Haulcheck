@@ -7,14 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Truck, Trash2, Pencil } from "lucide-react";
+import { Plus, Truck, Trash2, Pencil, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
 import { FuelPanel } from "@/pages/Fuel";
+import { downloadPdf } from "@/lib/download";
 
-const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
+const VEHICLE_TYPES = ["HGV (Rigid)", "HGV (Artic / Tractor Unit)", "LGV / Van", "Car", "Minibus / PSV", "Other"];
+const empty = { registration: "", make: "", model: "", type: "HGV (Rigid)", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
 
 function VehiclesPanel() {
   const { user } = useAuth();
@@ -68,7 +71,10 @@ function VehiclesPanel() {
             );
           })}
         </div>
-        <Button data-testid="add-vehicle-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Vehicle</Button>
+        <div className="flex items-center gap-2">
+          <Button data-testid="download-vehicles-pdf" variant="outline" onClick={() => downloadPdf("/reports/vehicles", "vehicles-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
+          <Button data-testid="add-vehicle-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Add Vehicle</Button>
+        </div>
       </div>
       {items.length === 0 ? (
         <Empty icon={Truck} text="No vehicles yet. Add your first vehicle to start tracking." />
@@ -118,6 +124,12 @@ function VehiclesPanel() {
               <Field label="Make"><Input data-testid="veh-make" value={form.make} onChange={(e) => setForm({ ...form, make: e.target.value })} placeholder="DAF" /></Field>
               <Field label="Model"><Input data-testid="veh-model" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="XF 480" /></Field>
             </div>
+            <Field label="Vehicle type *">
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                <SelectTrigger data-testid="veh-type-select"><SelectValue placeholder="Select vehicle type" /></SelectTrigger>
+                <SelectContent>{VEHICLE_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
             <Field label={`${terms.vehicleTest} Due`}><Input data-testid="veh-mot" type="date" value={form.mot_due} onChange={(e) => setForm({ ...form, mot_due: e.target.value })} /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Service Due"><Input data-testid="veh-service" type="date" value={form.service_due} onChange={(e) => setForm({ ...form, service_due: e.target.value })} /></Field>

@@ -20,6 +20,7 @@ import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 from pdf_export import build_report_pdf, merge_pack, build_letter_pdf
+import reports
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1512,6 +1513,79 @@ async def fuel_report(
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+async def _report_data(user_id, kinds):
+    """Fetch + status-enrich the collections needed for reports."""
+    out = {}
+    if "vehicles" in kinds:
+        vs = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in vs:
+            d["mot_status"] = compliance_status(days_until(d.get("mot_due")))
+        out["vehicles"] = vs
+    if "trailers" in kinds:
+        ts = await db.trailers.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in ts:
+            d["mot_status"] = compliance_status(days_until(d.get("mot_due")))
+        out["trailers"] = ts
+    if "drivers" in kinds:
+        ds = await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in ds:
+            d["licence_status"] = compliance_status(days_until(d.get("licence_expiry")))
+        out["drivers"] = ds
+    if "defects" in kinds:
+        out["defects"] = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    if "service" in kinds:
+        sv = await db.service_records.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in sv:
+            d["status"] = compliance_status(days_until(d.get("next_service_due")))
+        out["service"] = sv
+    if "wheel" in kinds:
+        ws = await db.wheel_audits.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in ws:
+            d["status"] = compliance_status(days_until(d.get("next_due")))
+        out["wheel"] = ws
+    if "walkaround" in kinds:
+        out["walkaround"] = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    if "pmi" in kinds:
+        ps = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in ps:
+            d["status"] = compliance_status(days_until(d.get("next_due")))
+        out["pmi"] = ps
+        out["pmi_records"] = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+    return out
+
+
+_REPORT_BUILDERS = {
+    "vehicles": (["vehicles"], lambda d, r: reports.vehicles_report(d["vehicles"], r)),
+    "trailers": (["trailers"], lambda d, r: reports.trailers_report(d["trailers"], r)),
+    "drivers": (["drivers"], lambda d, r: reports.drivers_report(d["drivers"], r)),
+    "defects": (["defects"], lambda d, r: reports.defects_report(d["defects"], r)),
+    "service": (["service"], lambda d, r: reports.service_report(d["service"], r)),
+    "wheel": (["wheel"], lambda d, r: reports.wheel_report(d["wheel"], r)),
+    "walkaround": (["walkaround"], lambda d, r: reports.walkaround_report(d["walkaround"], r)),
+    "pmi": (["pmi"], lambda d, r: reports.pmi_report(d["pmi"], d["pmi_records"], r)),
+    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "wheel", "walkaround", "pmi"],
+              lambda d, r: reports.audit_pack(d, r)),
+}
+
+
+@api_router.get("/reports/{kind}")
+async def download_report(kind: str, user: User = Depends(get_current_user)):
+    spec = _REPORT_BUILDERS.get(kind)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Unknown report type")
+    kinds, builder = spec
+    data = await _report_data(user.user_id, kinds)
+    title, subtitle, sections = builder(data, user.region)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    pdf = await asyncio.to_thread(
+        build_report_pdf, title, subtitle,
+        [("Operator", operator.get("company_name", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
+    fname = f"{kind}-report-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @api_router.post("/fuel")
 async def create_fuel(data: FuelInput, user: User = Depends(get_current_user)):
     r = FuelRecord(**data.model_dump(), user_id=user.user_id)
@@ -2034,6 +2108,23 @@ async def list_pmi_records(user: User = Depends(get_current_user)):
 async def delete_pmi_record(rid: str, user: User = Depends(get_current_user)):
     await db.pmi_records.delete_one({"id": rid, "user_id": user.user_id})
     return {"ok": True}
+
+
+@api_router.get("/pmi/{pid}/report")
+async def pmi_history_report(pid: str, user: User = Depends(get_current_user)):
+    sched = await db.pmi_schedules.find_one({"id": pid, "user_id": user.user_id}, {"_id": 0})
+    if not sched:
+        raise HTTPException(status_code=404, detail="PMI schedule not found")
+    recs = await db.pmi_records.find({"pmi_id": pid, "user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    title, subtitle, sections = reports.pmi_history_report(sched, recs, user.region)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    pdf = await asyncio.to_thread(
+        build_report_pdf, title, subtitle,
+        [("Operator", operator.get("company_name", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
+    fname = f"pmi-history-{(sched.get('vehicle_reg') or 'vehicle').replace(' ', '_')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ---------- Wheel Security Audits ----------

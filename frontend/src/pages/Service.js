@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Wrench } from "lucide-react";
+import { Trash2, Pencil, Wrench, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
+import { downloadPdf } from "@/lib/download";
 
 const TYPES = ["Full service", "Interim service", "Oil & filter", "Air-con / AdBlue", "Repair", "Other"];
 const empty = { vehicle_reg: "", service_date: new Date().toISOString().slice(0, 10), service_type: "Full service", odometer: "", provider: "", cost: "", next_service_due: "", notes: "", attachments: [] };
@@ -52,7 +53,8 @@ export function ServicePanel() {
 
   return (
     <div data-testid="service-page">
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-end gap-2 mb-4">
+        <Button data-testid="download-service-pdf" variant="outline" onClick={() => downloadPdf("/reports/service", "service-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
         <Button data-testid="add-service-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Service Record</Button>
       </div>
 
