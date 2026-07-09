@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -25,7 +25,8 @@ const TYPE_META = {
   insurance: { icon: ShieldCheck, label: "Insurance Renewal" },
   tacho: { icon: Gauge, label: "Tacho Download" },
   wheel: { icon: Wrench, label: "Wheel Security" },
-  service: { icon: Cog, label: "Service Due" },
+  service: { icon: Cog, label: "Service" },
+  walkaround: { icon: ClipboardCheck, label: "Daily Check" },
   vehicle: { icon: Gauge, label: "Vehicle" },
   driver: { icon: ShieldCheck, label: "Driver" },
   custom: { icon: Flag, label: "Event" },
@@ -40,6 +41,7 @@ const EVENT_LINK = {
   pmi_done: "/maintenance?tab=pmi",
   wheel: "/maintenance?tab=wheel",
   service: "/maintenance?tab=service",
+  walkaround: "/maintenance?tab=walkaround",
   defect: "/maintenance?tab=defects",
   training: "/office?tab=training",
   insurance: "/office?tab=insurance",

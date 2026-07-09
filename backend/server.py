@@ -2126,13 +2126,31 @@ async def calendar(user: User = Depends(get_current_user)):
             "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
         })
     for w in await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if w.get("audit_date"):
+            events.append({
+                "date": w["audit_date"], "type": "wheel", "title": f"Wheel Audit — {w.get('vehicle_reg')}",
+                "subtitle": (w.get("result") or "").title() or "Re-torque check",
+                "status": "expired" if w.get("result") == "fail" else "valid",
+            })
         if w.get("next_due"):
             events.append({
                 "date": w["next_due"], "type": "wheel", "title": f"Wheel Security Due — {w.get('vehicle_reg')}",
                 "subtitle": w.get("torque_setting") or "Re-torque check",
                 "status": compliance_status(days_until(w["next_due"])),
             })
+    for wa in await db.walkaround_checks.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if wa.get("check_date"):
+            events.append({
+                "date": wa["check_date"], "type": "walkaround", "title": f"Daily Check — {wa.get('vehicle_reg')}",
+                "subtitle": ("Defects found" if wa.get("result") == "defects_found" else "Nil defect") + (f" · {wa.get('driver_name')}" if wa.get("driver_name") else ""),
+                "status": "due_soon" if (wa.get("result") == "defects_found" and not wa.get("rectified")) else "valid",
+            })
     for sv in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if sv.get("service_date"):
+            events.append({
+                "date": sv["service_date"], "type": "service", "title": f"Serviced — {sv.get('vehicle_reg')}",
+                "subtitle": sv.get("service_type") or "Service", "status": "valid",
+            })
         if sv.get("next_service_due"):
             events.append({
                 "date": sv["next_service_due"], "type": "service", "title": f"Service Due — {sv.get('vehicle_reg')}",
