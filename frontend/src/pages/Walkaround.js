@@ -9,7 +9,7 @@ import { Trash2, ClipboardCheck, Wrench, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
-import { RegFolders } from "@/components/RegFolders";
+import { RegFolders, matchesReg } from "@/components/RegFolders";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", attachments: [] };
@@ -58,7 +58,7 @@ export function WalkaroundPanel({ embedded = false }) {
         <div>
           <RegFolders items={items} value={regFilter} onChange={setRegFilter} />
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.filter((a) => !regFilter || a.vehicle_reg === regFilter).map((a) => (
+          {items.filter((a) => matchesReg(regFilter, a.vehicle_reg)).map((a) => (
             <div key={a.id} className="bg-white border border-slate-200 rounded-md p-5" data-testid="walkaround-card">
               <div className="flex items-start justify-between mb-2">
                 <div>

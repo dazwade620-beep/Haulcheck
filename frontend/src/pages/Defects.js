@@ -10,7 +10,7 @@ import { Trash2, FileWarning, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
-import { RegFolders } from "@/components/RegFolders";
+import { RegFolders, matchesReg } from "@/components/RegFolders";
 
 const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
@@ -73,7 +73,7 @@ export function DefectsPanel({ embedded = false }) {
       {items.length === 0 ? <Empty icon={FileWarning} text="No defects reported. Drivers can log vehicle defects here." /> : (
         <div className="space-y-4">
           <RegFolders items={items} value={regFilter} onChange={setRegFilter} />
-          {items.filter((d) => !regFilter || d.vehicle_reg === regFilter).map((d) => (
+          {items.filter((d) => matchesReg(regFilter, d.vehicle_reg)).map((d) => (
             <div key={d.id} data-testid="defect-card" className="bg-white border border-slate-200 rounded-md p-5 animate-in-up">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">

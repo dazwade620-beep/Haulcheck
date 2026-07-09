@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
-import { RegFolders } from "@/components/RegFolders";
+import { RegFolders, matchesReg } from "@/components/RegFolders";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
 const RESULTS = [["pass", "Pass"], ["advisory", "Advisory"], ["fail", "Fail"]];
@@ -80,7 +80,7 @@ export function InspectionsPanel({ embedded = false }) {
       {items.length === 0 ? <Empty icon={ClipboardCheck} text="No PMI schedules yet. Add a recurring inspection schedule per vehicle." /> : (
         <>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
-          {items.filter((p) => !regFilter || p.vehicle_reg === regFilter).map((p) => (
+          {items.filter((p) => matchesReg(regFilter, p.vehicle_reg)).map((p) => (
             <div key={p.id} data-testid="pmi-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
               <div className="flex items-start justify-between">
                 <div>
@@ -115,7 +115,7 @@ export function InspectionsPanel({ embedded = false }) {
         <div className="animate-in-up">
           <h3 className="font-heading font-bold text-lg tracking-tight text-slate-900 mb-3">Recent Inspections</h3>
           <div className="bg-white border border-slate-200 rounded-md divide-y divide-slate-100">
-            {records.filter((r) => !regFilter || r.vehicle_reg === regFilter).map((r) => (
+            {records.filter((r) => matchesReg(regFilter, r.vehicle_reg)).map((r) => (
               <div key={r.id} data-testid="pmi-record-row" className="flex items-center justify-between px-5 py-3.5">
                 <div>
                   <p className="font-semibold text-slate-900 text-sm">{r.vehicle_reg}</p>

@@ -1,12 +1,25 @@
 import { Folder, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Normalise a registration for grouping/matching: uppercase + strip all whitespace.
+// So "AB12 CDE", "ab12cde" and "AB12  CDE" all collapse to one folder.
+export const normReg = (r) => (r || "").toString().toUpperCase().replace(/\s+/g, "");
+export const matchesReg = (value, reg) => !value || normReg(reg) === value;
+
 // Registration-number "folder" filter used across all Maintenance tabs.
-// Renders an "All" pill plus one pill per distinct registration (with counts).
+// `value`/`onChange` operate on the NORMALISED registration key.
 export function RegFolders({ items, field = "vehicle_reg", value, onChange, className = "" }) {
-  const regs = [...new Set((items || []).map((i) => i[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-  if (regs.length === 0) return null;
-  const countFor = (r) => (items || []).filter((i) => i[field] === r).length;
+  // Group by normalised key, keep the first-seen display label for each.
+  const groups = new Map();
+  for (const it of items || []) {
+    const raw = it[field];
+    if (!raw) continue;
+    const key = normReg(raw);
+    if (!groups.has(key)) groups.set(key, { label: raw, count: 0 });
+    groups.get(key).count += 1;
+  }
+  if (groups.size === 0) return null;
+  const entries = [...groups.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label));
 
   const Pill = ({ v, label, count, icon: Icon }) => (
     <button
@@ -27,9 +40,9 @@ export function RegFolders({ items, field = "vehicle_reg", value, onChange, clas
 
   return (
     <div className={cn("flex flex-wrap gap-2 mb-5", className)} data-testid="reg-folders">
-      <Pill v="" label="All vehicles" count={(items || []).length} icon={Layers} />
-      {regs.map((r) => (
-        <Pill key={r} v={r} label={r} count={countFor(r)} icon={Folder} />
+      <Pill v="" label="All vehicles" count={(items || []).filter((i) => i[field]).length} icon={Layers} />
+      {entries.map(([key, g]) => (
+        <Pill key={key} v={key} label={g.label} count={g.count} icon={Folder} />
       ))}
     </div>
   );

@@ -10,7 +10,7 @@ import { Trash2, Pencil, Disc3 } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
-import { RegFolders } from "@/components/RegFolders";
+import { RegFolders, matchesReg } from "@/components/RegFolders";
 
 const RESULTS = { pass: "text-green-700 bg-green-50", advisory: "text-amber-700 bg-amber-50", fail: "text-red-700 bg-red-50" };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -57,7 +57,7 @@ export function WheelSecurityPanel({ embedded = false }) {
         <div>
           <RegFolders items={items} value={regFilter} onChange={setRegFilter} />
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.filter((a) => !regFilter || a.vehicle_reg === regFilter).map((a) => (
+          {items.filter((a) => matchesReg(regFilter, a.vehicle_reg)).map((a) => (
             <div key={a.id} className="bg-white border border-slate-200 rounded-md p-5" data-testid="wheel-audit-card">
               <div className="flex items-start justify-between mb-3">
                 <div>
