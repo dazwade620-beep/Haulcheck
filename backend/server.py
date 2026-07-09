@@ -2598,8 +2598,8 @@ async def detect_gaps(user_id: str):
             gaps.append({"area": "Fleet", "item": f"{reg}: no date of first use recorded", "priority": "low"})
         if reg not in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
-        if not is_ie and reg not in pmr_with_brake and reg in pmi_regs:
-            gaps.append({"area": "PMI", "item": f"{reg}: no laden brake test recorded at PMI", "priority": "medium"})
+        if not is_ie and reg not in pmr_with_brake:
+            gaps.append({"area": "PMI", "item": f"{reg}: no laden roller brake test recorded (DVSA safety inspection)", "priority": "medium"})
         if reg not in wheel_regs:
             gaps.append({"area": "Maintenance", "item": f"{reg}: no wheel security audit recorded", "priority": "medium"})
         if reg not in walk_regs:
