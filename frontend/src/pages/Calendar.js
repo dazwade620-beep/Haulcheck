@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -32,7 +33,22 @@ const TYPE_META = {
 const dotColor = (status) => (status === "expired" ? "bg-red-500" : status === "due_soon" ? "bg-yellow-500" : "bg-green-500");
 const pillColor = (status) => (status === "expired" ? "bg-red-100 text-red-700" : status === "due_soon" ? "bg-yellow-100 text-yellow-800" : "bg-green-100 text-green-700");
 
+// Where each auto-generated event type lives so the user can edit it at source.
+const EVENT_LINK = {
+  pmi_due: "/maintenance?tab=pmi",
+  pmi_done: "/maintenance?tab=pmi",
+  wheel: "/maintenance?tab=wheel",
+  service: "/maintenance?tab=service",
+  defect: "/maintenance?tab=defects",
+  training: "/office?tab=training",
+  insurance: "/office?tab=insurance",
+  tacho: "/tacho",
+  vehicle: "/vehicles",
+  driver: "/drivers",
+};
+
 export default function Calendar() {
+  const navigate = useNavigate();
   const [cursor, setCursor] = useState(new Date());
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(new Date());
@@ -177,12 +193,22 @@ export default function Calendar() {
             <div className="space-y-3" data-testid="day-events">
               {selectedEvents.map((e, i) => {
                 const M = TYPE_META[e.type] || TYPE_META.defect;
+                const link = e.type !== "custom" ? EVENT_LINK[e.type] : null;
                 return (
                   <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
                     <M.icon size={16} className="text-slate-500 mt-0.5 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-slate-900 truncate">{e.title}</p>
                       <p className="text-xs text-slate-500">{e.subtitle}</p>
+                      {link && (
+                        <button
+                          data-testid="calendar-view-record-button"
+                          onClick={() => navigate(link)}
+                          className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                        >
+                          View / edit record <ArrowRight size={12} />
+                        </button>
+                      )}
                     </div>
                     <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
                     {e.type === "custom" && e.id && (

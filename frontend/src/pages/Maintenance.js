@@ -1,11 +1,16 @@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useSearchParams } from "react-router-dom";
 import { InspectionsPanel } from "@/pages/Inspections";
 import { DefectsPanel } from "@/pages/Defects";
 import { WheelSecurityPanel } from "@/pages/WheelSecurity";
 import { WalkaroundPanel } from "@/pages/Walkaround";
 import { ServicePanel } from "@/pages/Service";
 
+const VALID = ["pmi", "walkaround", "defects", "service", "wheel"];
+
 export default function Maintenance() {
+  const [params] = useSearchParams();
+  const initial = VALID.includes(params.get("tab")) ? params.get("tab") : "pmi";
   return (
     <div data-testid="maintenance-page">
       <div className="mb-6">
@@ -13,7 +18,7 @@ export default function Maintenance() {
         <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Maintenance</h1>
         <p className="text-slate-500 text-sm mt-1">PMI inspections, defects, servicing & wheel security</p>
       </div>
-      <Tabs defaultValue="pmi">
+      <Tabs defaultValue={initial}>
         <TabsList className="mb-6">
           <TabsTrigger value="pmi" data-testid="tab-pmi">PMI Inspections</TabsTrigger>
           <TabsTrigger value="walkaround" data-testid="tab-walkaround">Daily Checks</TabsTrigger>
