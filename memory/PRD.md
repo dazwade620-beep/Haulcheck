@@ -137,6 +137,12 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 
 - **Maintenance registration folders (2026-06)**: all five Maintenance tabs group records into per-registration "folders" (`components/RegFolders.js`, normalised case/whitespace via `normReg`/`matchesReg` so one truck = one folder). PMI schedule cards show a "Last inspection" date; Recent Inspections rows have a delete button (`DELETE /api/pmi/records/{id}`) that removes the record from both the list and the calendar. Service tab renamed "Vehicles Service".
 
+
+- **Vehicle type picker + Download-PDF everywhere + PMI history popover (2026-07 — VERIFIED, testing_agent iter 20, backend 15/15, frontend 8/8)**:
+  - Added a required **Vehicle type** dropdown to Add/Edit Vehicle (`Vehicles.js` `VEHICLE_TYPES`: HGV (Rigid), HGV (Artic / Tractor Unit), LGV / Van, Car, Minibus / PSV, Other). Migrated 14 legacy `type='HGV'` → `HGV (Rigid)`.
+  - Added a **"Download PDF"** button to every records screen. New backend `GET /api/reports/{kind}` (kind ∈ vehicles, trailers, drivers, defects, service, wheel, walkaround, pmi, audit) + `GET /api/pmi/{pid}/report` (per-schedule inspection history). Section builders live in `backend/reports.py`; PDFs use the branded `build_report_pdf`. Frontend uses shared `lib/download.js` `downloadPdf()`.
+  - PMI schedule cards gained a **"History (N)"** popover (per-schedule records + attachments) with its own PDF export button.
+  - Note: a full Compliance Audit Pack already exists on the Dashboard via `/export/account` (report + all evidence). Driver defects confirmed rendering on the Calendar (backend returns them; live site needs redeploy).
 - **PMI per-schedule "Last inspection" fix (2026-07 — VERIFIED, testing_agent iter 19, 3/3)**: PMI schedule cards computed "Last inspection" by matching on `vehicle_reg`, so a vehicle with multiple schedules (e.g. several freq=0 one-offs + a recurring) showed the SAME (globally latest) date on every card. Fixed in `Inspections.js:108-115` to match by the schedule's own `pmi_id` (`records.filter(r => r.pmi_id === p.id && r.inspection_date).sort().pop()`); each card now shows its own last inspection ("—" when none). Backend `POST /api/pmi/{pid}/complete` already stamps records with `pmi_id`.
 
 - **Company Document Generator — transport templates (2026-06)**: added CMR Consignment Note, Proof of Delivery (POD) and Waste Transfer Note to the generator (backend `LETTER_GUIDES` + frontend `LETTER_TEMPLATES`), producing structured branded PDFs.
