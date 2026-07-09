@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench, History } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
@@ -106,12 +107,42 @@ export function InspectionsPanel({ embedded = false }) {
                 <StatusBadge status={p.status} />
               </div>
               {(() => {
-                const last = records
+                const schedRecords = records
                   .filter((r) => r.pmi_id === p.id && r.inspection_date)
-                  .map((r) => r.inspection_date)
-                  .sort()
-                  .pop();
-                return <p className="text-xs text-slate-400 mt-2">Last inspection: <span className="font-medium text-slate-600">{last || "—"}</span></p>;
+                  .sort((a, b) => (a.inspection_date < b.inspection_date ? 1 : -1));
+                const last = schedRecords[0]?.inspection_date;
+                return (
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-xs text-slate-400">Last inspection: <span className="font-medium text-slate-600">{last || "—"}</span></p>
+                    {schedRecords.length > 0 && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button data-testid="pmi-history-button" className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors">
+                            <History size={13} /> History ({schedRecords.length})
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" className="w-80 p-0" data-testid="pmi-history-popover">
+                          <div className="px-4 py-3 border-b border-slate-100">
+                            <p className="font-heading font-bold text-sm text-slate-900">{p.vehicle_reg} · Inspection history</p>
+                            <p className="text-xs text-slate-400">Every {p.frequency_weeks} weeks</p>
+                          </div>
+                          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                            {schedRecords.map((r) => (
+                              <div key={r.id} data-testid="pmi-history-row" className="px-4 py-3">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-semibold text-slate-800">{r.inspection_date}</p>
+                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                                </div>
+                                {(r.inspector || r.notes) && <p className="text-xs text-slate-500 mt-0.5">{[r.inspector, r.notes].filter(Boolean).join(" · ")}</p>}
+                                {r.attachments?.length > 0 && <div className="mt-2"><AttachmentThumbs attachments={r.attachments} /></div>}
+                              </div>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  </div>
+                );
               })()}
               <Button data-testid="complete-pmi-button" onClick={() => openComplete(p)} variant="outline" className="w-full mt-4 gap-2 border-slate-300">
                 <CheckCircle2 size={15} /> Record Inspection
