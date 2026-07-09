@@ -54,7 +54,11 @@ export default function Team() {
     setBusy(true);
     try {
       const res = await api.post("/invitations", { email: email.trim(), base_url: window.location.origin });
-      toast.success("Invitation sent");
+      if (res.data?.email_sent) {
+        toast.success("Invitation email sent");
+      } else {
+        toast.warning("Invite created, but the email could not be sent — link copied instead. Share it directly with the operator.");
+      }
       if (res.data?.invite_link) {
         try { await navigator.clipboard.writeText(res.data.invite_link); toast.message("Invite link copied to clipboard"); } catch { /* ignore */ }
       }

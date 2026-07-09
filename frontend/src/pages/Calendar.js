@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -29,6 +29,7 @@ const TYPE_META = {
   walkaround: { icon: ClipboardCheck, label: "Daily Check" },
   vehicle: { icon: Gauge, label: "Vehicle" },
   driver: { icon: ShieldCheck, label: "Driver" },
+  holiday: { icon: Palmtree, label: "Holiday" },
   custom: { icon: Flag, label: "Event" },
 };
 
@@ -62,8 +63,9 @@ export default function Calendar() {
   const [vehicleRegs, setVehicleRegs] = useState([]);
   const [driverNames, setDriverNames] = useState([]);
   const [maintOpen, setMaintOpen] = useState(false);
-  const [evtMode, setEvtMode] = useState("event"); // event | tacho
+  const [evtMode, setEvtMode] = useState("event"); // event | tacho | holiday
   const [tachoForm, setTachoForm] = useState({ source_type: "Vehicle Unit", reference: "", last_download: "", frequency_days: 90 });
+  const [holForm, setHolForm] = useState({ name: "", from_date: "", to_date: "", notes: "" });
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,6 +84,7 @@ export default function Calendar() {
   const openAddEvent = () => {
     setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
     setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: format(selected, "yyyy-MM-dd"), frequency_days: 90 });
+    setHolForm({ name: "", from_date: format(selected, "yyyy-MM-dd"), to_date: format(selected, "yyyy-MM-dd"), notes: "" });
     setEvtMode("event");
     setEvtEditId(null);
     setEvtOpen(true);
@@ -101,6 +104,16 @@ export default function Calendar() {
         toast.success("Tacho download logged — next due added to calendar");
         setEvtOpen(false); loadEvents();
       } catch { toast.error("Could not log tacho download"); }
+      return;
+    }
+    if (evtMode === "holiday") {
+      if (!holForm.name) { toast.error("Enter who the holiday is for"); return; }
+      if (!holForm.from_date || !holForm.to_date) { toast.error("Enter from and to dates"); return; }
+      try {
+        await api.post("/holidays", holForm);
+        toast.success("Holiday added across the date range");
+        setEvtOpen(false); loadEvents();
+      } catch { toast.error("Could not save holiday"); }
       return;
     }
     try {
@@ -229,6 +242,9 @@ export default function Calendar() {
                         <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
                       </div>
                     )}
+                    {e.type === "holiday" && e.id && (
+                      <button data-testid="delete-holiday-button" onClick={() => deleteHoliday(e.id)} className="text-slate-300 hover:text-red-600 shrink-0"><Trash2 size={14} /></button>
+                    )}
                   </div>
                 );
               })}
@@ -261,6 +277,10 @@ export default function Calendar() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "tacho" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
                 <Gauge size={13} /> Tacho download
               </button>
+              <button type="button" data-testid="event-mode-holiday" onClick={() => setEvtMode("holiday")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "holiday" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+                <Palmtree size={13} /> Holiday
+              </button>
             </div>
           )}
 
@@ -280,7 +300,7 @@ export default function Calendar() {
                   <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
                 </div>
               </>
-            ) : (
+            ) : evtMode === "tacho" ? (
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Download type</label>
@@ -313,8 +333,34 @@ export default function Calendar() {
                 </div>
                 <p className="text-xs text-slate-400">Logs the download and schedules the next due date on the calendar & Tacho Portal. (Driver cards typically every 28 days, vehicle units every 90 days.)</p>
               </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Who is it for?</label>
+                  <Select value={holForm.name} onValueChange={(v) => setHolForm({ ...holForm, name: v })}>
+                    <SelectTrigger data-testid="holiday-name"><SelectValue placeholder="Select driver or type below" /></SelectTrigger>
+                    <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input data-testid="holiday-name-input" className="mt-2" value={holForm.name} onChange={(e) => setHolForm({ ...holForm, name: e.target.value })} placeholder="…or type a name / reason (e.g. John Smith, Office closed)" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">From</label>
+                    <Input data-testid="holiday-from" type="date" required value={holForm.from_date} onChange={(e) => setHolForm({ ...holForm, from_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">To</label>
+                    <Input data-testid="holiday-to" type="date" required value={holForm.to_date} onChange={(e) => setHolForm({ ...holForm, to_date: e.target.value })} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Notes</label>
+                  <Input data-testid="holiday-notes" value={holForm.notes} onChange={(e) => setHolForm({ ...holForm, notes: e.target.value })} placeholder="Optional" />
+                </div>
+                <p className="text-xs text-slate-400">Adds the holiday to every day between the two dates automatically.</p>
+              </>
             )}
-            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtMode === "holiday" ? "Add Holiday" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

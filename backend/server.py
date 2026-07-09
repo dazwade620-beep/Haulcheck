@@ -480,6 +480,7 @@ class PMICompleteInput(BaseModel):
     service_brake_pct: str = ""
     secondary_brake_pct: str = ""
     parking_brake_pct: str = ""
+    attachments: List[Attachment] = []
 
 
 class TrainingRecord(BaseModel):
@@ -721,6 +722,8 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
         "<p style='margin:16px 0 0;font-size:12px;color:#94a3b8;'>This invitation expires in 14 days.</p>"
         "</td></tr></table></div>"
     )
+    email_sent = False
+    email_error = ""
     try:
         import resend
         resend.api_key = os.environ['RESEND_API_KEY']
@@ -728,9 +731,11 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
             "from": os.environ['SENDER_EMAIL'], "to": [email],
             "subject": f"{user.name} invited you to HaulCheck", "html": html,
         })
+        email_sent = True
     except Exception as e:
+        email_error = str(e)
         logging.error(f"Invite email failed: {e}")
-    return {"ok": True, "id": inv["id"], "invite_link": link}
+    return {"ok": True, "id": inv["id"], "invite_link": link, "email_sent": email_sent, "email_error": email_error}
 
 
 @api_router.get("/invitations")
@@ -2009,6 +2014,7 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "service_brake_pct": data.service_brake_pct,
         "secondary_brake_pct": data.secondary_brake_pct,
         "parking_brake_pct": data.parking_brake_pct,
+        "attachments": [a.model_dump() for a in data.attachments],
         "created_at": now_iso(),
     }
     await db.pmi_records.insert_one(dict(record))
@@ -2304,8 +2310,48 @@ async def calendar(user: User = Depends(get_current_user)):
                     "date": dr[key], "type": "driver", "title": f"{label} — {name}",
                     "subtitle": "Driver compliance", "status": compliance_status(days_until(dr[key])),
                 })
+    for h in await db.holidays.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        try:
+            start = datetime.fromisoformat(h["from_date"]).date()
+            end = datetime.fromisoformat(h["to_date"]).date()
+        except Exception:
+            continue
+        if end < start:
+            start, end = end, start
+        cur_d = start
+        days = 0
+        while cur_d <= end and days < 366:
+            events.append({
+                "id": h.get("id"), "date": cur_d.isoformat(), "type": "holiday",
+                "title": f"Holiday — {h.get('name')}",
+                "subtitle": h.get("notes") or f"{h['from_date']} → {h['to_date']}", "status": "valid",
+            })
+            cur_d = cur_d + timedelta(days=1)
+            days += 1
     events = [e for e in events if e.get("date")]
     return events
+
+
+class HolidayInput(BaseModel):
+    name: str
+    from_date: str
+    to_date: str
+    notes: str = ""
+
+
+@api_router.post("/holidays")
+async def create_holiday(data: HolidayInput, user: User = Depends(get_current_user)):
+    h = {"id": f"hol_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "name": data.name,
+         "from_date": data.from_date, "to_date": data.to_date, "notes": data.notes, "created_at": now_iso()}
+    await db.holidays.insert_one(dict(h))
+    h.pop("_id", None)
+    return h
+
+
+@api_router.delete("/holidays/{hid}")
+async def delete_holiday(hid: str, user: User = Depends(get_current_user)):
+    await db.holidays.delete_one({"id": hid, "user_id": user.user_id})
+    return {"ok": True}
 
 
 class CalendarEventInput(BaseModel):

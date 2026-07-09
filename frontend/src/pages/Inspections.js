@@ -11,6 +11,7 @@ import { Trash2, Pencil, ClipboardCheck, CheckCircle2, Wrench } from "lucide-rea
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { RegFolders, matchesReg, normReg } from "@/components/RegFolders";
+import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const emptySched = { vehicle_reg: "", frequency_weeks: 6, next_due: "", inspector: "", notes: "" };
 const RESULTS = [["pass", "Pass"], ["advisory", "Advisory"], ["fail", "Fail"]];
@@ -28,7 +29,7 @@ export function InspectionsPanel({ embedded = false }) {
   const [form, setForm] = useState(emptySched);
   const [editId, setEditId] = useState(null);
   const [completeFor, setCompleteFor] = useState(null);
-  const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "" });
+  const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", attachments: [] });
   const [assets, setAssets] = useState([]);
 
   const load = async () => {
@@ -56,7 +57,7 @@ export function InspectionsPanel({ embedded = false }) {
 
   const removeRecord = async (id) => { await api.delete(`/pmi/records/${id}`); toast.success("Inspection record removed"); load(); };
 
-  const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "" }); };
+  const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", attachments: [] }); };
   const submitComplete = async (e) => {
     e.preventDefault();
     try {
@@ -130,6 +131,7 @@ export function InspectionsPanel({ embedded = false }) {
                 <div>
                   <p className="font-semibold text-slate-900 text-sm">{r.vehicle_reg}</p>
                   <p className="text-xs text-slate-500">{r.inspection_date}{r.inspector && ` · ${r.inspector}`}{r.notes && ` · ${r.notes}`}</p>
+                  {r.attachments?.length > 0 && <div className="mt-2"><AttachmentThumbs attachments={r.attachments} /></div>}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
@@ -204,6 +206,7 @@ export function InspectionsPanel({ embedded = false }) {
               </div>
             </div>
             <Field label="Notes"><Textarea data-testid="complete-notes" rows={3} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} placeholder="Advisories, work carried out…" /></Field>
+            <Field label="Inspection report / sheet (save a copy)"><FileUpload testid="pmi-report-upload" attachments={cForm.attachments} onChange={(a) => setCForm({ ...cForm, attachments: a })} label="Upload the signed PMI inspection sheet (image or PDF)" /></Field>
             <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> Record & Reschedule</Button></DialogFooter>
           </form>
         </DialogContent>
