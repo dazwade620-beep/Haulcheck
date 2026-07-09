@@ -131,6 +131,7 @@ export default function Calendar() {
           <span data-testid="cal-month-label" className="font-heading font-bold text-lg tracking-tight w-40 text-center">{format(cursor, "MMMM yyyy")}</span>
           <Button data-testid="cal-next" variant="outline" size="icon" className="border-slate-300" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight size={18} /></Button>
           <Button data-testid="cal-today" variant="outline" className="border-slate-300 ml-2" onClick={() => { setCursor(new Date()); setSelected(new Date()); }}>Today</Button>
+          <Button data-testid="cal-goto-maintenance" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={() => navigate("/maintenance")}><Wrench size={16} /> Maintenance</Button>
           <Button data-testid="cal-add-pmi" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={openAddPmi}><Wrench size={16} /> Add PMI</Button>
           <Button data-testid="cal-add-event" className="bg-black hover:bg-slate-800 rounded-md gap-2 ml-1" onClick={openAddEvent}><Plus size={16} /> Add Event</Button>
         </div>
