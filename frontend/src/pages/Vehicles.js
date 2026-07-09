@@ -14,7 +14,7 @@ import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
 import { FuelPanel } from "@/pages/Fuel";
 
-const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", notes: "" };
+const empty = { registration: "", make: "", model: "", type: "HGV", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
 
 function VehiclesPanel() {
   const { user } = useAuth();
@@ -88,7 +88,12 @@ function VehiclesPanel() {
             <tbody className="divide-y divide-slate-100">
               {items.map((v) => (
                 <tr key={v.id} data-testid="vehicle-row" className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-3 font-bold text-slate-900">{v.registration}</td>
+                  <td className="px-5 py-3 font-bold text-slate-900">
+                    <div className="flex items-center gap-2">
+                      {v.registration}
+                      {v.vor && <span data-testid="vor-badge" className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-100 text-red-700" title={v.vor_reason || "Vehicle off road"}>VOR</span>}
+                    </div>
+                  </td>
                   <td className="px-5 py-3 text-slate-600">{[v.make, v.model].filter(Boolean).join(" ") || "—"} <span className="text-slate-400">({v.type})</span></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.mot_status} /><span className="text-xs text-slate-400">{v.mot_due || "—"}</span></div></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.service_status} /><span className="text-xs text-slate-400">{v.service_due || "—"}</span></div></td>

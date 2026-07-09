@@ -151,6 +151,8 @@ class Vehicle(BaseModel):
     first_use_date: Optional[str] = None
     tacho_calibration_due: Optional[str] = None
     speed_limiter_due: Optional[str] = None
+    vor: bool = False
+    vor_reason: str = ""
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -166,6 +168,8 @@ class VehicleInput(BaseModel):
     first_use_date: Optional[str] = None
     tacho_calibration_due: Optional[str] = None
     speed_limiter_due: Optional[str] = None
+    vor: bool = False
+    vor_reason: str = ""
     notes: str = ""
 
 
@@ -176,6 +180,8 @@ class Trailer(BaseModel):
     type: str = "Curtainsider"
     mot_due: Optional[str] = None
     service_due: Optional[str] = None
+    vor: bool = False
+    vor_reason: str = ""
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -185,6 +191,8 @@ class TrailerInput(BaseModel):
     type: str = "Curtainsider"
     mot_due: Optional[str] = None
     service_due: Optional[str] = None
+    vor: bool = False
+    vor_reason: str = ""
     notes: str = ""
 
 
@@ -2186,6 +2194,8 @@ async def gather_stats(user_id: str):
     alerts = []
     expired = due_soon = 0
     for v in vehicles:
+        if v.get("vor"):
+            continue
         for label, key in [("MOT", "mot_due"), ("Service", "service_due"), ("Tax", "tax_due"), ("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter", "speed_limiter_due")]:
             d = days_until(v.get(key))
             st = compliance_status(d)
@@ -2229,6 +2239,8 @@ async def gather_stats(user_id: str):
             alerts.append({"type": "pmi", "name": p["vehicle_reg"], "item": "PMI Inspection", "status": "due_soon", "days": d})
 
     for tr in trailers:
+        if tr.get("vor"):
+            continue
         for label, key in [("Annual Test", "mot_due"), ("Service", "service_due")]:
             d = days_until(tr.get(key))
             st = compliance_status(d)
