@@ -170,11 +170,14 @@ export default function Calendar() {
 
         {/* Day detail */}
         <div className="bg-white border border-slate-200 rounded-md p-5 animate-in-up" style={{ animationDelay: "80ms" }}>
-          <div className="flex items-center gap-2 mb-1">
-            <CalendarDays size={18} className="text-slate-900" />
-            <h3 className="font-heading font-bold text-lg tracking-tight">{format(selected, "EEEE d MMM")}</h3>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex items-center gap-2">
+              <CalendarDays size={18} className="text-slate-900" />
+              <h3 className="font-heading font-bold text-lg tracking-tight">{format(selected, "EEEE d MMM")}</h3>
+            </div>
+            <Button data-testid="day-add-maintenance" size="sm" variant="outline" className="border-slate-300 rounded-md gap-1.5 h-8" onClick={openAddMaint}><Wrench size={14} /> Add</Button>
           </div>
-          <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"}</p>
+          <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"} · click Add to log maintenance for this day</p>
           {selectedEvents.length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">Nothing scheduled for this day.</p>
           ) : (
