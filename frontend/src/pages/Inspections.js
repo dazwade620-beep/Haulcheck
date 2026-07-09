@@ -215,5 +215,3 @@ export function InspectionsPanel({ embedded = false }) {
 export default function Inspections() {
   return <InspectionsPanel />;
 }
-onsPanel />;
-}
