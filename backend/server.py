@@ -1395,6 +1395,83 @@ async def fuel_summary(user: User = Depends(get_current_user)):
     return {"vehicles": vehicles, "totals": totals}
 
 
+@api_router.get("/fuel/report")
+async def fuel_report(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    vehicle_reg: Optional[str] = Query(None),
+    user: User = Depends(get_current_user),
+):
+    recs = _enrich_fuel(await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000))
+    if vehicle_reg:
+        recs = [r for r in recs if r.get("vehicle_reg") == vehicle_reg]
+    if from_date:
+        recs = [r for r in recs if (r.get("fill_date") or "") >= from_date]
+    if to_date:
+        recs = [r for r in recs if (r.get("fill_date") or "") <= to_date]
+
+    cur = "€" if user.region == "IE" else "£"
+    per = {}
+    for r in recs:
+        reg = r.get("vehicle_reg")
+        pv = per.setdefault(reg, {"diesel": 0, "adblue": 0, "cost": 0, "miles": 0, "co2": 0, "fills": 0, "mpg_litres": 0})
+        pv["diesel"] += r.get("diesel_litres") or 0
+        pv["adblue"] += r.get("adblue_litres") or 0
+        pv["cost"] += r.get("cost") or 0
+        pv["miles"] += r.get("miles") or 0
+        pv["co2"] += r.get("co2_kg") or 0
+        pv["fills"] += 1
+        if r.get("miles") is not None:
+            pv["mpg_litres"] += r.get("diesel_litres") or 0
+
+    veh_rows = []
+    for reg in sorted(per):
+        pv = per[reg]
+        gal = pv["mpg_litres"] / LITRES_PER_GALLON if pv["mpg_litres"] else 0
+        mpg = round(pv["miles"] / gal, 1) if (pv["miles"] and gal) else None
+        cpm = round(pv["cost"] / pv["miles"], 2) if pv["miles"] else None
+        veh_rows.append({"cells": [reg, round(pv["diesel"], 1), round(pv["adblue"], 1),
+                                   round(pv["miles"], 1), mpg if mpg is not None else "—",
+                                   round(pv["co2"], 1), f"{cur}{round(pv['cost'], 2)}",
+                                   f"{cur}{cpm}" if cpm is not None else "—"]})
+
+    tot_diesel = round(sum(p["diesel"] for p in per.values()), 1)
+    tot_adblue = round(sum(p["adblue"] for p in per.values()), 1)
+    tot_cost = round(sum(p["cost"] for p in per.values()), 2)
+    tot_miles = round(sum(p["miles"] for p in per.values()), 1)
+    tot_co2 = round(sum(p["co2"] for p in per.values()), 1)
+    tot_mpg_l = sum(p["mpg_litres"] for p in per.values())
+    g = tot_mpg_l / LITRES_PER_GALLON if tot_mpg_l else 0
+    fleet_mpg = round(tot_miles / g, 1) if (tot_miles and g) else None
+
+    detail_rows = [{"cells": [r.get("fill_date"), r.get("vehicle_reg"), r.get("diesel_litres") or 0,
+                              r.get("adblue_litres") or 0, r.get("odometer") or "—",
+                              r.get("miles") if r.get("miles") is not None else "—",
+                              r.get("mpg") if r.get("mpg") is not None else "—",
+                              r.get("co2_kg") or 0, f"{cur}{r.get('cost') or 0}"]}
+                   for r in sorted(recs, key=lambda x: (x.get("fill_date") or ""), reverse=True)]
+
+    sections = [
+        {"type": "kv", "heading": "Summary", "pairs": [
+            ("Diesel used", f"{tot_diesel} L"), ("AdBlue used", f"{tot_adblue} L"),
+            ("Distance", f"{tot_miles} miles"), ("Fleet average MPG", fleet_mpg if fleet_mpg is not None else "—"),
+            ("CO₂ emitted", f"{tot_co2} kg ({round(tot_co2/1000, 2)} t)"),
+            ("Total spend", f"{cur}{tot_cost}"), ("Fills", len(recs)),
+        ]},
+        {"heading": "Per-vehicle breakdown", "columns": ["Vehicle", "Diesel (L)", "AdBlue (L)", "Miles", "MPG", "CO₂ (kg)", "Spend", "Cost/mi"], "rows": veh_rows},
+        {"heading": "Fill-by-fill detail", "columns": ["Date", "Vehicle", "Diesel", "AdBlue", "Odo", "Miles", "MPG", "CO₂", "Cost"], "rows": detail_rows},
+    ]
+    period = f"{from_date or 'start'} → {to_date or 'today'}"
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Fuel & AdBlue Usage Report", period,
+        [("Operator", operator.get("company_name", "")), ("Vehicle", vehicle_reg or "All vehicles")],
+        sections, await _get_logo_bytes(user.user_id, operator), authority)
+    fname = f"fuel-report-{(from_date or 'all')}-to-{(to_date or 'now')}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @api_router.post("/fuel")
 async def create_fuel(data: FuelInput, user: User = Depends(get_current_user)):
     r = FuelRecord(**data.model_dump(), user_id=user.user_id)
