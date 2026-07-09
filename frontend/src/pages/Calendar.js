@@ -177,7 +177,7 @@ export default function Calendar() {
                   data-testid="calendar-day"
                   onClick={() => setSelected(day)}
                   className={cn(
-                    "min-h-[84px] border-b border-r border-slate-100 p-1.5 text-left align-top transition-colors relative",
+                    "min-h-[120px] border-b border-r border-slate-100 p-1.5 text-left align-top transition-colors relative",
                     !inMonth && "bg-slate-50/60 text-slate-300",
                     isSel && "ring-2 ring-inset ring-black",
                     "hover:bg-slate-50"

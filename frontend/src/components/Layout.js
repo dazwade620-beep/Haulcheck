@@ -68,7 +68,7 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex w-64 flex-col bg-slate-900 text-white sticky top-0 h-screen">
+      <aside className="hidden md:flex w-52 flex-col bg-slate-900 text-white sticky top-0 h-screen">
         <div className="px-6 py-6 flex items-center gap-2 border-b border-slate-800">
           <Truck size={26} className="text-white" />
           <div>
@@ -125,7 +125,7 @@ export default function Layout({ children }) {
           </div>
         )}
 
-        <main className="flex-1 p-6 sm:p-8 md:p-10 max-w-[1400px] w-full mx-auto">{children}</main>
+        <main className="flex-1 p-6 sm:p-8 md:p-10 max-w-[1680px] w-full mx-auto">{children}</main>
       </div>
     </div>
   );
