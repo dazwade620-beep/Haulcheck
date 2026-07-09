@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { RegionToggle } from "@/components/RegionToggle";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +58,10 @@ export default function Operator() {
           <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Operator Details</h1>
           <p className="text-slate-500 text-sm mt-1">Company, {terms.operatorLicence} & Transport Manager details</p>
         </div>
-        <Button data-testid="save-operator-button" onClick={save} disabled={busy} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Save size={16} /> {busy ? "Saving…" : "Save Details"}</Button>
+        <div className="flex items-center gap-3">
+          <RegionToggle />
+          <Button data-testid="save-operator-button" onClick={save} disabled={busy} className="bg-black hover:bg-slate-800 rounded-md gap-2"><Save size={16} /> {busy ? "Saving…" : "Save Details"}</Button>
+        </div>
       </div>
 
       <form onSubmit={save} className="grid grid-cols-1 lg:grid-cols-2 gap-6">

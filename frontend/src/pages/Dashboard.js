@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { downloadPdf } from "@/lib/download";
+import { RegionToggle } from "@/components/RegionToggle";
 import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useAuth } from "@/context/AuthContext";
@@ -118,6 +119,7 @@ export default function Dashboard() {
           <Button data-testid="ai-insight-button" onClick={runAi} disabled={aiBusy} className="bg-black hover:bg-slate-800 rounded-md gap-2">
             <Sparkles size={16} /> {aiBusy ? "Analysing…" : "AI Risk Briefing"}
           </Button>
+          <RegionToggle />
         </div>
       </div>
 
