@@ -58,7 +58,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
         await api.post("/pmi", { ...form, frequency_weeks: Number(form.frequency_weeks), next_due: form.next_due || null });
         toast.success("PMI scheduled — dates added to calendar");
       } else if (type === "service") {
-        await api.post("/service-records", { ...form, odometer: form.odometer || "", cost: form.cost || "", next_service_due: form.next_service_due || null, service_date: form.service_date || null, attachments: [] });
+        await api.post("/service-records", { ...form, odometer: Number(form.odometer) || 0, cost: Number(form.cost) || 0, next_service_due: form.next_service_due || null, service_date: form.service_date || null, attachments: [] });
         toast.success("Service record added");
       } else if (type === "defect") {
         if (!form.description) { toast.error("Enter a description"); setBusy(false); return; }
