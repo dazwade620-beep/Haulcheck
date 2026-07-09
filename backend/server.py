@@ -2164,20 +2164,28 @@ async def calendar(user: User = Depends(get_current_user)):
                 "date": sv["next_service_due"], "type": "service", "title": f"Service Due — {sv.get('vehicle_reg')}",
                 "subtitle": sv.get("service_type") or "Service", "status": compliance_status(days_until(sv["next_service_due"])),
             })
+    is_ie = (user.region or "UK").upper() in ("IE", "IRELAND", "RSA")
+    mot_label = "CVRT" if is_ie else "MOT / Annual Test"
+    tax_label = "Motor Tax" if is_ie else "Vehicle Tax"
     for v in await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
-        for label, key in [("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter Check", "speed_limiter_due")]:
+        reg = v.get("registration")
+        sub = f"{v.get('make', '')} {v.get('model', '')}".strip()
+        for label, key in [(mot_label, "mot_due"), (tax_label, "tax_due"), ("Service Due", "service_due"),
+                           ("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter Check", "speed_limiter_due")]:
             if v.get(key):
                 events.append({
-                    "date": v[key], "type": "vehicle", "title": f"{label} — {v.get('registration')}",
-                    "subtitle": f"{v.get('make', '')} {v.get('model', '')}".strip(),
-                    "status": compliance_status(days_until(v[key])),
+                    "date": v[key], "type": "vehicle", "title": f"{label} — {reg}",
+                    "subtitle": sub, "status": compliance_status(days_until(v[key])),
                 })
     for dr in await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
-        if dr.get("licence_check_due"):
-            events.append({
-                "date": dr["licence_check_due"], "type": "driver", "title": f"Licence Check Due — {dr.get('name')}",
-                "subtitle": "DVLA/NDLS licence check", "status": compliance_status(days_until(dr["licence_check_due"])),
-            })
+        name = dr.get("name")
+        for label, key in [("Licence Expiry", "licence_expiry"), ("Driver CPC Expiry", "cpc_expiry"),
+                           ("Tacho Card Expiry", "tacho_card_expiry"), ("Licence Check Due", "licence_check_due")]:
+            if dr.get(key):
+                events.append({
+                    "date": dr[key], "type": "driver", "title": f"{label} — {name}",
+                    "subtitle": "Driver compliance", "status": compliance_status(days_until(dr[key])),
+                })
     events = [e for e in events if e.get("date")]
     return events
 
