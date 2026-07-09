@@ -68,6 +68,7 @@ export default function Drivers() {
   const openCpc = (d) => { setCpcFor(d); setCpcForm({ course_name: "", hours: "", completed_date: new Date().toISOString().slice(0, 10), provider: "" }); };
   const saveCpc = async () => {
     if (!cpcForm.course_name || !cpcForm.hours) { toast.error("Enter a course and hours"); return; }
+    if (!cpcForm.completed_date) { toast.error("Enter the completed date"); return; }
     try {
       await api.post("/training", {
         driver_id: cpcFor.id, driver_name: cpcFor.name, course_name: cpcForm.course_name,
@@ -239,7 +240,7 @@ export default function Drivers() {
             <Field label="Course / module *"><Input data-testid="cpc-course" value={cpcForm.course_name} onChange={(e) => setCpcForm({ ...cpcForm, course_name: e.target.value })} placeholder="e.g. Drivers' Hours & WTD" /></Field>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Hours *"><Input data-testid="cpc-hours" type="number" step="0.5" value={cpcForm.hours} onChange={(e) => setCpcForm({ ...cpcForm, hours: e.target.value })} placeholder="7" /></Field>
-              <Field label="Completed"><Input data-testid="cpc-date" type="date" value={cpcForm.completed_date} onChange={(e) => setCpcForm({ ...cpcForm, completed_date: e.target.value })} /></Field>
+              <Field label="Completed *"><Input data-testid="cpc-date" type="date" required value={cpcForm.completed_date} onChange={(e) => setCpcForm({ ...cpcForm, completed_date: e.target.value })} /></Field>
             </div>
             <Field label="Provider"><Input data-testid="cpc-provider" value={cpcForm.provider} onChange={(e) => setCpcForm({ ...cpcForm, provider: e.target.value })} placeholder="Training centre" /></Field>
             <DialogFooter><Button data-testid="save-cpc-button" onClick={saveCpc} disabled={!cpcForm.course_name || !cpcForm.hours} className="bg-black hover:bg-slate-800">Log Training</Button></DialogFooter>

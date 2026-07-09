@@ -46,6 +46,7 @@ export function TrainingPanel({ embedded = false }) {
 
   const save = async (e) => {
     e.preventDefault();
+    if (!form.completed_date) { toast.error("Please enter the date the training was completed"); return; }
     const payload = { ...form, hours: Number(form.hours) || 0, completed_date: form.completed_date || null, expiry_date: form.expiry_date || null };
     try {
       if (editId) await api.put(`/training/${editId}`, payload);
@@ -126,7 +127,7 @@ export function TrainingPanel({ embedded = false }) {
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Completed"><Input data-testid="training-completed" type="date" value={form.completed_date} onChange={(e) => setForm({ ...form, completed_date: e.target.value })} /></Field>
+              <Field label="Completed *"><Input data-testid="training-completed" type="date" required value={form.completed_date} onChange={(e) => setForm({ ...form, completed_date: e.target.value })} /></Field>
               <Field label="Expiry"><Input data-testid="training-expiry" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-4">
