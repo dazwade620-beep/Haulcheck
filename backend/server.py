@@ -2521,18 +2521,20 @@ async def gather_stats(user_id: str):
     }
 
 
+def _score_and_band(counts, gaps):
+    penalty = counts["expired"] * 25 + counts["due_soon"] * 8 + counts["major_defects"] * 15 + counts["open_defects"] * 3
+    gap_weights = {"high": 10, "medium": 4, "low": 1}
+    gap_penalty = sum(gap_weights.get(g.get("priority"), 0) for g in gaps)
+    score = max(0, 100 - penalty - gap_penalty)
+    band = "Low Risk" if score >= 85 else "Moderate Risk" if score >= 60 else "High Risk"
+    return score, band
+
+
 @api_router.get("/dashboard")
 async def dashboard(user: User = Depends(get_current_user)):
     stats = await gather_stats(user.user_id)
-    c = stats["counts"]
-    penalty = c["expired"] * 25 + c["due_soon"] * 8 + c["major_defects"] * 15 + c["open_defects"] * 3
-    score = max(0, 100 - penalty)
-    if score >= 85:
-        band = "Low Risk"
-    elif score >= 60:
-        band = "Moderate Risk"
-    else:
-        band = "High Risk"
+    gaps = await detect_gaps(user.user_id)
+    score, band = _score_and_band(stats["counts"], gaps)
     stats["risk_score"] = score
     stats["risk_band"] = band
     return stats
@@ -2583,6 +2585,8 @@ async def detect_gaps(user_id: str):
     test_regs = {t.get("vehicle_reg") for t in test_history}
     pmr_with_brake = {r.get("vehicle_reg") for r in pmi_records if r.get("brake_test_type") and r.get("brake_test_type") != "none"}
     for v in vehicles:
+        if v.get("vor"):
+            continue
         reg = v.get("registration")
         if not v.get("mot_due"):
             gaps.append({"area": "Fleet", "item": f"{reg}: no {mot_label} date recorded", "priority": "medium"})
@@ -2641,11 +2645,10 @@ async def detect_gaps(user_id: str):
 async def ai_risk_insight(user: User = Depends(get_current_user)):
     stats = await gather_stats(user.user_id)
     c = stats["counts"]
-    penalty = c["expired"] * 25 + c["due_soon"] * 8 + c["major_defects"] * 15 + c["open_defects"] * 3
-    score = max(0, 100 - penalty)
     top = stats["alerts"][:8]
     alert_text = "; ".join([f"{a['name']} {a['item']} {a['status']}" for a in top]) or "No outstanding alerts"
     gaps = await detect_gaps(user.user_id)
+    score, _band = _score_and_band(c, gaps)
     order = {"high": 0, "medium": 1, "low": 2}
     gaps.sort(key=lambda g: order.get(g["priority"], 3))
     gap_text = "; ".join([f"[{g['priority']}] {g['item']}" for g in gaps[:14]]) or "No obvious record gaps detected"
