@@ -1835,7 +1835,9 @@ async def delete_defect(did: str, user: User = Depends(get_current_user)):
 
 
 # ---------- PMI Inspections ----------
-def advance_due(inspection_date: str, weeks: int) -> str:
+def advance_due(inspection_date: str, weeks: int):
+    if not weeks or weeks <= 0:
+        return None
     d = datetime.fromisoformat(inspection_date)
     return (d + timedelta(weeks=weeks)).date().isoformat()
 
@@ -2049,12 +2051,20 @@ async def calendar(user: User = Depends(get_current_user)):
     horizon = (datetime.now(timezone.utc).date() + timedelta(weeks=52)).isoformat()
     for s in schedules:
         nd = s.get("next_due")
-        fw = s.get("frequency_weeks", 6) or 6
+        fw = s.get("frequency_weeks", 6)
         if not nd:
             continue
         try:
             cur = datetime.fromisoformat(nd).date()
         except Exception:
+            continue
+        if not fw or fw <= 0:
+            iso = cur.isoformat()
+            events.append({
+                "date": iso, "type": "pmi_due", "title": f"PMI Due — {s['vehicle_reg']}",
+                "subtitle": "One-off / interim",
+                "status": compliance_status(days_until(iso)),
+            })
             continue
         first, count = True, 0
         while cur.isoformat() <= horizon and count < 26:

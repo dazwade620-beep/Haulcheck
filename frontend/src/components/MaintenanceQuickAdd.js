@@ -113,7 +113,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
                 <F label="Frequency (weeks)">
                   <Select value={String(form.frequency_weeks)} onValueChange={(v) => set("frequency_weeks", v)}>
                     <SelectTrigger data-testid="mqa-pmi-freq"><SelectValue /></SelectTrigger>
-                    <SelectContent>{[4, 6, 8, 10, 12, 13].map((w) => <SelectItem key={w} value={String(w)}>Every {w} weeks</SelectItem>)}</SelectContent>
+                    <SelectContent>{[0, 4, 6, 8, 10, 12, 13].map((w) => <SelectItem key={w} value={String(w)}>{w === 0 ? "One-off / interim" : `Every ${w} weeks`}</SelectItem>)}</SelectContent>
                   </Select>
                 </F>
               </div>

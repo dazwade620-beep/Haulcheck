@@ -153,7 +153,7 @@ export function InspectionsPanel({ embedded = false }) {
               </Select>
             </Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Frequency (weeks)"><Input data-testid="pmi-frequency" type="number" min="1" value={form.frequency_weeks} onChange={(e) => setForm({ ...form, frequency_weeks: e.target.value })} /></Field>
+              <Field label="Frequency (weeks)"><Input data-testid="pmi-frequency" type="number" min="0" value={form.frequency_weeks} onChange={(e) => setForm({ ...form, frequency_weeks: e.target.value })} placeholder="0 = one-off / interim" /></Field>
               <Field label="Next Due"><Input data-testid="pmi-next-due" type="date" value={form.next_due} onChange={(e) => setForm({ ...form, next_due: e.target.value })} /></Field>
             </div>
             <Field label="Default Inspector"><Input data-testid="pmi-inspector" value={form.inspector} onChange={(e) => setForm({ ...form, inspector: e.target.value })} placeholder="e.g. In-house / ABC Commercials" /></Field>
@@ -214,4 +214,6 @@ export function InspectionsPanel({ embedded = false }) {
 
 export default function Inspections() {
   return <InspectionsPanel />;
+}
+onsPanel />;
 }
