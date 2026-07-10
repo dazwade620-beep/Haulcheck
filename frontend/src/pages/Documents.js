@@ -12,7 +12,7 @@ import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 
 const TYPES = ["Operator Licence", "Insurance", "Audit Report", "Wheel Security Check", "Motor Insurance DB", "Health & Safety", "Attestation Record", "Indoctrination Document", "Driver Infringement", "Infringement Report", "Warning Letter", "Adhoc Note", "Other"];
-const LETTER_TEMPLATES = ["Warning Letter", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work", "PRSI Letter", "CMR Consignment Note", "Proof of Delivery (POD)", "Waste Transfer Note"];
+const LETTER_TEMPLATES = ["Warning Letter", "Driver Infringement", "Infringement Report", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Employment Offer Letter", "Contract of Employment", "Reference Letter", "Disciplinary Invite", "Disciplinary Outcome", "Return to Work", "PRSI Letter", "CMR Consignment Note", "Proof of Delivery (POD)", "Waste Transfer Note"];
 const empty = { title: "", doc_type: "Operator Licence", reference: "", expiry_date: "", notes: "", link_url: "", attachments: [] };
 const emptyGen = { template: "Warning Letter", title: "", recipient_name: "", recipient_address: "", points: "", subject: "", body: "" };
 
@@ -30,6 +30,21 @@ export function DocumentsPanel({ embedded = false }) {
   const load = async () => setItems((await api.get("/documents")).data.filter((d) => !d.driver_id));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
+
+  // Prefill the generator from a tacho analysis "Create infringement letter" handoff.
+  useEffect(() => {
+    const raw = sessionStorage.getItem("tacho_infringement_draft");
+    if (raw) {
+      sessionStorage.removeItem("tacho_infringement_draft");
+      try {
+        const d = JSON.parse(raw);
+        setGen({ ...emptyGen, template: "Driver Infringement", recipient_name: d.recipient_name || "", points: d.points || "" });
+        setGenEditId(null);
+        setGenOpen(true);
+      } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (d) => { setForm({ ...empty, ...d, expiry_date: d.expiry_date || "", attachments: d.attachments || [] }); setEditId(d.id); setOpen(true); };

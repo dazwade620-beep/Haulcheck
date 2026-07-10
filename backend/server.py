@@ -436,6 +436,24 @@ class TachoParseInput(BaseModel):
     file_id: str
 
 
+class TachoAnalyseInput(BaseModel):
+    file_id: str
+    driver_name: str = ""
+
+
+class TachoAnalysis(BaseModel):
+    id: str = Field(default_factory=lambda: f"tan_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    driver_name: str = ""
+    period: str = ""
+    summary: str = ""
+    total_infringements: int = 0
+    infringements: List[dict] = []
+    confidence: float = 0.0
+    file_id: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
 class OperatorInput(BaseModel):
     company_name: str = ""
     company_number: str = ""
@@ -1228,6 +1246,11 @@ LETTER_GUIDES = {
     "CMR Consignment Note": "a CMR international road consignment note (per the CMR Convention). Lay out clearly labelled fields for: Sender (consignor) name & address, Consignee name & address, Place & date of taking over the goods, Place designated for delivery, Carrier name & address, Successive carriers, Marks & numbers / number of packages, Method of packing, Nature of the goods, Gross weight, Volume, Sender's instructions (customs/other), Carriage charges, Reservations & observations of the carrier, Documents attached, and Signatures/stamps of sender, carrier and consignee. Present it as a structured consignment note using the details provided.",
     "Proof of Delivery (POD)": "a Proof of Delivery (POD) note confirming goods were delivered. Include: consignment/reference number, date & time of delivery, collection & delivery addresses, description and quantity of goods/packages, vehicle registration, driver name, any damages/shortages/discrepancies noted on delivery, and signature lines for the receiver (name in capitals, signature, date/time) and the driver. Use the details provided.",
     "Waste Transfer Note": "a Duty of Care Waste Transfer Note (UK Environmental Protection Act 1990 / relevant waste regs). Include: transferor (producer/holder) name, address & waste carrier registration if applicable, transferee (carrier/receiver) name, address & waste carrier/broker licence number, description of the waste, EWC/waste code where given, quantity, container/packaging type, the SIC code, place & date of transfer, and declarations plus signatures for both parties confirming compliance with the duty of care. Use the details provided.",
+    "Driver Infringement": "a formal Driver Infringement notification to a driver following a tachograph / drivers' hours infringement. Clearly set out each infringement (type, date/time, and the specific EU 561/2006 or GB domestic rule breached), explain why it matters for road safety and the operator's licence, require the driver's signature to acknowledge, and state the corrective action / re-training expected. Professional and factual.",
+    "Adhoc Note": "a short, dated ad-hoc file note recording a one-off event, conversation or observation relating to a driver or vehicle (e.g. a verbal reminder, a minor issue raised, an informal discussion). Keep it concise, factual and suitable for the compliance file.",
+    "Attestation Record": "a driver attestation / declaration record confirming the driver has read, understood and will comply with the operator's drivers' hours, tachograph, working time and vehicle-use policies. Include statements to be signed and dated by the driver, and a space for the transport manager to countersign.",
+    "Indoctrination Document": "a new-driver induction / indoctrination record documenting the operator's induction of a driver: company policies covered (drivers' hours, tachograph use, walkaround checks, defect reporting, working time, load security, drug & alcohol), licence/CPC/tacho card checks carried out, and vehicle familiarisation. Provide signature and date lines for both driver and transport manager.",
+    "Infringement Report": "a formal Infringement Report summarising tachograph / drivers' hours infringements identified over a period for a driver or the fleet. Present the infringements clearly (type, date, rule breached, severity), the total count, the pattern/analysis, the action taken by the operator, and a sign-off by the transport manager. Suitable as evidence of the operator's infringement management for DVSA/RSA.",
 }
 
 
@@ -1990,6 +2013,118 @@ async def parse_tacho(payload: TachoParseInput, user: User = Depends(get_current
         return {"last_download": extracted.get("last_download"), "infringements": extracted.get("infringements"), "method": "ai"}
     last = parse_ddd_last_timestamp(data)
     return {"last_download": last, "infringements": None, "method": "binary"}
+
+
+async def ai_analyse_tacho(file_bytes: bytes, mime: str, ext: str, region: str, driver_name: str):
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
+    is_ie = (region or "UK").upper() in ("IE", "IRELAND", "RSA")
+    rules = (
+        "EU Regulation (EC) 561/2006 drivers' hours rules as enforced by the RSA in Ireland"
+        if is_ie else
+        "GB domestic and EU Regulation (EC) 561/2006 drivers' hours rules as enforced by the DVSA in the UK"
+    )
+    system = (
+        "You are an expert tachograph analyst for a road-haulage operator. You examine a driver-card / "
+        "vehicle-unit printout or tachograph analysis report and identify drivers' hours infringements under "
+        f"{rules}. Check for: exceeding 4.5h continuous driving without a 45-min break, daily driving limit "
+        "(9h, extendable to 10h twice a week), weekly (56h) and fortnightly (90h) driving limits, insufficient "
+        "daily rest (11h, reduced 9h), insufficient weekly rest, missing/insufficient breaks, and card-missing / "
+        "mode-switch anomalies. For EACH infringement return: type, datetime (ISO or best-effort), rule (the specific "
+        "regulation/limit breached), severity (one of minor, serious, very_serious), detail (what happened), and "
+        "action (recommended operator action). Then give an overall summary. "
+        "Return ONLY minified JSON: {\"driver_name\":..,\"period\":..,\"summary\":..,\"total_infringements\":int,"
+        "\"infringements\":[{\"type\":..,\"datetime\":..,\"rule\":..,\"severity\":..,\"detail\":..,\"action\":..}],"
+        "\"confidence\":0-1}. If the file is unreadable or not a tacho printout, return total_infringements 0 with a "
+        "summary saying so. No prose outside the JSON."
+    )
+    hint = f"Driver: {driver_name}. " if driver_name else ""
+    tmp_path = None
+    try:
+        if (mime or "").startswith("image/"):
+            b64 = base64.b64encode(file_bytes).decode("utf-8")
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tana_{uuid.uuid4().hex[:8]}", system_message=system).with_model("openai", "gpt-4o")
+            msg = UserMessage(text=f"{hint}Analyse this tachograph printout for drivers' hours infringements.", file_contents=[ImageContent(b64)])
+        else:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
+            tmp.write(file_bytes)
+            tmp.flush()
+            tmp.close()
+            tmp_path = tmp.name
+            chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"tana_{uuid.uuid4().hex[:8]}", system_message=system).with_model("gemini", "gemini-2.5-flash")
+            msg = UserMessage(text=f"{hint}Analyse this tachograph report for drivers' hours infringements.", file_contents=[FileContentWithMimeType(mime or "application/pdf", tmp_path)])
+        resp = await chat.send_message(msg)
+        text = (resp if isinstance(resp, str) else str(resp)).strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        s, e = text.find("{"), text.rfind("}")
+        return json.loads(text[s:e + 1])
+    except Exception as ex:
+        logging.error(f"AI tacho analyse failed: {ex}")
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@api_router.post("/tacho/analyse")
+async def analyse_tacho(payload: TachoAnalyseInput, user: User = Depends(get_current_user)):
+    rec = await db.files.find_one({"id": payload.file_id, "user_id": user.user_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    data, ct = get_object(rec["storage_path"])
+    ct = rec.get("content_type") or ct
+    ext = (rec.get("original_filename") or "").rsplit(".", 1)[-1].lower()
+    result = await ai_analyse_tacho(data, ct, ext, user.region, payload.driver_name) or {}
+    infr = result.get("infringements") or []
+    analysis = TachoAnalysis(
+        user_id=user.user_id, driver_name=payload.driver_name or result.get("driver_name") or "",
+        period=result.get("period") or "", summary=result.get("summary") or "",
+        total_infringements=result.get("total_infringements") if isinstance(result.get("total_infringements"), int) else len(infr),
+        infringements=infr, confidence=float(result.get("confidence") or 0), file_id=payload.file_id,
+    )
+    await db.tacho_analyses.insert_one(analysis.model_dump())
+    return analysis.model_dump()
+
+
+@api_router.get("/tacho/analyses")
+async def list_tacho_analyses(user: User = Depends(get_current_user)):
+    return await db.tacho_analyses.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api_router.delete("/tacho/analyses/{aid}")
+async def delete_tacho_analysis(aid: str, user: User = Depends(get_current_user)):
+    await db.tacho_analyses.delete_one({"id": aid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/tacho/analyses/{aid}/report")
+async def tacho_analysis_report(aid: str, user: User = Depends(get_current_user)):
+    a = await db.tacho_analyses.find_one({"id": aid, "user_id": user.user_id}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    rows = [{"cells": [i.get("datetime") or "—", i.get("type") or "—", i.get("rule") or "—",
+                       (i.get("severity") or "").replace("_", " "), i.get("detail") or "—", i.get("action") or "—"],
+             "status": ("expired" if i.get("severity") in ("serious", "very_serious") else "due_soon")}
+            for i in (a.get("infringements") or [])]
+    sections = [
+        {"type": "kv", "heading": "Analysis", "pairs": [
+            ("Driver", a.get("driver_name") or "—"), ("Period", a.get("period") or "—"),
+            ("Total infringements", a.get("total_infringements", 0)),
+            ("AI confidence", f"{round((a.get('confidence') or 0) * 100)}%"),
+            ("Summary", a.get("summary") or "—"),
+        ]},
+        {"heading": "Infringements", "columns": ["When", "Type", "Rule", "Severity", "Detail", "Action"], "rows": rows},
+    ]
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Tachograph Analysis", a.get("driver_name") or "",
+        [("Operator", operator.get("company_name", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
+    fname = f"tacho-analysis-{(a.get('driver_name') or 'driver').replace(' ', '_')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ---------- Defects ----------

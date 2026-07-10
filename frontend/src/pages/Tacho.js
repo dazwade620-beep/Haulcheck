@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,16 +8,19 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles } from "lucide-react";
+import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles, ScanSearch, FileDown, FileSignature, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
+import { downloadPdf } from "@/lib/download";
 
 const FREQ = { "Driver Card": 28, "Vehicle Unit": 90 };
 const today = () => new Date().toISOString().slice(0, 10);
 const empty = { source_type: "Driver Card", reference: "", frequency_days: 28, last_download: "", infringements: 0, notes: "", attachments: [] };
+const sevPill = { very_serious: "bg-red-100 text-red-700", serious: "bg-orange-100 text-orange-700", minor: "bg-yellow-100 text-yellow-800" };
 
 export default function Tacho() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -24,14 +28,40 @@ export default function Tacho() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [reading, setReading] = useState(false);
+  const [analyses, setAnalyses] = useState([]);
+  const [anOpen, setAnOpen] = useState(false);
+  const [anForm, setAnForm] = useState({ driver_name: "", attachments: [] });
+  const [analysing, setAnalysing] = useState(false);
 
   const load = async () => {
     setItems((await api.get("/tacho")).data);
     setDrivers((await api.get("/drivers")).data);
     setVehicles((await api.get("/vehicles")).data);
+    setAnalyses((await api.get("/tacho/analyses")).data);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
+
+  const openAnalyse = () => { setAnForm({ driver_name: "", attachments: [] }); setAnOpen(true); };
+  const runAnalyse = async () => {
+    const att = anForm.attachments[anForm.attachments.length - 1];
+    if (!att) { toast.error("Upload a tacho printout first"); return; }
+    setAnalysing(true);
+    try {
+      await api.post("/tacho/analyse", { file_id: att.file_id, driver_name: anForm.driver_name });
+      toast.success("Analysis complete");
+      setAnOpen(false);
+      setAnalyses((await api.get("/tacho/analyses")).data);
+    } catch { toast.error("Could not analyse the file"); }
+    finally { setAnalysing(false); }
+  };
+  const deleteAnalysis = async (id) => { await api.delete(`/tacho/analyses/${id}`); toast.success("Analysis removed"); setAnalyses((await api.get("/tacho/analyses")).data); };
+  const createInfringementLetter = (a) => {
+    const lines = (a.infringements || []).map((i) => `• ${i.type || "Infringement"}${i.datetime ? ` (${i.datetime})` : ""} — ${i.rule || ""}${i.detail ? `: ${i.detail}` : ""}`).join("\n");
+    const points = `Tachograph analysis for ${a.driver_name || "the driver"}${a.period ? ` covering ${a.period}` : ""}.\n${a.total_infringements || 0} infringement(s) identified:\n${lines}\n\nSummary: ${a.summary || ""}`;
+    sessionStorage.setItem("tacho_infringement_draft", JSON.stringify({ recipient_name: a.driver_name || "", points }));
+    navigate("/office?tab=documents");
+  };
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (t) => { setForm({ ...empty, ...t, last_download: t.last_download || "", attachments: t.attachments || [] }); setEditId(t.id); setOpen(true); };
@@ -152,9 +182,58 @@ export default function Tacho() {
         <TabsList className="mb-6">
           <TabsTrigger value="Driver Card" data-testid="tacho-tab-drivers"><CreditCard size={15} className="mr-1.5" /> Driver Cards</TabsTrigger>
           <TabsTrigger value="Vehicle Unit" data-testid="tacho-tab-vehicles"><Cpu size={15} className="mr-1.5" /> Vehicle Units</TabsTrigger>
+          <TabsTrigger value="Analyser" data-testid="tacho-tab-analyser"><ScanSearch size={15} className="mr-1.5" /> Infringement Analyser</TabsTrigger>
         </TabsList>
         <TabsContent value="Driver Card">{renderGroups("Driver Card", "No driver card downloads yet. Add a record to start tracking.")}</TabsContent>
         <TabsContent value="Vehicle Unit">{renderGroups("Vehicle Unit", "No vehicle unit downloads yet. Add a record to start tracking.")}</TabsContent>
+        <TabsContent value="Analyser">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <p className="text-sm text-slate-500 max-w-2xl">Upload a driver-card / vehicle-unit printout or a tacho analysis report (image or PDF) and let AI flag suspected drivers' hours infringements. Best results with clear printouts or analysis PDFs.</p>
+            <Button data-testid="analyse-tacho-button" onClick={openAnalyse} className="bg-black hover:bg-slate-800 rounded-md gap-2 shrink-0"><ScanSearch size={16} /> Analyse printout</Button>
+          </div>
+          {analyses.length === 0 ? (
+            <Empty icon={ScanSearch} text="No analyses yet. Upload a tacho printout to run an AI infringement check." />
+          ) : (
+            <div className="space-y-4" data-testid="tacho-analyses">
+              {analyses.map((a) => (
+                <div key={a.id} data-testid="tacho-analysis-card" className="bg-white border border-slate-200 rounded-md p-5 animate-in-up">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <ShieldAlert size={16} className={a.total_infringements > 0 ? "text-red-600" : "text-green-600"} />
+                        <h3 className="font-heading font-bold text-lg text-slate-900">{a.driver_name || "Tacho analysis"}</h3>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${a.total_infringements > 0 ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{a.total_infringements} infringement{a.total_infringements !== 1 ? "s" : ""}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">{a.period || ""}{a.period && " · "}Analysed {new Date(a.created_at).toLocaleDateString()} · AI confidence {Math.round((a.confidence || 0) * 100)}%</p>
+                      {a.summary && <p className="text-sm text-slate-600 mt-2">{a.summary}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button data-testid="analysis-pdf-button" onClick={() => downloadPdf(`/tacho/analyses/${a.id}/report`, `tacho-analysis-${(a.driver_name || "driver").replace(/ /g, "_")}.pdf`)} title="Download PDF" className="text-slate-400 hover:text-slate-900 p-1.5"><FileDown size={16} /></button>
+                      <button data-testid="delete-analysis-button" onClick={() => deleteAnalysis(a.id)} title="Delete" className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
+                    </div>
+                  </div>
+                  {(a.infringements || []).length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      {a.infringements.map((i, idx) => (
+                        <div key={idx} data-testid="analysis-infringement" className="border border-slate-100 rounded-md p-3">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900">{i.type || "Infringement"}</span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${sevPill[i.severity] || sevPill.minor}`}>{(i.severity || "minor").replace("_", " ")}</span>
+                          </div>
+                          {i.datetime && <p className="text-xs text-slate-400 mt-0.5">{i.datetime}</p>}
+                          {i.rule && <p className="text-xs text-slate-500 mt-1"><span className="font-semibold">Rule:</span> {i.rule}</p>}
+                          {i.detail && <p className="text-xs text-slate-600 mt-1">{i.detail}</p>}
+                          {i.action && <p className="text-xs text-slate-600 mt-1"><span className="font-semibold">Action:</span> {i.action}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <Button data-testid="create-infringement-letter-button" onClick={() => createInfringementLetter(a)} variant="outline" className="mt-4 gap-2 border-slate-300"><FileSignature size={15} /> Create Driver Infringement letter</Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -197,6 +276,26 @@ export default function Tacho() {
             <Field label="Notes"><Textarea data-testid="tacho-notes" rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Infringement details, analysis notes…" /></Field>
             <DialogFooter><Button data-testid="save-tacho-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Record"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={anOpen} onOpenChange={setAnOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><ScanSearch size={18} /> Analyse Tacho Printout</DialogTitle><DialogDescription>Upload a driver-card / vehicle-unit printout or analysis report — AI will flag suspected drivers' hours infringements.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <Field label="Driver (optional)">
+              <Select value={anForm.driver_name || undefined} onValueChange={(v) => setAnForm({ ...anForm, driver_name: v })}>
+                <SelectTrigger data-testid="analyse-driver-select"><SelectValue placeholder="Attach to a driver" /></SelectTrigger>
+                <SelectContent>{drivers.map((d) => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
+            <Field label="Tacho printout / report *"><FileUpload testid="analyse-upload" label="Upload the printout or analysis report (image or PDF)" accept="image/*,application/pdf" attachments={anForm.attachments} onChange={(a) => setAnForm({ ...anForm, attachments: a })} /></Field>
+            <DialogFooter>
+              <Button data-testid="run-analyse-button" onClick={runAnalyse} disabled={analysing || anForm.attachments.length === 0} className="bg-black hover:bg-slate-800 gap-2">
+                {analysing ? <><Loader2 size={16} className="animate-spin" /> Analysing…</> : <><Sparkles size={16} /> Run AI Analysis</>}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
