@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { downloadPdf } from "@/lib/download";
 import { RegionToggle } from "@/components/RegionToggle";
-import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown } from "lucide-react";
+import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown, Layers } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { AuditReportDialog } from "@/components/AuditReportDialog";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [emailTo, setEmailTo] = useState("");
   const [emailMsg, setEmailMsg] = useState("");
   const [emailBusy, setEmailBusy] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   const sendPack = async () => {
     const to = emailTo.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -181,7 +183,14 @@ export default function Dashboard() {
         <Kpi testid="kpi-vehicles" icon={Truck} label="Vehicles" value={counts.vehicles} tone="text-slate-900" delay={0} />
         <Kpi testid="kpi-drivers" icon={Users} label="Drivers" value={counts.drivers} tone="text-slate-900" delay={60} />
         <Kpi testid="kpi-pmi" icon={ClipboardCheck} label="PMI Schedules" value={counts.pmi ?? 0} tone="text-slate-900" delay={120} />
-        <Kpi testid="kpi-insurance" icon={ShieldCheck} label="Insurance" value={counts.insurance ?? 0} tone="text-slate-900" delay={180} />
+        <button data-testid="kpi-audit-reports" onClick={() => setAuditOpen(true)} className="text-left bg-slate-900 text-white rounded-md p-5 hover:-translate-y-1 hover:shadow-md transition-all duration-200 animate-in-up" style={{ animationDelay: "180ms" }}>
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.15em] text-slate-300 font-semibold">Audit Reports</p>
+            <Layers size={18} className="text-slate-400" />
+          </div>
+          <p className="font-heading text-lg font-bold mt-3 tracking-tight leading-tight">View · Print · PDF</p>
+          <p className="text-[11px] text-slate-400 mt-1">Whole fleet or by section</p>
+        </button>
         <Kpi testid="kpi-documents" icon={FolderCheck} label="Documents" value={counts.documents} tone="text-slate-900" delay={240} />
         <Kpi testid="kpi-defects" icon={FileWarning} label="Open Defects" value={counts.open_defects} tone={counts.open_defects ? "text-red-600" : "text-slate-900"} delay={300} />
       </div>
@@ -238,6 +247,8 @@ export default function Dashboard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AuditReportDialog open={auditOpen} onOpenChange={setAuditOpen} />
     </div>
   );
 }

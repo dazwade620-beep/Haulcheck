@@ -1568,6 +1568,8 @@ async def _report_data(user_id, kinds):
         out["wheel"] = ws
     if "walkaround" in kinds:
         out["walkaround"] = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    if "tacho" in kinds:
+        out["tacho"] = await db.tacho_analyses.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     if "pmi" in kinds:
         ps = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         for d in ps:
@@ -1586,7 +1588,8 @@ _REPORT_BUILDERS = {
     "wheel": (["wheel"], lambda d, r: reports.wheel_report(d["wheel"], r)),
     "walkaround": (["walkaround"], lambda d, r: reports.walkaround_report(d["walkaround"], r)),
     "pmi": (["pmi"], lambda d, r: reports.pmi_report(d["pmi"], d["pmi_records"], r)),
-    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "wheel", "walkaround", "pmi"],
+    "tacho": (["tacho"], lambda d, r: reports.tacho_report(d["tacho"], r)),
+    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "wheel", "walkaround", "tacho", "pmi"],
               lambda d, r: reports.audit_pack(d, r)),
 }
 
@@ -1609,7 +1612,7 @@ def _report_file_ids(kind, data):
 
 
 @api_router.get("/reports/{kind}")
-async def download_report(kind: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
+async def download_report(kind: str, include_files: bool = Query(False), format: str = Query("pdf"), user: User = Depends(get_current_user)):
     spec = _REPORT_BUILDERS.get(kind)
     if not spec:
         raise HTTPException(status_code=404, detail="Unknown report type")
@@ -1618,6 +1621,14 @@ async def download_report(kind: str, include_files: bool = Query(False), user: U
     title, subtitle, sections = builder(data, user.region)
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
     authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    if format == "json":
+        return {
+            "title": title, "subtitle": subtitle,
+            "operator": operator.get("company_name", ""), "authority": authority,
+            "generated": datetime.now(timezone.utc).isoformat(),
+            "has_files": bool(_report_file_ids(kind, data)),
+            "sections": sections,
+        }
     pdf = await asyncio.to_thread(
         build_report_pdf, title, subtitle,
         [("Operator", operator.get("company_name", ""))], sections,

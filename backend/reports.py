@@ -225,6 +225,25 @@ def pmi_history_report(schedule, records, region):
     return f"PMI History — {schedule.get('vehicle_reg')}", f"{len(rows)} inspection(s) recorded", sections
 
 
+def tacho_report(analyses, region):
+    rows = []
+    for a in sorted(analyses, key=lambda x: (x.get("created_at") or ""), reverse=True):
+        rows.append({
+            "cells": [
+                (a.get("created_at") or "")[:10], a.get("driver_name") or "—",
+                a.get("period") or "—", a.get("total_infringements", 0),
+                a.get("summary") or "—",
+            ],
+            "status": ("expired" if (a.get("total_infringements") or 0) > 0 else "valid"),
+        })
+    sections = [{
+        "heading": "Tacho Infringement Analyses",
+        "columns": ["Analysed", "Driver", "Period", "Infringements", "Summary"],
+        "rows": rows,
+    }]
+    return "Tacho Analyses", f"{len(rows)} analysis/analyses", sections
+
+
 def audit_pack(data, region):
     """Full compliance audit pack combining every domain into one report."""
     t = _terms(region)
@@ -240,6 +259,7 @@ def audit_pack(data, region):
             ("Service records", counts.get("service", 0)),
             ("Wheel audits", counts.get("wheel", 0)),
             ("Daily checks", counts.get("walkaround", 0)),
+            ("Tacho analyses", counts.get("tacho", 0)),
         ],
     }]
     sections += vehicles_report(data.get("vehicles", []), region)[2]
@@ -250,5 +270,6 @@ def audit_pack(data, region):
     sections += service_report(data.get("service", []), region)[2]
     sections += wheel_report(data.get("wheel", []), region)[2]
     sections += walkaround_report(data.get("walkaround", []), region)[2]
+    sections += tacho_report(data.get("tacho", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
     return "Compliance Audit Pack", f"Full operator compliance snapshot · {gen}", sections
