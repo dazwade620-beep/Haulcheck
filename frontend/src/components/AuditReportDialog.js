@@ -38,12 +38,27 @@ export function AuditReportDialog({ open, onOpenChange }) {
   const [kind, setKind] = useState("audit");
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const rangeQs = () => {
+    const p = [];
+    if (from) p.push(`from_date=${from}`);
+    if (to) p.push(`to_date=${to}`);
+    return p.length ? `&${p.join("&")}` : "";
+  };
+  const dlQs = () => {
+    const p = [];
+    if (from) p.push(`from_date=${from}`);
+    if (to) p.push(`to_date=${to}`);
+    return p.length ? `?${p.join("&")}` : "";
+  };
 
   const fetchReport = async (k) => {
     setLoading(true);
     setReport(null);
     try {
-      const { data } = await api.get(`/reports/${k}?format=json`);
+      const { data } = await api.get(`/reports/${k}?format=json${rangeQs()}`);
       setReport(data);
     } catch {
       toast.error("Could not load report");
@@ -51,7 +66,7 @@ export function AuditReportDialog({ open, onOpenChange }) {
     setLoading(false);
   };
 
-  useEffect(() => { if (open) fetchReport(kind); /* eslint-disable-next-line */ }, [open, kind]);
+  useEffect(() => { if (open) fetchReport(kind); /* eslint-disable-next-line */ }, [open, kind, from, to]);
 
   const printReport = () => {
     if (!report) return;
@@ -99,14 +114,21 @@ export function AuditReportDialog({ open, onOpenChange }) {
 
         <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-slate-100">
           <Select value={kind} onValueChange={setKind}>
-            <SelectTrigger data-testid="audit-report-select" className="w-64"><SelectValue /></SelectTrigger>
+            <SelectTrigger data-testid="audit-report-select" className="w-56"><SelectValue /></SelectTrigger>
             <SelectContent>{REPORT_KINDS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
           </Select>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span>From</span>
+            <input data-testid="audit-from-date" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm text-slate-700" />
+            <span>to</span>
+            <input data-testid="audit-to-date" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="border border-slate-300 rounded-md px-2 py-1.5 text-sm text-slate-700" />
+            {(from || to) && <button data-testid="audit-clear-range" onClick={() => { setFrom(""); setTo(""); }} className="text-slate-400 hover:text-slate-900 underline">clear</button>}
+          </div>
           <div className="flex-1" />
           <Button data-testid="audit-print-button" variant="outline" className="border-slate-300 rounded-md gap-2" onClick={printReport} disabled={!report}><Printer size={16} /> Print</Button>
-          <Button data-testid="audit-download-button" variant="outline" className="border-slate-300 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}`, `${kind}-report.pdf`)}><FileDown size={16} /> PDF</Button>
+          <Button data-testid="audit-download-button" variant="outline" className="border-slate-300 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}${dlQs()}`, `${kind}-report.pdf`)}><FileDown size={16} /> PDF</Button>
           {kind === "audit" && report?.has_files && (
-            <Button data-testid="audit-download-evidence-button" className="bg-black hover:bg-slate-800 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}?include_files=true`, `${kind}-pack.pdf`)}><FileDown size={16} /> PDF + evidence</Button>
+            <Button data-testid="audit-download-evidence-button" className="bg-black hover:bg-slate-800 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}${dlQs()}${dlQs() ? "&" : "?"}include_files=true`, `${kind}-pack.pdf`)}><FileDown size={16} /> PDF + evidence</Button>
           )}
         </div>
 

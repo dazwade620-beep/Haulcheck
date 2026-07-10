@@ -1536,8 +1536,30 @@ async def fuel_report(
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
-async def _report_data(user_id, kinds):
-    """Fetch + status-enrich the collections needed for reports."""
+async def _report_data(user_id, kinds, from_date=None, to_date=None):
+    """Fetch + status-enrich the collections needed for reports.
+
+    from_date/to_date (YYYY-MM-DD) filter time-series records (defects, service,
+    wheel, walkaround, tacho, pmi records) by their event date. Current-state
+    records (vehicles, trailers, drivers, pmi schedules) are never date-filtered.
+    """
+    def in_range(rec, *fields):
+        if not (from_date or to_date):
+            return True
+        val = ""
+        for f in fields:
+            val = rec.get(f)
+            if val:
+                break
+        val = (val or "")[:10]
+        if not val:
+            return False
+        if from_date and val < from_date:
+            return False
+        if to_date and val > to_date:
+            return False
+        return True
+
     out = {}
     if "vehicles" in kinds:
         vs = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
@@ -1555,27 +1577,31 @@ async def _report_data(user_id, kinds):
             d["licence_status"] = compliance_status(days_until(d.get("licence_expiry")))
         out["drivers"] = ds
     if "defects" in kinds:
-        out["defects"] = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        dfx = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["defects"] = [d for d in dfx if in_range(d, "defect_date", "created_at")]
     if "service" in kinds:
         sv = await db.service_records.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         for d in sv:
             d["status"] = compliance_status(days_until(d.get("next_service_due")))
-        out["service"] = sv
+        out["service"] = [d for d in sv if in_range(d, "service_date")]
     if "wheel" in kinds:
         ws = await db.wheel_audits.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         for d in ws:
             d["status"] = compliance_status(days_until(d.get("next_due")))
-        out["wheel"] = ws
+        out["wheel"] = [d for d in ws if in_range(d, "audit_date")]
     if "walkaround" in kinds:
-        out["walkaround"] = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        wk = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["walkaround"] = [d for d in wk if in_range(d, "check_date")]
     if "tacho" in kinds:
-        out["tacho"] = await db.tacho_analyses.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        tn = await db.tacho_analyses.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["tacho"] = [d for d in tn if in_range(d, "created_at")]
     if "pmi" in kinds:
         ps = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         for d in ps:
             d["status"] = compliance_status(days_until(d.get("next_due")))
         out["pmi"] = ps
-        out["pmi_records"] = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+        pr = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+        out["pmi_records"] = [d for d in pr if in_range(d, "inspection_date")]
     return out
 
 
@@ -1612,13 +1638,17 @@ def _report_file_ids(kind, data):
 
 
 @api_router.get("/reports/{kind}")
-async def download_report(kind: str, include_files: bool = Query(False), format: str = Query("pdf"), user: User = Depends(get_current_user)):
+async def download_report(kind: str, include_files: bool = Query(False), format: str = Query("pdf"),
+                          from_date: str = Query(None), to_date: str = Query(None),
+                          user: User = Depends(get_current_user)):
     spec = _REPORT_BUILDERS.get(kind)
     if not spec:
         raise HTTPException(status_code=404, detail="Unknown report type")
     kinds, builder = spec
-    data = await _report_data(user.user_id, kinds)
+    data = await _report_data(user.user_id, kinds, from_date, to_date)
     title, subtitle, sections = builder(data, user.region)
+    if from_date or to_date:
+        subtitle = f"{subtitle} · Period {from_date or 'start'} to {to_date or 'now'}"
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
     authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
     if format == "json":
