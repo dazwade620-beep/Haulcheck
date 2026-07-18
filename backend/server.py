@@ -139,6 +139,20 @@ class Attachment(BaseModel):
     content_type: str = ""
 
 
+class Alert(BaseModel):
+    id: str = Field(default_factory=lambda: f"alrt_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    type: str = "defect"  # walkaround_defect | defect_report | pmi_fail
+    severity: str = "major"  # minor | major | safety_critical
+    title: str = ""
+    message: str = ""
+    vehicle_reg: str = ""
+    driver_name: str = ""
+    link: str = ""
+    read: bool = False
+    created_at: str = Field(default_factory=now_iso)
+
+
 class Vehicle(BaseModel):
     id: str = Field(default_factory=lambda: f"veh_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -684,6 +698,32 @@ async def get_current_driver(request: Request) -> dict:
     return driver
 
 
+async def create_alert(user_id, type_, severity, title, message, vehicle_reg="", driver_name="", link=""):
+    """Create an in-app defect alert and email the operator for major/safety-critical ones."""
+    alert = Alert(user_id=user_id, type=type_, severity=severity, title=title, message=message,
+                  vehicle_reg=vehicle_reg, driver_name=driver_name, link=link)
+    await db.alerts.insert_one(alert.model_dump())
+    if severity in ("major", "safety_critical"):
+        try:
+            owner = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1})
+            if owner and owner.get("email"):
+                import resend
+                resend.api_key = os.environ['RESEND_API_KEY']
+                sev = severity.replace("_", " ").title()
+                html = (f"<h2 style='font-family:Arial'>⚠️ {sev} defect reported</h2>"
+                        f"<p style='font-family:Arial;font-size:15px'><b>{title}</b></p>"
+                        f"<p style='font-family:Arial;color:#475569'>{message}</p>"
+                        f"<p style='font-family:Arial;color:#64748b'>Vehicle: {vehicle_reg or '—'}{(' · Driver: ' + driver_name) if driver_name else ''}</p>"
+                        f"<p style='font-family:Arial;font-size:12px;color:#94a3b8'>Log in to HaulCheck to review and action this.</p>")
+                await asyncio.to_thread(resend.Emails.send, {
+                    "from": os.environ['SENDER_EMAIL'], "to": [owner["email"]],
+                    "subject": f"HaulCheck: {sev} defect — {vehicle_reg or 'vehicle'}", "html": html,
+                })
+        except Exception as e:
+            logging.error(f"Alert email failed: {e}")
+    return alert
+
+
 async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> Optional[User]:
     candidate = cookie_token or bearer
     # Google session token
@@ -1134,6 +1174,35 @@ async def revoke_driver_code(did: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Defect alerts (manager) ----------
+@api_router.get("/alerts")
+async def list_alerts(user: User = Depends(get_current_user)):
+    return await db.alerts.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+
+@api_router.get("/alerts/unread-count")
+async def alerts_unread_count(user: User = Depends(get_current_user)):
+    return {"count": await db.alerts.count_documents({"user_id": user.user_id, "read": False})}
+
+
+@api_router.patch("/alerts/{aid}/read")
+async def mark_alert_read(aid: str, user: User = Depends(get_current_user)):
+    await db.alerts.update_one({"id": aid, "user_id": user.user_id}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api_router.post("/alerts/read-all")
+async def mark_all_alerts_read(user: User = Depends(get_current_user)):
+    await db.alerts.update_many({"user_id": user.user_id, "read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api_router.delete("/alerts/{aid}")
+async def delete_alert(aid: str, user: User = Depends(get_current_user)):
+    await db.alerts.delete_one({"id": aid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Driver mobile app (PIN/code auth) ----------
 def _driver_profile(driver: dict) -> dict:
     return {
@@ -1223,18 +1292,28 @@ async def driver_walkaround(data: WalkaroundInput, driver: dict = Depends(get_cu
         payload["vehicle_reg"] = driver.get("assigned_vehicle_reg", "")
     check = WalkaroundCheck(**payload)
     await db.walkaround_checks.insert_one(check.model_dump())
+    if check.result == "defects_found":
+        failed = [c.get("item") for c in (check.checklist or []) if not c.get("ok")]
+        await create_alert(driver["user_id"], "walkaround_defect", "major",
+                           f"Walkaround defect — {check.vehicle_reg}",
+                           check.defects_noted or (", ".join(failed) if failed else "Defects found on daily walkaround"),
+                           vehicle_reg=check.vehicle_reg, driver_name=check.driver_name, link="/maintenance")
     return check.model_dump()
 
 
 @api_router.post("/driver/defect")
-async def driver_defect(data: DefectInput, driver: dict = Depends(get_current_driver)):
-    payload = data.model_dump()
+async def driver_defect(payload: dict, driver: dict = Depends(get_current_driver)):
     payload["user_id"] = driver["user_id"]
     payload["reported_by"] = driver.get("name", "")
     if not payload.get("vehicle_reg"):
         payload["vehicle_reg"] = driver.get("assigned_vehicle_reg", "")
-    d = DefectReport(**payload)
+    if not payload.get("description"):
+        raise HTTPException(status_code=400, detail="Describe the defect")
+    d = DefectReport(**{k: v for k, v in payload.items() if k in DefectReport.model_fields})
     await db.defects.insert_one(d.model_dump())
+    await create_alert(driver["user_id"], "defect_report", d.severity or "major",
+                       f"Defect reported — {d.vehicle_reg}", d.description or "Defect reported by driver",
+                       vehicle_reg=d.vehicle_reg, driver_name=d.reported_by, link="/maintenance")
     return d.model_dump()
 
 
@@ -2499,6 +2578,12 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
     new_due = advance_due(data.inspection_date, sched.get("frequency_weeks", 6))
     await db.pmi_schedules.update_one({"id": pid}, {"$set": {"next_due": new_due}})
     record.pop("_id", None)
+    if data.result == "fail":
+        failed = [c.get("item") for c in (data.checklist or []) if not c.get("ok")]
+        await create_alert(user.user_id, "pmi_fail", "safety_critical",
+                           f"PMI FAILED — {sched['vehicle_reg']}",
+                           (", ".join(failed) if failed else (data.notes or "PMI inspection failed")),
+                           vehicle_reg=sched["vehicle_reg"], driver_name=data.inspector, link="/maintenance")
     return {"ok": True, "next_due": new_due, "record": record}
 
 

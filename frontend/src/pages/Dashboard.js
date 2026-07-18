@@ -5,6 +5,7 @@ import { RegionToggle } from "@/components/RegionToggle";
 import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, ShieldCheck, ClipboardCheck, FileDown, Layers } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AuditReportDialog } from "@/components/AuditReportDialog";
+import { DefectAlerts } from "@/components/DefectAlerts";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
@@ -194,6 +195,8 @@ export default function Dashboard() {
         <Kpi testid="kpi-documents" icon={FolderCheck} label="Documents" value={counts.documents} tone="text-slate-900" delay={240} />
         <Kpi testid="kpi-defects" icon={FileWarning} label="Open Defects" value={counts.open_defects} tone={counts.open_defects ? "text-red-600" : "text-slate-900"} delay={300} />
       </div>
+
+      <DefectAlerts />
 
       {/* Alerts feed */}
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden animate-in-up">
