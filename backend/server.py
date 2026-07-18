@@ -211,6 +211,8 @@ class Driver(BaseModel):
     licence_check_due: Optional[str] = None
     weekly_hours: float = 0.0
     max_weekly_hours: float = 56.0
+    access_code: str = ""
+    assigned_vehicle_reg: str = ""
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -227,6 +229,7 @@ class DriverInput(BaseModel):
     licence_check_due: Optional[str] = None
     weekly_hours: float = 0.0
     max_weekly_hours: float = 56.0
+    assigned_vehicle_reg: str = ""
     notes: str = ""
 
 
@@ -643,6 +646,40 @@ class TestHistoryInput(BaseModel):
 def create_jwt(user_id: str) -> str:
     payload = {"user_id": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+async def _generate_driver_code() -> str:
+    for _ in range(20):
+        code = "".join(secrets.choice(_CODE_CHARS) for _ in range(6))
+        if not await db.drivers.find_one({"access_code": code}):
+            return code
+    return "".join(secrets.choice(_CODE_CHARS) for _ in range(8))
+
+
+def create_driver_jwt(driver_id: str, owner_id: str) -> str:
+    payload = {"driver_id": driver_id, "user_id": owner_id, "role": "driver",
+               "exp": datetime.now(timezone.utc) + timedelta(days=30)}
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
+async def get_current_driver(request: Request) -> dict:
+    auth = request.headers.get("Authorization")
+    bearer = auth.split(" ", 1)[1] if auth and auth.startswith("Bearer ") else None
+    if not bearer:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(bearer, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("role") != "driver":
+        raise HTTPException(status_code=403, detail="Driver access only")
+    driver = await db.drivers.find_one({"id": payload.get("driver_id")}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=401, detail="Driver not found")
+    return driver
 
 
 async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> Optional[User]:
@@ -1075,6 +1112,169 @@ async def update_driver(did: str, data: DriverInput, user: User = Depends(get_cu
 async def delete_driver(did: str, user: User = Depends(get_current_user)):
     await db.drivers.delete_one({"id": did, "user_id": user.user_id})
     return {"ok": True}
+
+
+@api_router.post("/drivers/{did}/access-code")
+async def issue_driver_code(did: str, user: User = Depends(get_current_user)):
+    driver = await db.drivers.find_one({"id": did, "user_id": user.user_id}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    code = await _generate_driver_code()
+    await db.drivers.update_one({"id": did, "user_id": user.user_id}, {"$set": {"access_code": code}})
+    return {"ok": True, "access_code": code}
+
+
+@api_router.delete("/drivers/{did}/access-code")
+async def revoke_driver_code(did: str, user: User = Depends(get_current_user)):
+    await db.drivers.update_one({"id": did, "user_id": user.user_id}, {"$set": {"access_code": ""}})
+    return {"ok": True}
+
+
+# ---------- Driver mobile app (PIN/code auth) ----------
+def _driver_profile(driver: dict) -> dict:
+    return {
+        "id": driver["id"], "name": driver.get("name"),
+        "assigned_vehicle_reg": driver.get("assigned_vehicle_reg", ""),
+        "licence_number": driver.get("licence_number", ""),
+        "licence_expiry": driver.get("licence_expiry"),
+        "cpc_expiry": driver.get("cpc_expiry"),
+        "tacho_card_expiry": driver.get("tacho_card_expiry"),
+        "licence_status": compliance_status(days_until(driver.get("licence_expiry"))),
+        "cpc_status": compliance_status(days_until(driver.get("cpc_expiry"))),
+        "tacho_status": compliance_status(days_until(driver.get("tacho_card_expiry"))),
+    }
+
+
+@api_router.post("/driver/login")
+async def driver_login(payload: dict):
+    code = (payload.get("code") or "").strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="Enter your access code")
+    driver = await db.drivers.find_one({"access_code": code}, {"_id": 0})
+    if not driver:
+        raise HTTPException(status_code=401, detail="Invalid access code")
+    token = create_driver_jwt(driver["id"], driver["user_id"])
+    return {"token": token, "driver": _driver_profile(driver)}
+
+
+@api_router.get("/driver/me")
+async def driver_me(driver: dict = Depends(get_current_driver)):
+    profile = _driver_profile(driver)
+    docs = await db.documents.find(
+        {"user_id": driver["user_id"], "$or": [{"driver_id": driver["id"]}, {"driver_name": driver.get("name")}]},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    profile["documents"] = [{"id": d["id"], "title": d.get("title"), "doc_type": d.get("doc_type"),
+                             "attachments": d.get("attachments", [])} for d in docs]
+    return profile
+
+
+@api_router.get("/driver/vehicle")
+async def driver_vehicle(driver: dict = Depends(get_current_driver)):
+    reg = driver.get("assigned_vehicle_reg")
+    if not reg:
+        return {"vehicle": None, "documents": []}
+    veh = await db.vehicles.find_one({"user_id": driver["user_id"], "registration": reg}, {"_id": 0})
+    if veh:
+        for k, f in [("mot_status", "mot_due"), ("service_status", "service_due"), ("tax_status", "tax_due")]:
+            veh[k] = compliance_status(days_until(veh.get(f)))
+    docs = await db.documents.find({"user_id": driver["user_id"], "reference": reg}, {"_id": 0}).to_list(50)
+    return {"vehicle": veh, "documents": [{"id": d["id"], "title": d.get("title"), "attachments": d.get("attachments", [])} for d in docs]}
+
+
+@api_router.get("/driver/vehicles")
+async def driver_vehicles(driver: dict = Depends(get_current_driver)):
+    docs = await db.vehicles.find({"user_id": driver["user_id"]}, {"_id": 0, "registration": 1}).to_list(1000)
+    return [d["registration"] for d in docs]
+
+
+@api_router.post("/driver/upload")
+async def driver_upload(file: UploadFile = File(...), driver: dict = Depends(get_current_driver)):
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    file_id = uuid.uuid4().hex
+    path = f"{APP_NAME}/uploads/{driver['user_id']}/{file_id}.{ext}"
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 15MB)")
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    try:
+        result = put_object(path, data, content_type)
+    except Exception as e:
+        logging.error(f"Driver upload failed: {e}")
+        raise HTTPException(status_code=502, detail="Upload failed")
+    await db.files.insert_one({
+        "id": file_id, "user_id": driver["user_id"], "storage_path": result["path"],
+        "original_filename": file.filename, "content_type": content_type,
+        "size": result.get("size", len(data)), "is_deleted": False, "created_at": now_iso(),
+    })
+    return {"file_id": file_id, "filename": file.filename, "content_type": content_type}
+
+
+@api_router.post("/driver/walkaround")
+async def driver_walkaround(data: WalkaroundInput, driver: dict = Depends(get_current_driver)):
+    payload = data.model_dump()
+    payload["user_id"] = driver["user_id"]
+    payload["driver_name"] = driver.get("name", "")
+    if not payload.get("vehicle_reg"):
+        payload["vehicle_reg"] = driver.get("assigned_vehicle_reg", "")
+    check = WalkaroundCheck(**payload)
+    await db.walkaround_checks.insert_one(check.model_dump())
+    return check.model_dump()
+
+
+@api_router.post("/driver/defect")
+async def driver_defect(data: DefectInput, driver: dict = Depends(get_current_driver)):
+    payload = data.model_dump()
+    payload["user_id"] = driver["user_id"]
+    payload["reported_by"] = driver.get("name", "")
+    if not payload.get("vehicle_reg"):
+        payload["vehicle_reg"] = driver.get("assigned_vehicle_reg", "")
+    d = DefectReport(**payload)
+    await db.defects.insert_one(d.model_dump())
+    return d.model_dump()
+
+
+@api_router.post("/driver/tacho/analyse")
+async def driver_tacho_analyse(payload: dict, driver: dict = Depends(get_current_driver)):
+    file_id = payload.get("file_id")
+    rec = await db.files.find_one({"id": file_id, "user_id": driver["user_id"], "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    fdata, ct = get_object(rec["storage_path"])
+    ct = rec.get("content_type") or ct
+    ext = (rec.get("original_filename") or "").rsplit(".", 1)[-1].lower()
+    region_doc = await db.users.find_one({"user_id": driver["user_id"]}, {"_id": 0, "region": 1}) or {}
+    result = await ai_analyse_tacho(fdata, ct, ext, region_doc.get("region", "UK"), driver.get("name", "")) or {}
+    infr = result.get("infringements") or []
+    analysis = TachoAnalysis(
+        user_id=driver["user_id"], driver_name=driver.get("name", ""),
+        period=result.get("period") or "", summary=result.get("summary") or "",
+        total_infringements=result.get("total_infringements") if isinstance(result.get("total_infringements"), int) else len(infr),
+        infringements=infr, confidence=float(result.get("confidence") or 0), file_id=file_id,
+    )
+    await db.tacho_analyses.insert_one(analysis.model_dump())
+    return analysis.model_dump()
+
+
+@api_router.get("/driver/files/{file_id}")
+async def driver_download_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
+    driver = None
+    token = auth or (request.headers.get("Authorization", "").split(" ", 1)[1] if request.headers.get("Authorization", "").startswith("Bearer ") else None)
+    if token:
+        try:
+            p = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            if p.get("role") == "driver":
+                driver = await db.drivers.find_one({"id": p.get("driver_id")}, {"_id": 0})
+        except jwt.PyJWTError:
+            pass
+    if not driver:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    rec = await db.files.find_one({"id": file_id, "user_id": driver["user_id"], "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    fdata, ct = get_object(rec["storage_path"])
+    return Response(content=fdata, media_type=rec.get("content_type") or ct,
+                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"'})
 
 
 # ---------- Driver Training ----------

@@ -5,19 +5,20 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText } from "lucide-react";
+import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { downloadPdf } from "@/lib/download";
 
-const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, notes: "" };
+const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", notes: "" };
 const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
 const emptyDoc = { title: "", doc_type: "Driver Infringement", reference: "", expiry_date: "", notes: "", attachments: [] };
 
 export default function Drivers() {
   const [items, setItems] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
   const [training, setTraining] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [open, setOpen] = useState(false);
@@ -29,8 +30,8 @@ export default function Drivers() {
   const [cpcForm, setCpcForm] = useState({ course_name: "", hours: "", completed_date: new Date().toISOString().slice(0, 10), provider: "" });
 
   const load = async () => {
-    const [d, t, docs] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents")]);
-    setItems(d.data); setTraining(t.data); setDocuments(docs.data.filter((x) => x.driver_id));
+    const [d, t, docs, v] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents"), api.get("/vehicles")]);
+    setItems(d.data); setTraining(t.data); setDocuments(docs.data.filter((x) => x.driver_id)); setVehicles(v.data.map((x) => x.registration));
   };
   const driverTraining = (d) => training.filter((t) => (t.driver_id && t.driver_id === d.id) || t.driver_name === d.name);
   const driverDocs = (d) => documents.filter((x) => x.driver_id === d.id);
@@ -55,6 +56,14 @@ export default function Drivers() {
     } catch { toast.error("Could not save driver"); }
   };
   const remove = async (id) => { await api.delete(`/drivers/${id}`); toast.success("Driver removed"); load(); };
+
+  const issueCode = async (d) => {
+    try {
+      const { data } = await api.post(`/drivers/${d.id}/access-code`);
+      toast.success(`Access code: ${data.access_code}`);
+      load();
+    } catch { toast.error("Could not generate code"); }
+  };
 
   const openDoc = (d) => { setDocFor(d); setDocForm(emptyDoc); };
   const saveDoc = async () => {
@@ -144,6 +153,18 @@ export default function Drivers() {
                   <span className="flex items-center gap-1.5"><Clock size={15} /> Weekly hours</span>
                   <span className="font-bold">{d.weekly_hours} / {d.max_weekly_hours}h</span>
                 </div>
+                <div className="mt-3 rounded-md border border-slate-200 px-3 py-2.5" data-testid="driver-access-code">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-slate-400 font-semibold"><Smartphone size={12} /> Driver App Access</div>
+                    <button data-testid="issue-code-button" onClick={() => issueCode(d)} className="text-[11px] font-semibold text-slate-500 hover:text-slate-900">{d.access_code ? "Regenerate" : "Generate code"}</button>
+                  </div>
+                  {d.access_code ? (
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span data-testid="driver-code-value" className="font-mono font-black text-lg tracking-[0.25em] text-slate-900">{d.access_code}</span>
+                      {d.assigned_vehicle_reg && <span className="text-xs text-slate-400">→ {d.assigned_vehicle_reg}</span>}
+                    </div>
+                  ) : <p className="text-[11px] text-slate-400 mt-1">Generate a code so this driver can log in at <span className="font-semibold">/driver</span></p>}
+                </div>
                 {driverTraining(d).length > 0 && (
                   <div className="mt-3 border-t border-slate-100 pt-3" data-testid="driver-training-list">
                     <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1.5 flex items-center gap-1"><GraduationCap size={12} /> Training</p>
@@ -196,6 +217,12 @@ export default function Drivers() {
               <Field label="CPC Expiry"><Input data-testid="drv-cpc-exp" type="date" value={form.cpc_expiry} onChange={(e) => setForm({ ...form, cpc_expiry: e.target.value })} /></Field>
             </div>
             <Field label="Tacho Card Expiry"><Input data-testid="drv-tacho-exp" type="date" value={form.tacho_card_expiry} onChange={(e) => setForm({ ...form, tacho_card_expiry: e.target.value })} /></Field>
+            <Field label="Assigned Vehicle (for driver app)">
+              <Select value={form.assigned_vehicle_reg || "none"} onValueChange={(v) => setForm({ ...form, assigned_vehicle_reg: v === "none" ? "" : v })}>
+                <SelectTrigger data-testid="drv-assigned-vehicle"><SelectValue placeholder="Select vehicle" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">None</SelectItem>{vehicles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+              </Select>
+            </Field>
             <div className="border-t border-slate-100 pt-4">
               <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">Licence Checking (DVLA / NDLS)</p>
               <div className="grid grid-cols-2 gap-4">

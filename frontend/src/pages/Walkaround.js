@@ -12,11 +12,11 @@ import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { ReportDownload } from "@/components/ReportDownload";
 
-const CHECKLIST = [
+export const CHECKLIST = [
   { section: "Internal Checks", items: ["Mirrors and glass", "Windscreen wipers and washers", "Front view", "Warning lamps", "Steering", "Horn", "Brakes and air build-up", "Height marker", "Seatbelts"] },
   { section: "External Checks", items: ["Lights and indicators", "Fuel/oil leaks", "Battery security and condition", "Diesel exhaust fluid (AdBlue)", "Excessive engine exhaust smoke", "Security of body/wings", "Spray suppression", "Tyres and wheel fixing", "Brake line", "Electrical connections", "Coupling security", "Security of load", "Number plate", "Reflectors and lights", "Markers"] },
 ];
-const buildChecklist = () => CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
+export const buildChecklist = () => CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
 
 const today = () => new Date().toISOString().slice(0, 10);
 const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", checklist: buildChecklist(), attachments: [] };
