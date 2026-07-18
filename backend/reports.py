@@ -153,19 +153,21 @@ def walkaround_report(checks, region):
     rows = []
     for w in sorted(checks, key=lambda x: (x.get("check_date") or ""), reverse=True):
         found = w.get("result") == "defects_found"
+        cl = w.get("checklist") or []
+        checks_str = f"{sum(1 for c in cl if c.get('ok'))}/{len(cl)}" if cl else "—"
         rows.append({
             "cells": [
                 w.get("check_date") or "—", w.get("vehicle_reg"),
                 w.get("driver_name") or "—",
                 "Defects found" if found else "Nil defect",
-                w.get("defects_noted") or "—",
+                checks_str, w.get("defects_noted") or "—",
                 _yn(w.get("rectified")) if found else "—",
             ],
             "status": ("valid" if (not found or w.get("rectified")) else "due_soon"),
         })
     sections = [{
         "heading": "Daily Walkaround Checks",
-        "columns": ["Date", "Vehicle", "Driver", "Result", "Defects noted", "Rectified"],
+        "columns": ["Date", "Vehicle", "Driver", "Result", "Checks", "Defects noted", "Rectified"],
         "rows": rows,
     }]
     return "Daily Walkaround Checks", f"{len(rows)} check(s)", sections

@@ -5,15 +5,21 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, ClipboardCheck, Wrench, CheckCircle2 } from "lucide-react";
+import { Trash2, ClipboardCheck, Wrench, CheckCircle2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { ReportDownload } from "@/components/ReportDownload";
 
+const CHECKLIST = [
+  { section: "Internal Checks", items: ["Mirrors and glass", "Windscreen wipers and washers", "Front view", "Warning lamps", "Steering", "Horn", "Brakes and air build-up", "Height marker", "Seatbelts"] },
+  { section: "External Checks", items: ["Lights and indicators", "Fuel/oil leaks", "Battery security and condition", "Diesel exhaust fluid (AdBlue)", "Excessive engine exhaust smoke", "Security of body/wings", "Spray suppression", "Tyres and wheel fixing", "Brake line", "Electrical connections", "Coupling security", "Security of load", "Number plate", "Reflectors and lights", "Markers"] },
+];
+const buildChecklist = () => CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
+
 const today = () => new Date().toISOString().slice(0, 10);
-const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", attachments: [] };
+const empty = { vehicle_reg: "", driver_name: "", check_date: today(), result: "nil_defect", mileage: "", defects_noted: "", checklist: buildChecklist(), attachments: [] };
 
 export function WalkaroundPanel({ embedded = false }) {
   const [items, setItems] = useState([]);
@@ -33,11 +39,18 @@ export function WalkaroundPanel({ embedded = false }) {
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const openNew = () => { setForm({ ...empty, checklist: buildChecklist() }); setOpen(true); };
+  const setItem = (idx, patch) => setForm((f) => ({ ...f, checklist: f.checklist.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
+
   const save = async () => {
     if (!form.vehicle_reg) return toast.error("Select a vehicle");
+    const failed = (form.checklist || []).filter((c) => !c.ok);
+    const compiled = failed.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
+    const defects_noted = [compiled, form.defects_noted].filter(Boolean).join(" — ");
+    const result = failed.length ? "defects_found" : "nil_defect";
     try {
-      await api.post("/walkarounds", { ...form, check_date: form.check_date || null });
-      toast.success("Walkaround check logged");
+      await api.post("/walkarounds", { ...form, result, defects_noted, check_date: form.check_date || null });
+      toast.success(failed.length ? `Check logged — ${failed.length} defect(s) found` : "Nil-defect check logged");
       setOpen(false); setForm(empty); load();
     } catch { toast.error("Could not save check"); }
   };
@@ -54,7 +67,7 @@ export function WalkaroundPanel({ embedded = false }) {
     <div data-testid="walkaround-page">
       <div className="flex justify-end gap-2 mb-4">
         <ReportDownload path="/reports/walkaround" filename="daily-checks-report.pdf" testid="download-walkaround-pdf" evidence />
-        <Button data-testid="add-walkaround-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Log Daily Check</Button>
+        <Button data-testid="add-walkaround-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Log Daily Check</Button>
       </div>
       {items.length === 0 ? <Empty icon={ClipboardCheck} text="No daily walkaround checks yet. Log driver first-use nil-defect / defect checks here." /> : (
         <div>
@@ -74,6 +87,11 @@ export function WalkaroundPanel({ embedded = false }) {
                 <button data-testid="delete-walkaround-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
               </div>
               {a.defects_noted && <p className="text-sm text-slate-500 mt-1">{a.defects_noted}</p>}
+              {a.checklist?.length > 0 && (
+                <p data-testid="walkaround-check-count" className="text-xs text-slate-400 mt-1.5">
+                  {a.checklist.filter((c) => c.ok).length}/{a.checklist.length} checks passed
+                </p>
+              )}
               {a.result === "defects_found" && a.rectified && (
                 <div data-testid="walkaround-rectified-banner" className="mt-3 rounded-md bg-green-50 border border-green-100 px-3 py-2 text-xs text-green-800">
                   <span className="font-semibold">Rectified {a.rectified_date}</span>{a.rectified_notes ? ` — ${a.rectified_notes}` : ""}
@@ -89,8 +107,8 @@ export function WalkaroundPanel({ embedded = false }) {
         </div>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Log Daily Walkaround Check</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>HGV Daily Walkaround Check</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Vehicle *">
               <Select value={form.vehicle_reg} onValueChange={(v) => setForm({ ...form, vehicle_reg: v })}>
@@ -105,16 +123,45 @@ export function WalkaroundPanel({ embedded = false }) {
               </Select>
             </Field>
             <Field label="Date"><Input data-testid="walk-date" type="date" value={form.check_date || ""} onChange={(e) => setForm({ ...form, check_date: e.target.value })} /></Field>
-            <Field label="Result">
-              <Select value={form.result} onValueChange={(v) => setForm({ ...form, result: v })}>
-                <SelectTrigger data-testid="walk-result"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="nil_defect">Nil defect</SelectItem><SelectItem value="defects_found">Defects found</SelectItem></SelectContent>
-              </Select>
-            </Field>
             <Field label="Mileage"><Input data-testid="walk-mileage" value={form.mileage} onChange={(e) => setForm({ ...form, mileage: e.target.value })} /></Field>
-            <div className="col-span-2"><Field label="Defects noted"><Textarea data-testid="walk-notes" value={form.defects_noted} onChange={(e) => setForm({ ...form, defects_noted: e.target.value })} placeholder="Any defects found during the walkaround…" /></Field></div>
-            <div className="col-span-2"><Field label="Attachments"><FileUpload attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field></div>
           </div>
+
+          <div className="mt-4" data-testid="walk-checklist">
+            {(() => {
+              const failCount = form.checklist.filter((c) => !c.ok).length;
+              return (
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Walkaround Checklist ({form.checklist.length} points)</p>
+                  <div className="flex items-center gap-2">
+                    <button data-testid="walk-all-pass" onClick={() => setForm((f) => ({ ...f, checklist: f.checklist.map((c) => ({ ...c, ok: true, note: "" })) }))} className="text-[11px] font-semibold text-green-700 hover:underline">Mark all OK</button>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${failCount ? "bg-amber-50 text-amber-700" : "bg-green-50 text-green-700"}`}>{failCount ? `${failCount} defect(s)` : "Nil defect"}</span>
+                  </div>
+                </div>
+              );
+            })()}
+            {CHECKLIST.map((sec) => (
+              <div key={sec.section} className="mb-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-50 px-3 py-1.5 rounded-md">{sec.section}</p>
+                <div className="divide-y divide-slate-100">
+                  {form.checklist.map((c, idx) => c.section !== sec.section ? null : (
+                    <div key={idx} data-testid="walk-check-item" className="py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-slate-700">{c.item}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button data-testid={`walk-item-ok-${idx}`} onClick={() => setItem(idx, { ok: true, note: "" })} className={`w-8 h-7 rounded-md flex items-center justify-center border ${c.ok ? "bg-green-600 border-green-600 text-white" : "border-slate-300 text-slate-400 hover:bg-slate-50"}`} title="Pass"><Check size={15} /></button>
+                          <button data-testid={`walk-item-fail-${idx}`} onClick={() => setItem(idx, { ok: false })} className={`w-8 h-7 rounded-md flex items-center justify-center border ${!c.ok ? "bg-red-600 border-red-600 text-white" : "border-slate-300 text-slate-400 hover:bg-slate-50"}`} title="Defect"><X size={15} /></button>
+                        </div>
+                      </div>
+                      {!c.ok && <Input data-testid={`walk-item-note-${idx}`} value={c.note} onChange={(e) => setItem(idx, { note: e.target.value })} placeholder="Describe the defect…" className="mt-1.5 h-8 text-sm" />}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <Field label="Additional notes / action taken"><Textarea data-testid="walk-notes" value={form.defects_noted} onChange={(e) => setForm({ ...form, defects_noted: e.target.value })} placeholder="Any extra notes (optional)…" /></Field>
+          <div className="mt-4"><Field label="Attachments (signed sheet, photos)"><FileUpload attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field></div>
           <DialogFooter><Button data-testid="save-walkaround-button" onClick={save} className="bg-black hover:bg-slate-800">Log Check</Button></DialogFooter>
         </DialogContent>
       </Dialog>

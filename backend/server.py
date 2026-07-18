@@ -592,6 +592,7 @@ class WalkaroundCheck(BaseModel):
     result: str = "nil_defect"  # nil_defect | defects_found
     mileage: str = ""
     defects_noted: str = ""
+    checklist: List[dict] = []
     rectified: bool = False
     rectified_date: Optional[str] = None
     rectified_notes: str = ""
@@ -611,6 +612,7 @@ class WalkaroundInput(BaseModel):
     result: str = "nil_defect"
     mileage: str = ""
     defects_noted: str = ""
+    checklist: List[dict] = []
     attachments: List[Attachment] = []
 
 
