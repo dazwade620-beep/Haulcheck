@@ -22,6 +22,14 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const resultBadge = { pass: "bg-green-100 text-green-700", advisory: "bg-yellow-100 text-yellow-800", fail: "bg-red-100 text-red-700" };
 
+const PMI_CHECKLIST = [
+  { section: "A: Inside cab", items: ["Registration/Licence/VIN", "Vehicle Weights & Dimensions Plate", "Warning Triangle", "Seats", "Seat belts", "Mirrors", "Windows, Glass & view of the road", "Windscreen wipers & washers", "Tachograph/Speedometer", "Horn", "Gauges, warning devices & malfunction indicators", "ABS warning", "Driving controls", "Steering control", "Service brake pedal", "Service Brake Operation (Inspection in Cab)", "Pressure/Air/Vacuum warnings", "Pressure/Air/Vacuum build-up", "Mechanical Brake Hand Levers", "Air/Vacuum Hand Control Valves", "Cab mounting, floor, doors & steps", "Doors/Locks/Anti Theft Devices"] },
+  { section: "B: Ground level & under-vehicle", items: ["Condition & Security of body", "Exhaust Smoke emission", "Road wheels & hubs", "Tyre Specification", "Tyre Condition", "Tyre Tread", "Sideguards, Rear under-run Protection & bumpers", "Spare wheel & carrier", "Chassis/Underbody", "Towing Coupling/Fifth Wheel", "Trailer parking, emergency brake & air connections", "Trailer landing legs", "Spray suppression, wings & wheel arches", "Speed limiter & Plate", "Electrical wiring, equipment, batteries & trailer connections", "Engine & transmission mountings", "Fuel tanks & system", "Oil leaks", "Exhaust System/Noise", "Steering Mechanism", "Steering Alignment", "Suspension Units", "Suspension Linkage & Pins/Bushes", "Shock Absorbers", "Axles, stub axles & wheel bearings", "Transmission & Final Drive", "Brake Lines & Hoses", "Brake Wheel Units", "Brake Reservoirs/Valves/Master Cylinders/Connections", "Brake Fluid", "Mechanical Brake Components", "Brake Drums/Discs & Linings/Pads", "Front & Rear lamps & No. Plate lamps", "Stop lamps", "Fog lamps", "Marker Lamps", "Headlamps & Aim", "Reflectors and Rear & Side Markings", "Direction indicators & hazard warning lamps", "Additional braking devices", "Ancillary equipment", "Other Items"] },
+  { section: "C: Brake performance", items: ["Service Brake performance", "Emergency/Secondary brake performance", "Parking brake performance"] },
+];
+const buildPmiChecklist = () => PMI_CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
+const emptyComplete = () => ({ inspection_date: today(), result: "pass", inspector: "", rectified_by: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", checklist: buildPmiChecklist(), attachments: [] });
+
 export function InspectionsPanel({ embedded = false }) {
   const { user } = useAuth();
   const isIE = user?.region === "IE";
@@ -32,7 +40,7 @@ export function InspectionsPanel({ embedded = false }) {
   const [form, setForm] = useState(emptySched);
   const [editId, setEditId] = useState(null);
   const [completeFor, setCompleteFor] = useState(null);
-  const [cForm, setCForm] = useState({ inspection_date: today(), result: "pass", inspector: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", attachments: [] });
+  const [cForm, setCForm] = useState(emptyComplete());
   const [assets, setAssets] = useState([]);
 
   const load = async () => {
@@ -60,11 +68,16 @@ export function InspectionsPanel({ embedded = false }) {
 
   const removeRecord = async (id) => { await api.delete(`/pmi/records/${id}`); toast.success("Inspection record removed"); load(); };
 
-  const openComplete = (p) => { setCompleteFor(p); setCForm({ inspection_date: today(), result: "pass", inspector: p.inspector || "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", attachments: [] }); };
+  const openComplete = (p) => { setCompleteFor(p); setCForm({ ...emptyComplete(), inspector: p.inspector || "" }); };
+  const setCItem = (idx, patch) => setCForm((f) => ({ ...f, checklist: f.checklist.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
   const submitComplete = async (e) => {
     e.preventDefault();
+    const defects = cForm.checklist.filter((c) => !c.ok);
+    const result = defects.length && cForm.result === "pass" ? "fail" : cForm.result;
+    const defectSummary = defects.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
+    const notes = defects.length ? [defectSummary, cForm.notes].filter(Boolean).join(" — ") : cForm.notes;
     try {
-      await api.post(`/pmi/${completeFor.id}/complete`, cForm);
+      await api.post(`/pmi/${completeFor.id}/complete`, { ...cForm, result, notes });
       toast.success("Inspection recorded · next due updated");
       setCompleteFor(null); load();
     } catch { toast.error("Could not record inspection"); }
@@ -138,6 +151,8 @@ export function InspectionsPanel({ embedded = false }) {
                                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
                                 </div>
                                 {(r.inspector || r.notes) && <p className="text-xs text-slate-500 mt-0.5">{[r.inspector, r.notes].filter(Boolean).join(" · ")}</p>}
+                                {r.rectified_by && <p className="text-xs text-slate-500 mt-0.5">Rectified by: <span className="font-medium">{r.rectified_by}</span></p>}
+                                {r.checklist?.length > 0 && <p className="text-[11px] text-slate-400 mt-0.5">{r.checklist.filter((c) => c.ok).length}/{r.checklist.length} items serviceable</p>}
                                 {r.attachments?.length > 0 && <div className="mt-2"><AttachmentThumbs attachments={r.attachments} /></div>}
                               </div>
                             ))}
@@ -201,7 +216,7 @@ export function InspectionsPanel({ embedded = false }) {
 
       {/* Record inspection */}
       <Dialog open={!!completeFor} onOpenChange={(v) => !v && setCompleteFor(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="font-heading">Record PMI — {completeFor?.vehicle_reg}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
           <form onSubmit={submitComplete} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -213,7 +228,51 @@ export function InspectionsPanel({ embedded = false }) {
                 </Select>
               </Field>
             </div>
-            <Field label="Inspector"><Input data-testid="complete-inspector" value={cForm.inspector} onChange={(e) => setCForm({ ...cForm, inspector: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Inspector"><Input data-testid="complete-inspector" value={cForm.inspector} onChange={(e) => setCForm({ ...cForm, inspector: e.target.value })} placeholder="Suitably qualified person" /></Field>
+              <Field label="Rectified by (Workshop Manager)"><Input data-testid="complete-rectified-by" value={cForm.rectified_by} onChange={(e) => setCForm({ ...cForm, rectified_by: e.target.value })} placeholder="Who rectified defects" /></Field>
+            </div>
+
+            <div className="border-t border-slate-100 pt-3" data-testid="pmi-checklist">
+              {(() => {
+                const failCount = cForm.checklist.filter((c) => !c.ok).length;
+                return (
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Inspection Checklist ({cForm.checklist.length} points)</p>
+                    <div className="flex items-center gap-2">
+                      <button type="button" data-testid="pmi-all-serviceable" onClick={() => setCForm((f) => ({ ...f, checklist: f.checklist.map((c) => ({ ...c, ok: true, note: "" })) }))} className="text-[11px] font-semibold text-green-700 hover:underline">Mark all ✓</button>
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${failCount ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{failCount ? `${failCount} defect(s)` : "All serviceable"}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              {(() => { let flat = -1; return PMI_CHECKLIST.map((sec) => (
+                <div key={sec.section} className="mb-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-50 px-3 py-1.5 rounded-md">{sec.section}</p>
+                  <div className="divide-y divide-slate-100">
+                    {sec.items.map((item) => {
+                      flat += 1; const idx = flat; const c = cForm.checklist[idx];
+                      return (
+                        <div key={item} data-testid="pmi-check-item" className="py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm text-slate-700 flex-1">{item}</span>
+                            <Select value={c.ok ? "ok" : "defect"} onValueChange={(v) => setCItem(idx, { ok: v === "ok", note: v === "ok" ? "" : c.note })}>
+                              <SelectTrigger data-testid={`pmi-item-select-${idx}`} className={`w-28 h-8 shrink-0 ${c.ok ? "text-green-700" : "text-red-700 border-red-300"}`}><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="ok">✓ Serviceable</SelectItem>
+                                <SelectItem value="defect">✗ Defect</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {!c.ok && <Input data-testid={`pmi-item-note-${idx}`} value={c.note} onChange={(e) => setCItem(idx, { note: e.target.value })} placeholder="Description of defect…" className="mt-1.5 h-8 text-sm" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )); })()}
+            </div>
+
             <div className="border-t border-slate-100 pt-3">
               <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Brake Test</p>
               <div className="grid grid-cols-2 gap-4">

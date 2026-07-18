@@ -207,11 +207,14 @@ def pmi_history_report(schedule, records, region):
     fw = schedule.get("frequency_weeks", 6)
     rows = []
     for r in sorted(records, key=lambda x: (x.get("inspection_date") or ""), reverse=True):
+        cl = r.get("checklist") or []
+        defects = sum(1 for c in cl if not c.get("ok"))
         rows.append({
             "cells": [
                 r.get("inspection_date") or "—", (r.get("result") or "pass").upper(),
-                r.get("inspector") or "—", r.get("notes") or "—",
-                len(r.get("attachments") or []) or "—",
+                r.get("inspector") or "—", r.get("rectified_by") or "—",
+                (f"{defects} defect(s)" if defects else ("0 defects" if cl else "—")),
+                r.get("notes") or "—", len(r.get("attachments") or []) or "—",
             ],
             "status": "expired" if r.get("result") == "fail" else "valid",
         })
@@ -222,7 +225,7 @@ def pmi_history_report(schedule, records, region):
             ("Next due", schedule.get("next_due") or "—"),
             ("Default inspector", schedule.get("inspector") or "—"),
         ]},
-        {"heading": "Inspection History", "columns": ["Date", "Result", "Inspector", "Notes", "Files"], "rows": rows},
+        {"heading": "Inspection History", "columns": ["Date", "Result", "Inspector", "Rectified by", "Defects", "Notes", "Files"], "rows": rows},
     ]
     return f"PMI History — {schedule.get('vehicle_reg')}", f"{len(rows)} inspection(s) recorded", sections
 

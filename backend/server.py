@@ -496,12 +496,14 @@ class PMICompleteInput(BaseModel):
     inspection_date: str
     result: str = "pass"  # pass | advisory | fail
     inspector: str = ""
+    rectified_by: str = ""
     notes: str = ""
     brake_test_type: str = "none"  # none | roller | decelerometer
     laden: bool = False
     service_brake_pct: str = ""
     secondary_brake_pct: str = ""
     parking_brake_pct: str = ""
+    checklist: List[dict] = []
     attachments: List[Attachment] = []
 
 
@@ -702,6 +704,8 @@ async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> O
     if bearer:
         try:
             payload = jwt.decode(bearer, JWT_SECRET, algorithms=["HS256"])
+            if payload.get("role") == "driver":
+                return None
             user_doc = await db.users.find_one({"user_id": payload["user_id"]}, {"_id": 0})
             if user_doc and user_doc.get("active", True):
                 return User(**user_doc)
@@ -2480,12 +2484,14 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "inspection_date": data.inspection_date,
         "result": data.result,
         "inspector": data.inspector,
+        "rectified_by": data.rectified_by,
         "notes": data.notes,
         "brake_test_type": data.brake_test_type,
         "laden": data.laden,
         "service_brake_pct": data.service_brake_pct,
         "secondary_brake_pct": data.secondary_brake_pct,
         "parking_brake_pct": data.parking_brake_pct,
+        "checklist": data.checklist,
         "attachments": [a.model_dump() for a in data.attachments],
         "created_at": now_iso(),
     }
