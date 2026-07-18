@@ -144,6 +144,8 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
   - PMI schedule cards gained a **"History (N)"** popover (per-schedule records + attachments) with its own PDF export button.
   - Note: a full Compliance Audit Pack already exists on the Dashboard via `/export/account` (report + all evidence). Driver defects confirmed rendering on the Calendar (backend returns them; live site needs redeploy).
 
+- **Registered Users counter + alert badge (2026-07 — verified via screenshot)**: Dashboard now shows a **Registered Users** banner (platform-wide count of all `users` accounts, via `registered_users` in the `/api/dashboard` response). The sidebar **Dashboard nav item shows a red unread-defect badge** (polls `/api/alerts/unread-count` every 60s) and the browser tab title reflects the unread count.
+
 - **Defect Alerts (2026-07 — self-verified end-to-end via curl + screenshot)**: driver submissions now raise manager alerts. `create_alert()` inserts into `alerts` and, for major/safety-critical, emails the operator via Resend. Triggered on: driver walkaround with defects (major), driver defect report (own severity), and any PMI completed with result=FAIL (safety_critical). Manager endpoints `GET /api/alerts`, `/alerts/unread-count`, `PATCH /alerts/{id}/read`, `POST /alerts/read-all`, `DELETE /alerts/{id}`. Dashboard shows a **"Defect Alerts"** panel (`components/DefectAlerts.js`) with a bell + unread badge, per-alert mark-read/dismiss, deep-link to /maintenance, and "Mark all read".
 
 - **Driver Mobile App (PWA) + DVSA PMI checklist (2026-07 — VERIFIED, testing_agent iter 24/25, backend 25/25 pytest, frontend 100%)**:

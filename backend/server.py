@@ -3122,6 +3122,7 @@ async def dashboard(user: User = Depends(get_current_user)):
     score, band = _score_and_band(stats["counts"], gaps)
     stats["risk_score"] = score
     stats["risk_band"] = band
+    stats["registered_users"] = await db.users.count_documents({})
     return stats
 
 

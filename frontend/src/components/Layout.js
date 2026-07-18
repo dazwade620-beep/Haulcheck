@@ -1,7 +1,8 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -21,6 +22,24 @@ const NAV = [
 export default function Layout({ children }) {
   const { user, logout, updateRegion } = useAuth();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const { data } = await api.get("/alerts/unread-count");
+        if (active) setUnread(data.count || 0);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const t = setInterval(poll, 60000);
+    return () => { active = false; clearInterval(t); };
+  }, []);
+
+  useEffect(() => {
+    document.title = unread > 0 ? `(${unread}) HaulCheck — Defect alerts` : "HaulCheck";
+  }, [unread]);
 
   const RegionSwitcher = () => (
     <div className="px-4 pb-3" data-testid="region-switcher">
@@ -60,6 +79,9 @@ export default function Layout({ children }) {
         >
           <item.icon size={20} />
           {item.label}
+          {item.id === "dashboard" && unread > 0 && (
+            <span data-testid="nav-alert-badge" className="ml-auto bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{unread}</span>
+          )}
         </NavLink>
       ))}
     </nav>
