@@ -7,7 +7,7 @@ import secrets
 import asyncio
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import List, Optional
 import uuid
 import jwt
@@ -510,6 +510,18 @@ class PMIInput(BaseModel):
 class PMICompleteInput(BaseModel):
     inspection_date: str
     result: str = "pass"  # pass | advisory | fail
+
+    @field_validator("inspection_date")
+    @classmethod
+    def _valid_date(cls, v):
+        if v:
+            try:
+                y = int(str(v)[:4])
+            except (ValueError, TypeError):
+                raise ValueError("invalid inspection_date")
+            if y < 2015 or y > datetime.now(timezone.utc).year + 1:
+                raise ValueError("inspection_date year out of range")
+        return v
     inspector: str = ""
     rectified_by: str = ""
     notes: str = ""

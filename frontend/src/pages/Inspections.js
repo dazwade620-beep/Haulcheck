@@ -76,6 +76,10 @@ export function InspectionsPanel({ embedded = false }) {
   const setCItem = (idx, patch) => setCForm((f) => ({ ...f, checklist: f.checklist.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
   const submitComplete = async (e) => {
     e.preventDefault();
+    const yr = parseInt((cForm.inspection_date || "").slice(0, 4), 10);
+    if (!cForm.inspection_date || isNaN(yr) || yr < 2015 || yr > new Date().getFullYear() + 1) {
+      toast.error("Please enter a valid inspection date"); return;
+    }
     const defects = cForm.checklist.filter((c) => !c.ok);
     const result = defects.length && cForm.result === "pass" ? "fail" : cForm.result;
     const defectSummary = defects.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
@@ -251,7 +255,7 @@ export function InspectionsPanel({ embedded = false }) {
               </Field>
             )}
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Inspection Date *"><Input data-testid="complete-date" type="date" required value={cForm.inspection_date} onChange={(e) => setCForm({ ...cForm, inspection_date: e.target.value })} /></Field>
+              <Field label="Inspection Date *"><Input data-testid="complete-date" type="date" required min="2015-01-01" max={today()} value={cForm.inspection_date} onChange={(e) => setCForm({ ...cForm, inspection_date: e.target.value })} /></Field>
               <Field label="Result">
                 <Select value={cForm.result} onValueChange={(v) => setCForm({ ...cForm, result: v })}>
                   <SelectTrigger data-testid="complete-result-select"><SelectValue /></SelectTrigger>
