@@ -1,10 +1,11 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { AuditReportDialog } from "@/components/AuditReportDialog";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
@@ -23,6 +24,19 @@ export default function Layout({ children }) {
   const { user, logout, updateRegion } = useAuth();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
+  const [auditOpen, setAuditOpen] = useState(false);
+
+  const AuditButton = () => (
+    <div className="px-3 pb-3">
+      <button
+        data-testid="fleet-audit-button"
+        onClick={() => { setAuditOpen(true); setOpen(false); }}
+        className="w-full flex items-center justify-center gap-2 bg-white text-slate-900 hover:bg-slate-100 font-semibold text-sm rounded-md py-2.5 transition-colors"
+      >
+        <FileText size={16} /> Fleet Audit Report
+      </button>
+    </div>
+  );
 
   useEffect(() => {
     let active = true;
@@ -98,7 +112,8 @@ export default function Layout({ children }) {
             <p className="text-[10px] tracking-[0.25em] text-slate-400 uppercase mt-1">Compliance</p>
           </div>
         </div>
-        <div className="flex-1 py-4"><NavItems /></div>
+        <div className="flex-1 py-4 overflow-y-auto"><NavItems /></div>
+        <AuditButton />
         <div className="border-t border-slate-800 pt-3">
           <RegionSwitcher />
         </div>
@@ -136,6 +151,7 @@ export default function Layout({ children }) {
         {open && (
           <div className="md:hidden bg-slate-900 text-white pb-4">
             <NavItems />
+            <div className="mt-2"><AuditButton /></div>
             <div className="border-t border-slate-800 mt-2 pt-3"><RegionSwitcher /></div>
             <button
               data-testid="mobile-logout-button"
@@ -149,6 +165,7 @@ export default function Layout({ children }) {
 
         <main className="flex-1 p-6 sm:p-8 md:p-10 max-w-[1680px] w-full mx-auto">{children}</main>
       </div>
+      <AuditReportDialog open={auditOpen} onOpenChange={setAuditOpen} />
     </div>
   );
 }

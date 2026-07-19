@@ -277,4 +277,4 @@ def audit_pack(data, region):
     sections += walkaround_report(data.get("walkaround", []), region)[2]
     sections += tacho_report(data.get("tacho", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
-    return "Compliance Audit Pack", f"Full operator compliance snapshot · {gen}", sections
+    return "Fleet Audit Report", f"Full operator compliance snapshot · {gen}", sections

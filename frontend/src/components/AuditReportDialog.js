@@ -8,7 +8,7 @@ import { Printer, FileDown, Loader2, Layers } from "lucide-react";
 import { toast } from "sonner";
 
 const REPORT_KINDS = [
-  { value: "audit", label: "Full Compliance Audit Pack" },
+  { value: "audit", label: "Full Fleet Audit (RSA / DVSA)" },
   { value: "vehicles", label: "Vehicles" },
   { value: "trailers", label: "Trailers" },
   { value: "drivers", label: "Drivers" },
@@ -108,8 +108,8 @@ export function AuditReportDialog({ open, onOpenChange }) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="font-heading flex items-center gap-2"><Layers size={18} /> Audit Reports</DialogTitle>
-          <DialogDescription>View any compliance report on screen, print it, or download the PDF — as a whole or section by section.</DialogDescription>
+          <DialogTitle className="font-heading flex items-center gap-2"><Layers size={18} /> Fleet Audit Report</DialogTitle>
+          <DialogDescription>A detailed, on-screen list of your whole operation — vehicles, trailers, drivers, PMI inspections, defects, service, tacho and daily checks. Print it, download the PDF, or bundle all evidence for a DVSA/RSA visit.</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-slate-100">
