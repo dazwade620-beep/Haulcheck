@@ -118,6 +118,16 @@ class InviteInput(BaseModel):
     base_url: str = ""
 
 
+class ForgotPasswordInput(BaseModel):
+    email: EmailStr
+    base_url: str = ""
+
+
+class ResetPasswordInput(BaseModel):
+    token: str
+    password: str
+
+
 class AcceptInviteInput(BaseModel):
     token: str
     name: str
@@ -972,6 +982,66 @@ async def login(data: LoginInput):
     await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"last_login_at": now_iso()}})
     token = create_jwt(user_doc["user_id"])
     return {"token": token, "user": {"user_id": user_doc["user_id"], "email": user_doc["email"], "name": user_doc["name"], "role": user_doc.get("role", "manager")}}
+
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(data: ForgotPasswordInput):
+    email = data.email.lower().strip()
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    # Always respond ok to avoid leaking which emails are registered.
+    if user_doc and user_doc.get("password_hash"):
+        token = secrets.token_urlsafe(32)
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": user_doc["user_id"],
+            "email": email,
+            "used": False,
+            "created_at": now_iso(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+        })
+        link = f"{(data.base_url or '').rstrip('/')}/reset-password?token={token}"
+        name = user_doc.get("name") or "there"
+        html = (
+            "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+            "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+            "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Compliance</p>"
+            "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Reset your password</h1>"
+            f"<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>Hi {name}, we received a request to reset the password for your HaulCheck account. Click the button below to choose a new password.</p>"
+            f"<p style='margin:24px 0;'><a href='{link}' style='background:#0f172a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;'>Reset password</a></p>"
+            f"<p style='margin:8px 0 0;font-size:12px;color:#94a3b8;'>Or paste this link: {link}</p>"
+            "<p style='margin:16px 0 0;font-size:12px;color:#94a3b8;'>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>"
+            "</td></tr></table></div>"
+        )
+        try:
+            import resend
+            resend.api_key = os.environ['RESEND_API_KEY']
+            await asyncio.to_thread(resend.Emails.send, {
+                "from": os.environ['SENDER_EMAIL'], "to": [email],
+                "subject": "Reset your HaulCheck password", "html": html,
+            })
+        except Exception as e:
+            logging.error(f"Password reset email failed: {e}")
+    return {"ok": True}
+
+
+@api_router.get("/auth/reset-password/verify")
+async def verify_reset_token(token: str):
+    rec = await db.password_reset_tokens.find_one({"token": token}, {"_id": 0})
+    if not rec or rec.get("used") or rec["expires_at"] < now_iso():
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+    return {"email": rec["email"]}
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: ResetPasswordInput):
+    rec = await db.password_reset_tokens.find_one({"token": data.token})
+    if not rec or rec.get("used") or rec["expires_at"] < now_iso():
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    await db.users.update_one({"user_id": rec["user_id"]}, {"$set": {"password_hash": pwd_context.hash(data.password)}})
+    await db.password_reset_tokens.update_one({"token": data.token}, {"$set": {"used": True, "used_at": now_iso()}})
+    return {"ok": True}
 
 
 @api_router.post("/auth/session")

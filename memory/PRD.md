@@ -18,6 +18,13 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Implemented (2026-06 fork — Forgot Password flow)
+- Login screen now has a "Forgot password?" link -> email-only reset form.
+- Backend: POST /api/auth/forgot-password (emails secure 1hr reset link via Resend, no email-existence leak),
+  GET /api/auth/reset-password/verify?token=, POST /api/auth/reset-password.
+- Tokens stored in `password_reset_tokens` (single-use, 1hr expiry). New page /reset-password.
+- Verified end-to-end via curl (register->request->verify->reset->login old fails/new works->token reuse blocked) + UI smoke test.
+
 ## Implemented (2026-07-19 pt.2 — audit button, defects date, .ddd analyser)
 - **Fleet Audit Report button** (sidebar, desktop+mobile): opens region-aware (DVSA/RSA) full audit — vehicles, trailers, drivers, PMI, defects, service, wheel, walkaround, tacho — view/print/PDF/PDF+evidence. Reuses /reports/audit.
 - **Defect date field** on Report-a-Defect form (defect_date) + logged on cards/PDF.

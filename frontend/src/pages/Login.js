@@ -15,10 +15,17 @@ export default function Login() {
   const { loginWithToken } = useAuth();
   const navigate = useNavigate();
 
+  const [sentTo, setSentTo] = useState("");
+
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
+      if (mode === "forgot") {
+        await api.post("/auth/forgot-password", { email: form.email, base_url: window.location.origin });
+        setSentTo(form.email);
+        return;
+      }
       const endpoint = mode === "login" ? "/auth/login" : "/auth/register";
       const payload = mode === "login"
         ? { email: form.email, password: form.password }
@@ -74,12 +81,13 @@ export default function Login() {
             <span className="font-heading font-black text-lg tracking-tight">HAULCHECK</span>
           </div>
           <h2 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-            {mode === "login" ? "Sign in" : "Create your account"}
+            {mode === "login" ? "Sign in" : mode === "register" ? "Create your account" : "Reset your password"}
           </h2>
           <p className="text-slate-500 mt-2 text-sm">
-            {mode === "login" ? "Access your fleet compliance dashboard." : "Start tracking compliance in minutes."}
+            {mode === "login" ? "Access your fleet compliance dashboard." : mode === "register" ? "Start tracking compliance in minutes." : "Enter your email and we'll send you a secure reset link."}
           </p>
 
+          {mode !== "forgot" && (
           <div className="flex gap-2 mt-6 mb-6 bg-slate-100 p-1 rounded-md">
             <button
               data-testid="tab-login"
@@ -92,7 +100,20 @@ export default function Login() {
               className={`flex-1 py-2 text-sm font-semibold rounded transition-all ${mode === "register" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}
             >Register</button>
           </div>
+          )}
 
+          {mode === "forgot" && sentTo ? (
+            <div data-testid="forgot-success" className="mt-8 rounded-md border border-slate-200 bg-slate-50 p-5">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                If an account exists for <span className="font-semibold">{sentTo}</span>, a password reset link is on its way. Check your inbox (and spam folder) — the link expires in 1 hour.
+              </p>
+              <button
+                data-testid="back-to-login-button"
+                onClick={() => { setMode("login"); setSentTo(""); }}
+                className="mt-4 text-sm font-semibold text-slate-900 hover:underline"
+              >← Back to sign in</button>
+            </div>
+          ) : (
           <form onSubmit={submit} className="space-y-4">
             {mode === "register" && (
               <div>
@@ -106,17 +127,40 @@ export default function Login() {
               <Input data-testid="email-input" id="email" type="email" required value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="you@fleet.co.uk" className="mt-1.5" />
             </div>
+            {mode !== "forgot" && (
             <div>
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                {mode === "login" && (
+                  <button
+                    type="button"
+                    data-testid="forgot-password-link"
+                    onClick={() => { setMode("forgot"); setSentTo(""); }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-900"
+                  >Forgot password?</button>
+                )}
+              </div>
               <Input data-testid="password-input" id="password" type="password" required value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="••••••••" className="mt-1.5" />
             </div>
+            )}
             <Button data-testid="submit-auth-button" type="submit" disabled={busy}
               className="w-full bg-black hover:bg-slate-800 text-white py-2.5 rounded-md font-semibold">
-              {busy ? "Please wait…" : mode === "login" ? "Sign In" : "Create Account"}
+              {busy ? "Please wait…" : mode === "login" ? "Sign In" : mode === "register" ? "Create Account" : "Send reset link"}
             </Button>
+            {mode === "forgot" && (
+              <button
+                type="button"
+                data-testid="back-to-login-link"
+                onClick={() => { setMode("login"); setSentTo(""); }}
+                className="w-full text-center text-sm font-semibold text-slate-500 hover:text-slate-900"
+              >← Back to sign in</button>
+            )}
           </form>
+          )}
 
+          {mode !== "forgot" && (
+          <>
           <div className="flex items-center gap-3 my-6">
             <div className="h-px flex-1 bg-slate-200" />
             <span className="text-xs text-slate-400 uppercase tracking-widest">or</span>
@@ -128,6 +172,8 @@ export default function Login() {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
             Continue with Google
           </Button>
+          </>
+          )}
         </div>
       </div>
     </div>
