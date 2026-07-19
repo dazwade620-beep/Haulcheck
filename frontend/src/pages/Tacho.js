@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles, ScanSearch, FileDown, FileSignature, ShieldAlert } from "lucide-react";
+import { Trash2, Pencil, Gauge, Download, AlertTriangle, CreditCard, Cpu, Loader2, Sparkles, ScanSearch, FileDown, FileSignature, ShieldAlert, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -29,6 +29,7 @@ export default function Tacho() {
   const [editId, setEditId] = useState(null);
   const [reading, setReading] = useState(false);
   const [analyses, setAnalyses] = useState([]);
+  const [driverSummary, setDriverSummary] = useState(null);
   const [anOpen, setAnOpen] = useState(false);
   const [anForm, setAnForm] = useState({ driver_name: "", attachments: [] });
   const [analysing, setAnalysing] = useState(false);
@@ -38,6 +39,7 @@ export default function Tacho() {
     setDrivers((await api.get("/drivers")).data);
     setVehicles((await api.get("/vehicles")).data);
     setAnalyses((await api.get("/tacho/analyses")).data);
+    setDriverSummary((await api.get("/tacho/driver-summary")).data);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
@@ -52,10 +54,11 @@ export default function Tacho() {
       toast.success("Analysis complete");
       setAnOpen(false);
       setAnalyses((await api.get("/tacho/analyses")).data);
+      setDriverSummary((await api.get("/tacho/driver-summary")).data);
     } catch { toast.error("Could not analyse the file"); }
     finally { setAnalysing(false); }
   };
-  const deleteAnalysis = async (id) => { await api.delete(`/tacho/analyses/${id}`); toast.success("Analysis removed"); setAnalyses((await api.get("/tacho/analyses")).data); };
+  const deleteAnalysis = async (id) => { await api.delete(`/tacho/analyses/${id}`); toast.success("Analysis removed"); setAnalyses((await api.get("/tacho/analyses")).data); setDriverSummary((await api.get("/tacho/driver-summary")).data); };
   const createInfringementLetter = (a) => {
     const lines = (a.infringements || []).map((i) => `• ${i.type || "Infringement"}${i.datetime ? ` (${i.datetime})` : ""} — ${i.rule || ""}${i.detail ? `: ${i.detail}` : ""}`).join("\n");
     const points = `Tachograph analysis for ${a.driver_name || "the driver"}${a.period ? ` covering ${a.period}` : ""}.\n${a.total_infringements || 0} infringement(s) identified:\n${lines}\n\nSummary: ${a.summary || ""}`;
@@ -183,6 +186,7 @@ export default function Tacho() {
           <TabsTrigger value="Driver Card" data-testid="tacho-tab-drivers"><CreditCard size={15} className="mr-1.5" /> Driver Cards</TabsTrigger>
           <TabsTrigger value="Vehicle Unit" data-testid="tacho-tab-vehicles"><Cpu size={15} className="mr-1.5" /> Vehicle Units</TabsTrigger>
           <TabsTrigger value="Analyser" data-testid="tacho-tab-analyser"><ScanSearch size={15} className="mr-1.5" /> Infringement Analyser</TabsTrigger>
+          <TabsTrigger value="ByDriver" data-testid="tacho-tab-bydriver"><Users size={15} className="mr-1.5" /> By Driver</TabsTrigger>
         </TabsList>
         <TabsContent value="Driver Card">{renderGroups("Driver Card", "No driver card downloads yet. Add a record to start tracking.")}</TabsContent>
         <TabsContent value="Vehicle Unit">{renderGroups("Vehicle Unit", "No vehicle unit downloads yet. Add a record to start tracking.")}</TabsContent>
@@ -231,6 +235,61 @@ export default function Tacho() {
                   <Button data-testid="create-infringement-letter-button" onClick={() => createInfringementLetter(a)} variant="outline" className="mt-4 gap-2 border-slate-300"><FileSignature size={15} /> Create Driver Infringement letter</Button>
                 </div>
               ))}
+            </div>
+          )}
+        </TabsContent>
+        <TabsContent value="ByDriver">
+          {!driverSummary || driverSummary.drivers.length === 0 ? (
+            <Empty icon={Users} text="No driver infringement data yet. Run some tacho analyses to build the per-driver view." />
+          ) : (
+            <div data-testid="tacho-by-driver">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                {[["Drivers", driverSummary.totals.drivers, "text-slate-900"], ["Total infringements", driverSummary.totals.infringements, "text-slate-900"], ["Very serious", driverSummary.totals.very_serious, "text-red-600"], ["Serious", driverSummary.totals.serious, "text-orange-600"]].map(([l, v, c]) => (
+                  <div key={l} className="bg-white border border-slate-200 rounded-md p-4">
+                    <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">{l}</p>
+                    <p className={`text-3xl font-heading font-black mt-1 ${c}`}>{v}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-white border border-slate-200 rounded-md overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+                  <ShieldAlert size={16} className="text-slate-700" />
+                  <h3 className="font-heading font-bold text-base">Repeat offenders — ranked by total infringements</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="by-driver-table">
+                    <thead className="bg-slate-50">
+                      <tr className="text-left text-slate-500">
+                        <th className="px-5 py-2.5 font-semibold">#</th>
+                        <th className="px-3 py-2.5 font-semibold">Driver</th>
+                        <th className="px-3 py-2.5 font-semibold text-center">Total</th>
+                        <th className="px-3 py-2.5 font-semibold text-center">V. serious</th>
+                        <th className="px-3 py-2.5 font-semibold text-center">Serious</th>
+                        <th className="px-3 py-2.5 font-semibold text-center">Minor</th>
+                        <th className="px-3 py-2.5 font-semibold text-center">Analyses</th>
+                        <th className="px-3 py-2.5 font-semibold">Last analysed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {driverSummary.drivers.map((d, idx) => (
+                        <tr key={d.driver_name} data-testid="by-driver-row" className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-5 py-3 text-slate-400 font-semibold">{idx + 1}</td>
+                          <td className="px-3 py-3 font-semibold text-slate-900">
+                            {d.driver_name}
+                            {idx === 0 && d.total_infringements > 0 && <span className="ml-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">Top offender</span>}
+                          </td>
+                          <td className="px-3 py-3 text-center"><span className={`inline-flex items-center justify-center min-w-[28px] font-bold rounded-full px-2 py-0.5 ${d.total_infringements > 0 ? "bg-slate-900 text-white" : "bg-green-100 text-green-700"}`}>{d.total_infringements}</span></td>
+                          <td className="px-3 py-3 text-center">{d.very_serious ? <span className="font-semibold text-red-600">{d.very_serious}</span> : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-3 text-center">{d.serious ? <span className="font-semibold text-orange-600">{d.serious}</span> : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-3 text-center">{d.minor ? <span className="text-yellow-700">{d.minor}</span> : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-3 text-center text-slate-500">{d.analyses}</td>
+                          <td className="px-3 py-3 text-slate-500">{d.last_analysed ? new Date(d.last_analysed).toLocaleDateString() : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           )}
         </TabsContent>

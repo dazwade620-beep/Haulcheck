@@ -2688,6 +2688,40 @@ async def list_tacho_analyses(user: User = Depends(get_current_user)):
     return await db.tacho_analyses.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
+@api_router.get("/tacho/driver-summary")
+async def tacho_driver_summary(user: User = Depends(get_current_user)):
+    """Per-driver infringement rollup across all tacho analyses (repeat-offender view)."""
+    analyses = await db.tacho_analyses.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    by = {}
+    for a in analyses:
+        name = a.get("driver_name") or "Unassigned"
+        d = by.setdefault(name, {
+            "driver_name": name, "analyses": 0, "total_infringements": 0,
+            "very_serious": 0, "serious": 0, "minor": 0, "last_analysed": None, "by_type": {},
+        })
+        d["analyses"] += 1
+        d["total_infringements"] += a.get("total_infringements") or 0
+        for i in (a.get("infringements") or []):
+            sev = i.get("severity") or "minor"
+            if sev in ("very_serious", "serious", "minor"):
+                d[sev] += 1
+            t = i.get("type") or "Other"
+            d["by_type"][t] = d["by_type"].get(t, 0) + 1
+        ca = a.get("created_at")
+        if ca and (not d["last_analysed"] or ca > d["last_analysed"]):
+            d["last_analysed"] = ca
+    rows = sorted(by.values(), key=lambda x: (-x["total_infringements"], x["driver_name"]))
+    totals = {
+        "drivers": len(rows),
+        "analyses": sum(r["analyses"] for r in rows),
+        "infringements": sum(r["total_infringements"] for r in rows),
+        "very_serious": sum(r["very_serious"] for r in rows),
+        "serious": sum(r["serious"] for r in rows),
+        "minor": sum(r["minor"] for r in rows),
+    }
+    return {"drivers": rows, "totals": totals}
+
+
 @api_router.delete("/tacho/analyses/{aid}")
 async def delete_tacho_analysis(aid: str, user: User = Depends(get_current_user)):
     await db.tacho_analyses.delete_one({"id": aid, "user_id": user.user_id})
