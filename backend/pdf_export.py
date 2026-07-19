@@ -11,6 +11,22 @@ from reportlab.platypus import (
 )
 from pypdf import PdfWriter, PdfReader
 from PIL import Image
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os as _os
+
+# A Unicode TTF font that has ✓ (U+2713) and ✗ (U+2717) glyphs for the condition column.
+_SYMBOL_FONT = "Helvetica"
+for _fp in ("/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+    try:
+        if _os.path.exists(_fp):
+            _name = "SheetSymbol"
+            pdfmetrics.registerFont(TTFont(_name, _fp))
+            _SYMBOL_FONT = _name
+            break
+    except Exception:
+        pass
 
 STATUS_COLORS = {
     "valid": colors.HexColor("#16a34a"),
@@ -189,6 +205,177 @@ def build_letter_pdf(company, recipient_name, recipient_address, subject, body, 
     return buf.getvalue()
 
 
+
+
+# DVSA HGV inspection manual (TM) reference numbers, in the exact order of the 67-point PMI checklist.
+PMI_TM_NUMBERS = [
+    "1", "2", "18", "9", "10", "8", "11", "7", "16/69", "6", "29", "29", "53", "17/43",
+    "13", "14", "4", "5", "12", "15", "21/22", "19",
+    "22", "3", "27", "25", "24", "26", "31", "32", "45", "35", "33", "45", "68", "16/70",
+    "20", "53", "34", "53", "46", "43", "36", "50/51/54/55", "50/51/54/55", "52", "44", "53",
+    "49", "47", "33", "30", "48", "48", "56/59", "57", "", "59", "60/61", "28", "58", "", "", "",
+    "37/38", "39/40", "41/42",
+]
+
+
+def build_pmi_sheet_pdf(operator, record, region, logo_bytes=None):
+    """Full itemised PMI/HGV inspection sheet for a single completed inspection (matches the paper HCV sheet)."""
+    is_ie = region == "IE"
+    authority = "RSA" if is_ie else "DVSA"
+    doc_title = "COMMERCIAL VEHICLE ROADWORTHINESS INSPECTION" if is_ie else "VEHICLE INSPECTION REPORT (HGV)"
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
+                            leftMargin=12 * mm, rightMargin=12 * mm, title=doc_title)
+    ss = _styles()
+    if "SheetLabel" not in ss:
+        ss.add(ParagraphStyle("SheetLabel", fontName="Helvetica-Bold", fontSize=7.5, textColor=SLATE, leading=9))
+        ss.add(ParagraphStyle("SheetVal", fontName="Helvetica", fontSize=9, textColor=DARK, leading=11))
+        ss.add(ParagraphStyle("SheetCell", fontName="Helvetica", fontSize=7.5, textColor=DARK, leading=9))
+        ss.add(ParagraphStyle("SheetCellB", fontName="Helvetica-Bold", fontSize=7.5, textColor=DARK, leading=9))
+        ss.add(ParagraphStyle("SheetHeadCell", fontName="Helvetica-Bold", fontSize=7, textColor=colors.white, leading=9))
+        ss.add(ParagraphStyle("SheetNote", fontName="Helvetica-Oblique", fontSize=7.5, textColor=SLATE, leading=10))
+        ss.add(ParagraphStyle("SectionBar", fontName="Helvetica-Bold", fontSize=8.5, textColor=colors.white, leading=11))
+
+    story = []
+    if logo_bytes:
+        lf = _logo_flowable(logo_bytes, max_w_mm=40, max_h_mm=18)
+        if lf:
+            story.append(lf)
+            story.append(Spacer(1, 4))
+    story.append(Paragraph(f"HAULCHECK · {authority} COMPLIANCE", ss["Brand"]))
+    story.append(Paragraph(doc_title, ss["BigTitle"]))
+    story.append(Spacer(1, 6))
+
+    def kv(label, value):
+        return [Paragraph(label, ss["SheetLabel"]), Paragraph(str(value or "—"), ss["SheetVal"])]
+
+    header_rows = [
+        kv("Operator", (operator or {}).get("company_name")) + kv("Odometer Reading", record.get("odometer") or record.get("mileage")),
+        kv("Name of Inspector", record.get("inspector")) + kv("Vehicle Reg / Fleet No.", record.get("vehicle_reg")),
+        kv("Vehicle Make / Model", record.get("make_model")) + kv("Date", record.get("inspection_date")),
+    ]
+    ht = Table(header_rows, colWidths=[34 * mm, 55 * mm, 34 * mm, 63 * mm])
+    ht.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(ht)
+    story.append(Spacer(1, 8))
+
+    checklist = record.get("checklist") or []
+    col_widths = [11 * mm, 15 * mm, 70 * mm, 15 * mm, 46 * mm, 29 * mm]
+    head = [Paragraph(c, ss["SheetHeadCell"]) for c in
+            ["Check", "TM no.", "Item inspected", "Cond.", "Description of Defect", "Rectified by"]]
+
+    current_section = None
+    data = []
+    defect_items = []
+    for idx, c in enumerate(checklist):
+        sec = c.get("section") or ""
+        if sec != current_section:
+            current_section = sec
+            data.append([Paragraph(sec, ss["SectionBar"]), "", "", "", "", ""])
+        tm = PMI_TM_NUMBERS[idx] if idx < len(PMI_TM_NUMBERS) else ""
+        ok = c.get("ok", True)
+        cond = (Paragraph(f'<font name="{_SYMBOL_FONT}" size="11" color="#16a34a">\u2713</font>', ss["SheetCell"]) if ok
+                else Paragraph(f'<font name="{_SYMBOL_FONT}" size="11" color="#dc2626">\u2717</font>', ss["SheetCellB"]))
+        note = c.get("note") or ""
+        if not ok:
+            defect_items.append((idx + 1, c.get("item"), note))
+        data.append([
+            Paragraph(str(idx + 1), ss["SheetCell"]), Paragraph(tm, ss["SheetCell"]),
+            Paragraph(c.get("item") or "", ss["SheetCell"]), cond,
+            Paragraph(note, ss["SheetCell"]),
+            Paragraph(record.get("rectified_by") or "" if not ok else "", ss["SheetCell"]),
+        ])
+
+    section_rows = [i for i, row in enumerate(data) if row[1] == ""]
+    ct = Table([head] + data, colWidths=col_widths, repeatRows=1)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), DARK),
+        ("BOX", (0, 0), (-1, -1), 0.5, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (1, -1), "CENTER"),
+        ("ALIGN", (3, 0), (3, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for si in section_rows:
+        r = si + 1  # +1 because head row is row 0
+        style.append(("BACKGROUND", (0, r), (-1, r), colors.HexColor("#334155")))
+        style.append(("SPAN", (0, r), (-1, r)))
+    ct.setStyle(TableStyle(style))
+    story.append(ct)
+    story.append(Spacer(1, 8))
+
+    # Brake performance summary
+    bt = record.get("brake_test_type", "none")
+    brake_bits = [f"Test type: {bt if bt and bt != 'none' else 'Not performed'}"]
+    if not is_ie:
+        brake_bits.append("Laden" if record.get("laden") else "Unladen")
+    for lbl, key in [("Service", "service_brake_pct"), ("Secondary", "secondary_brake_pct"), ("Parking", "parking_brake_pct")]:
+        v = record.get(key)
+        if v:
+            brake_bits.append(f"{lbl} {v}%")
+    story.append(Paragraph("Brake Performance", ss["Heading"]))
+    story.append(Paragraph(" &nbsp;·&nbsp; ".join(brake_bits), ss["SheetVal"]))
+    story.append(Spacer(1, 8))
+
+    # Action taken on defects found
+    story.append(Paragraph("Action Taken on Defects Found", ss["Heading"]))
+    if defect_items:
+        drows = [[Paragraph(h, ss["SheetHeadCell"]) for h in ["Check", "Item", "Defect", "Rectification action / Rectified by"]]]
+        for num, item, note in defect_items:
+            drows.append([
+                Paragraph(str(num), ss["SheetCell"]), Paragraph(item or "", ss["SheetCell"]),
+                Paragraph(note or "", ss["SheetCell"]),
+                Paragraph(record.get("rectified_by") or "", ss["SheetCell"]),
+            ])
+        dt = Table(drows, colWidths=[11 * mm, 55 * mm, 65 * mm, 55 * mm], repeatRows=1)
+        dt.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), DARK), ("BOX", (0, 0), (-1, -1), 0.5, LINE),
+            ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(dt)
+    else:
+        story.append(Paragraph("No defects recorded — vehicle serviceable.", ss["SheetVal"]))
+    if record.get("notes"):
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(f"<b>Notes:</b> {record.get('notes')}", ss["SheetCell"]))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        "I certify that all defects have been satisfactorily repaired and the vehicle is now fit for service.",
+        ss["SheetNote"]))
+    story.append(Spacer(1, 10))
+
+    # Declaration / signature
+    result = (record.get("result") or "pass").upper()
+    sig_rows = [
+        [Paragraph("<b>Inspection carried out by</b>", ss["SheetCell"]), Paragraph("<b>Defects rectified by</b>", ss["SheetCell"])],
+        [Paragraph(f"Name: {record.get('inspector') or ''}", ss["SheetCell"]), Paragraph(f"Name: {record.get('rectified_by') or ''}", ss["SheetCell"])],
+        [Paragraph("Signature: ______________________", ss["SheetCell"]), Paragraph("Signature: ______________________", ss["SheetCell"])],
+        [Paragraph("Position: ______________________", ss["SheetCell"]), Paragraph("Position: ______________________", ss["SheetCell"])],
+        [Paragraph(f"Date: {record.get('inspection_date') or ''}", ss["SheetCell"]), Paragraph("Date: ______________________", ss["SheetCell"])],
+    ]
+    stt = Table(sig_rows, colWidths=[89 * mm, 89 * mm])
+    stt.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(Paragraph(f"Overall result: <b>{result}</b>", ss["SheetVal"]))
+    story.append(Spacer(1, 4))
+    story.append(stt)
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "All inspections must be conducted by a Suitably Qualified Person — one who is suitably qualified by academic "
+        "qualifications or experience (or both) to carry out inspections, maintenance and repairs on this category of vehicle.",
+        ss["SheetNote"]))
+    doc.build(story)
+    return buf.getvalue()
 
 
 def _divider_pdf(title):

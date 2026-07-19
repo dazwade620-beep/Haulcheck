@@ -42,6 +42,8 @@ export function InspectionsPanel({ embedded = false }) {
   const [completeFor, setCompleteFor] = useState(null);
   const [cForm, setCForm] = useState(emptyComplete());
   const [assets, setAssets] = useState([]);
+  const [interim, setInterim] = useState(false);
+  const [interimReg, setInterimReg] = useState("");
 
   const load = async () => {
     const [p, r, v, t] = await Promise.all([api.get("/pmi"), api.get("/pmi/records"), api.get("/vehicles"), api.get("/trailers")]);
@@ -68,7 +70,8 @@ export function InspectionsPanel({ embedded = false }) {
 
   const removeRecord = async (id) => { await api.delete(`/pmi/records/${id}`); toast.success("Inspection record removed"); load(); };
 
-  const openComplete = (p) => { setCompleteFor(p); setCForm({ ...emptyComplete(), inspector: p.inspector || "" }); };
+  const openComplete = (p) => { setInterim(false); setCompleteFor(p); setCForm({ ...emptyComplete(), inspector: p.inspector || "" }); };
+  const openInterim = () => { setInterim(true); setInterimReg(""); setCForm(emptyComplete()); setCompleteFor({ interim: true }); };
   const setCItem = (idx, patch) => setCForm((f) => ({ ...f, checklist: f.checklist.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
   const submitComplete = async (e) => {
     e.preventDefault();
@@ -77,8 +80,14 @@ export function InspectionsPanel({ embedded = false }) {
     const defectSummary = defects.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
     const notes = defects.length ? [defectSummary, cForm.notes].filter(Boolean).join(" — ") : cForm.notes;
     try {
-      await api.post(`/pmi/${completeFor.id}/complete`, { ...cForm, result, notes });
-      toast.success("Inspection recorded · next due updated");
+      if (interim) {
+        if (!interimReg) { toast.error("Select a vehicle"); return; }
+        await api.post(`/pmi/interim`, { ...cForm, vehicle_reg: interimReg, result, notes });
+        toast.success("Interim inspection recorded");
+      } else {
+        await api.post(`/pmi/${completeFor.id}/complete`, { ...cForm, result, notes });
+        toast.success("Inspection recorded · next due updated");
+      }
       setCompleteFor(null); load();
     } catch { toast.error("Could not record inspection"); }
   };
@@ -88,6 +97,7 @@ export function InspectionsPanel({ embedded = false }) {
       {!embedded && <Header title="PMI Inspections" subtitle="Recurring maintenance schedules & inspection records" onAdd={openNew} addTestId="add-pmi-button" addLabel="New Schedule" />}
       <div className="flex justify-end gap-2 mb-4">
         <ReportDownload path="/reports/pmi" filename="pmi-report.pdf" testid="download-pmi-pdf" evidence />
+        <Button data-testid="add-interim-button" onClick={openInterim} variant="outline" className="rounded-md gap-2 border-slate-300"><ClipboardCheck size={15} /> Interim Inspection</Button>
         {embedded && <Button data-testid="add-pmi-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">New Schedule</Button>}
       </div>
 
@@ -148,7 +158,12 @@ export function InspectionsPanel({ embedded = false }) {
                               <div key={r.id} data-testid="pmi-history-row" className="px-4 py-3">
                                 <div className="flex items-center justify-between">
                                   <p className="text-sm font-semibold text-slate-800">{r.inspection_date}</p>
-                                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                                  <div className="flex items-center gap-2">
+                                    {r.checklist?.length > 0 && (
+                                      <button data-testid="history-sheet-button" onClick={() => downloadPdf(`/pmi/records/${r.id}/sheet`, `inspection-sheet-${p.vehicle_reg}-${r.inspection_date}.pdf`)} title="Download inspection sheet (PDF)" className="text-slate-400 hover:text-slate-900"><FileDown size={14} /></button>
+                                    )}
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                                  </div>
                                 </div>
                                 {(r.inspector || r.notes) && <p className="text-xs text-slate-500 mt-0.5">{[r.inspector, r.notes].filter(Boolean).join(" · ")}</p>}
                                 {r.rectified_by && <p className="text-xs text-slate-500 mt-0.5">Rectified by: <span className="font-medium">{r.rectified_by}</span></p>}
@@ -179,12 +194,18 @@ export function InspectionsPanel({ embedded = false }) {
             {records.filter((r) => matchesReg(regFilter, r.vehicle_reg)).map((r) => (
               <div key={r.id} data-testid="pmi-record-row" className="flex items-center justify-between px-5 py-3.5">
                 <div>
-                  <p className="font-semibold text-slate-900 text-sm">{r.vehicle_reg}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-slate-900 text-sm">{r.vehicle_reg}</p>
+                    {r.inspection_type === "interim" && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">Interim</span>}
+                  </div>
                   <p className="text-xs text-slate-500">{r.inspection_date}{r.inspector && ` · ${r.inspector}`}{r.notes && ` · ${r.notes}`}</p>
                   {r.attachments?.length > 0 && <div className="mt-2"><AttachmentThumbs attachments={r.attachments} /></div>}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${resultBadge[r.result] || resultBadge.pass}`}>{r.result?.toUpperCase()}</span>
+                  {r.checklist?.length > 0 && (
+                    <button data-testid="download-sheet-button" onClick={() => downloadPdf(`/pmi/records/${r.id}/sheet`, `inspection-sheet-${r.vehicle_reg}-${r.inspection_date}.pdf`)} title="Download inspection sheet (PDF)" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"><FileDown size={14} /> Sheet</button>
+                  )}
                   <button data-testid="delete-pmi-record-button" onClick={() => removeRecord(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
                 </div>
               </div>
@@ -217,8 +238,17 @@ export function InspectionsPanel({ embedded = false }) {
       {/* Record inspection */}
       <Dialog open={!!completeFor} onOpenChange={(v) => !v && setCompleteFor(null)}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-heading">Record PMI — {completeFor?.vehicle_reg}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{interim ? "Interim Inspection" : `Record PMI — ${completeFor?.vehicle_reg}`}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
           <form onSubmit={submitComplete} className="space-y-4">
+            {interim && (
+              <Field label="Vehicle *">
+                <Select value={interimReg} onValueChange={setInterimReg}>
+                  <SelectTrigger data-testid="interim-reg"><SelectValue placeholder={assets.length ? "Select vehicle / trailer" : "Add a vehicle first"} /></SelectTrigger>
+                  <SelectContent>{assets.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="text-xs text-slate-400 mt-1">One-off inspection — no recurring schedule is created.</p>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <Field label="Inspection Date *"><Input data-testid="complete-date" type="date" required value={cForm.inspection_date} onChange={(e) => setCForm({ ...cForm, inspection_date: e.target.value })} /></Field>
               <Field label="Result">
@@ -301,7 +331,7 @@ export function InspectionsPanel({ embedded = false }) {
             </div>
             <Field label="Notes"><Textarea data-testid="complete-notes" rows={3} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} placeholder="Advisories, work carried out…" /></Field>
             <Field label="Inspection report / sheet (save a copy)"><FileUpload testid="pmi-report-upload" attachments={cForm.attachments} onChange={(a) => setCForm({ ...cForm, attachments: a })} label="Upload the signed PMI inspection sheet (image or PDF)" /></Field>
-            <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> Record & Reschedule</Button></DialogFooter>
+            <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> {interim ? "Record Interim Inspection" : "Record & Reschedule"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

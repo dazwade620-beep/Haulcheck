@@ -19,7 +19,7 @@ import base64
 import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
-from pdf_export import build_report_pdf, merge_pack, build_letter_pdf
+from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf
 import reports
 
 ROOT_DIR = Path(__file__).parent
@@ -524,6 +524,9 @@ class PMICompleteInput(BaseModel):
 
 class PMIInterimInput(PMICompleteInput):
     vehicle_reg: str
+
+
+class TrainingRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"trn_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
     driver_id: str = ""
@@ -2642,6 +2645,7 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "parking_brake_pct": data.parking_brake_pct,
         "checklist": data.checklist,
         "attachments": [a.model_dump() for a in data.attachments],
+        "inspection_type": "routine",
         "created_at": now_iso(),
     }
     await db.pmi_records.insert_one(dict(record))
@@ -2657,6 +2661,42 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
     return {"ok": True, "next_due": new_due, "record": record}
 
 
+@api_router.post("/pmi/interim")
+async def interim_pmi(data: PMIInterimInput, user: User = Depends(get_current_user)):
+    """Record a standalone one-off / interim inspection with no recurring schedule."""
+    if not data.vehicle_reg:
+        raise HTTPException(status_code=400, detail="Vehicle is required")
+    record = {
+        "id": f"pmr_{uuid.uuid4().hex[:10]}",
+        "user_id": user.user_id,
+        "pmi_id": None,
+        "vehicle_reg": data.vehicle_reg,
+        "inspection_date": data.inspection_date,
+        "result": data.result,
+        "inspector": data.inspector,
+        "rectified_by": data.rectified_by,
+        "notes": data.notes,
+        "brake_test_type": data.brake_test_type,
+        "laden": data.laden,
+        "service_brake_pct": data.service_brake_pct,
+        "secondary_brake_pct": data.secondary_brake_pct,
+        "parking_brake_pct": data.parking_brake_pct,
+        "checklist": data.checklist,
+        "attachments": [a.model_dump() for a in data.attachments],
+        "inspection_type": "interim",
+        "created_at": now_iso(),
+    }
+    await db.pmi_records.insert_one(dict(record))
+    record.pop("_id", None)
+    if data.result == "fail":
+        failed = [c.get("item") for c in (data.checklist or []) if not c.get("ok")]
+        await create_alert(user.user_id, "pmi_fail", "safety_critical",
+                           f"Interim inspection FAILED — {data.vehicle_reg}",
+                           (", ".join(failed) if failed else (data.notes or "Interim inspection failed")),
+                           vehicle_reg=data.vehicle_reg, driver_name=data.inspector, link="/maintenance")
+    return {"ok": True, "record": record}
+
+
 @api_router.get("/pmi/records")
 async def list_pmi_records(user: User = Depends(get_current_user)):
     docs = await db.pmi_records.find({"user_id": user.user_id}, {"_id": 0}).sort("inspection_date", -1).to_list(1000)
@@ -2667,6 +2707,22 @@ async def list_pmi_records(user: User = Depends(get_current_user)):
 async def delete_pmi_record(rid: str, user: User = Depends(get_current_user)):
     await db.pmi_records.delete_one({"id": rid, "user_id": user.user_id})
     return {"ok": True}
+
+
+@api_router.get("/pmi/records/{rid}/sheet")
+async def pmi_record_sheet(rid: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
+    rec = await db.pmi_records.find_one({"id": rid, "user_id": user.user_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Inspection record not found")
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    pdf = await asyncio.to_thread(
+        build_pmi_sheet_pdf, operator, rec, user.region,
+        await _get_logo_bytes(user.user_id, operator))
+    if include_files:
+        fids = [a.get("file_id") for a in (rec.get("attachments") or [])]
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"inspection-sheet-{(rec.get('vehicle_reg') or 'vehicle').replace(' ', '_')}-{rec.get('inspection_date') or datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @api_router.get("/pmi/{pid}/report")
