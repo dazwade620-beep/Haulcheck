@@ -172,6 +172,11 @@ export default function Login() {
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-5 h-5" />
             Continue with Google
           </Button>
+
+          <p className="text-center text-sm text-slate-500 mt-6">
+            Are you a driver?{" "}
+            <a data-testid="driver-app-link" href="/driver" className="font-semibold text-slate-900 underline underline-offset-4">Open the driver app</a>
+          </p>
           </>
           )}
         </div>
