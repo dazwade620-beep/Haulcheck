@@ -522,6 +522,8 @@ class PMICompleteInput(BaseModel):
     attachments: List[Attachment] = []
     inspector_signature: str = ""
     rectifier_signature: str = ""
+    odometer: str = ""
+    make_model: str = ""
 
 
 class PMIInterimInput(PMICompleteInput):
@@ -2649,6 +2651,8 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "attachments": [a.model_dump() for a in data.attachments],
         "inspector_signature": data.inspector_signature,
         "rectifier_signature": data.rectifier_signature,
+        "odometer": data.odometer,
+        "make_model": data.make_model,
         "inspection_type": "routine",
         "created_at": now_iso(),
     }
@@ -2689,6 +2693,8 @@ async def interim_pmi(data: PMIInterimInput, user: User = Depends(get_current_us
         "attachments": [a.model_dump() for a in data.attachments],
         "inspector_signature": data.inspector_signature,
         "rectifier_signature": data.rectifier_signature,
+        "odometer": data.odometer,
+        "make_model": data.make_model,
         "inspection_type": "interim",
         "created_at": now_iso(),
     }

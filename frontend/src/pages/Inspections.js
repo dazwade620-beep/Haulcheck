@@ -29,7 +29,7 @@ const PMI_CHECKLIST = [
   { section: "C: Brake performance", items: ["Service Brake performance", "Emergency/Secondary brake performance", "Parking brake performance"] },
 ];
 const buildPmiChecklist = () => PMI_CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
-const emptyComplete = () => ({ inspection_date: today(), result: "pass", inspector: "", rectified_by: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", checklist: buildPmiChecklist(), attachments: [], inspector_signature: "", rectifier_signature: "" });
+const emptyComplete = () => ({ inspection_date: today(), result: "pass", inspector: "", rectified_by: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", checklist: buildPmiChecklist(), attachments: [], inspector_signature: "", rectifier_signature: "", odometer: "", make_model: "" });
 
 export function InspectionsPanel({ embedded = false }) {
   const { user } = useAuth();
@@ -263,6 +263,10 @@ export function InspectionsPanel({ embedded = false }) {
               <Field label="Inspector"><Input data-testid="complete-inspector" value={cForm.inspector} onChange={(e) => setCForm({ ...cForm, inspector: e.target.value })} placeholder="Suitably qualified person" /></Field>
               <Field label="Rectified by (Workshop Manager)"><Input data-testid="complete-rectified-by" value={cForm.rectified_by} onChange={(e) => setCForm({ ...cForm, rectified_by: e.target.value })} placeholder="Who rectified defects" /></Field>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Odometer reading"><Input data-testid="complete-odometer" value={cForm.odometer} onChange={(e) => setCForm({ ...cForm, odometer: e.target.value })} placeholder="e.g. 342,118 km" /></Field>
+              <Field label="Vehicle make / model"><Input data-testid="complete-make-model" value={cForm.make_model} onChange={(e) => setCForm({ ...cForm, make_model: e.target.value })} placeholder="e.g. DAF XF 480" /></Field>
+            </div>
 
             <div className="border-t border-slate-100 pt-3" data-testid="pmi-checklist">
               {(() => {
@@ -295,7 +299,7 @@ export function InspectionsPanel({ embedded = false }) {
                               </SelectContent>
                             </Select>
                           </div>
-                          {!c.ok && <Input data-testid={`pmi-item-note-${idx}`} value={c.note} onChange={(e) => setCItem(idx, { note: e.target.value })} placeholder="Description of defect…" className="mt-1.5 h-8 text-sm" />}
+                          {(!c.ok || idx === 0) && <Input data-testid={`pmi-item-note-${idx}`} value={c.note} onChange={(e) => setCItem(idx, { note: e.target.value })} placeholder={idx === 0 ? "Enter registration, licence & VIN numbers" : "Description of defect…"} className="mt-1.5 h-8 text-sm" />}
                         </div>
                       );
                     })}
