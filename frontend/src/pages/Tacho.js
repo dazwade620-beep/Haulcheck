@@ -30,7 +30,18 @@ export default function Tacho() {
   const [reading, setReading] = useState(false);
   const [analyses, setAnalyses] = useState([]);
   const [driverSummary, setDriverSummary] = useState(null);
+  const [driverDetail, setDriverDetail] = useState(null);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [anOpen, setAnOpen] = useState(false);
+
+  const openDriver = async (nameKey) => {
+    setDetailOpen(true);
+    setDriverDetail(null);
+    try {
+      const res = await api.get("/tacho/driver-detail", { params: { name: nameKey } });
+      setDriverDetail(res.data);
+    } catch { toast.error("Could not load driver detail"); }
+  };
   const [anForm, setAnForm] = useState({ driver_name: "", attachments: [] });
   const [analysing, setAnalysing] = useState(false);
 
@@ -272,7 +283,7 @@ export default function Tacho() {
                     </thead>
                     <tbody>
                       {driverSummary.drivers.map((d, idx) => (
-                        <tr key={d.driver_name} data-testid="by-driver-row" className="border-t border-slate-100 hover:bg-slate-50">
+                        <tr key={d.driver_name} data-testid="by-driver-row" onClick={() => openDriver(d.driver_name)} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer">
                           <td className="px-5 py-3 text-slate-400 font-semibold">{idx + 1}</td>
                           <td className="px-3 py-3 font-semibold text-slate-900">
                             {d.driver_name}
@@ -294,6 +305,48 @@ export default function Tacho() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="driver-detail-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-heading flex items-center gap-2"><ShieldAlert size={18} /> {driverDetail?.driver_name || "Driver"} — Infringement History</DialogTitle>
+            <DialogDescription>Every infringement recorded for this driver across all tacho analyses.</DialogDescription>
+          </DialogHeader>
+          {!driverDetail ? (
+            <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-full bg-slate-900 text-white font-semibold">{driverDetail.total} total</span>
+                <span className="px-2.5 py-1 rounded-full bg-red-100 text-red-700 font-semibold">{driverDetail.counts.very_serious} very serious</span>
+                <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-700 font-semibold">{driverDetail.counts.serious} serious</span>
+                <span className="px-2.5 py-1 rounded-full bg-yellow-100 text-yellow-800 font-semibold">{driverDetail.counts.minor} minor</span>
+                <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 font-semibold">{driverDetail.analyses.length} analyses</span>
+              </div>
+              <Button data-testid="generate-letter-button" onClick={() => downloadPdf(`/tacho/driver-letter?name=${encodeURIComponent(driverDetail.driver_name)}`, `infringement-letter-${(driverDetail.driver_name || "driver").replace(/ /g, "_")}.pdf`)} disabled={!driverDetail.total} className="bg-black hover:bg-slate-800 gap-2 w-full">
+                <FileSignature size={16} /> Generate Infringement Letter (PDF)
+              </Button>
+              <div className="border border-slate-200 rounded-md divide-y divide-slate-100 max-h-[45vh] overflow-y-auto">
+                {driverDetail.infringements.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-slate-400">No infringements — this driver is clean. 👍</p>
+                ) : driverDetail.infringements.map((i, k) => (
+                  <div key={k} data-testid="driver-infr-row" className="p-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{i.type}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{i.datetime}</p>
+                      </div>
+                      <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${i.severity === "very_serious" ? "bg-red-100 text-red-700" : i.severity === "serious" ? "bg-orange-100 text-orange-700" : "bg-yellow-100 text-yellow-800"}`}>{(i.severity || "").replace(/_/g, " ")}</span>
+                    </div>
+                    {i.detail && <p className="text-xs text-slate-600 mt-1.5">{i.detail}</p>}
+                    {i.rule && <p className="text-[11px] text-slate-400 mt-1">{i.rule}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

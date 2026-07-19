@@ -2722,6 +2722,92 @@ async def tacho_driver_summary(user: User = Depends(get_current_user)):
     return {"drivers": rows, "totals": totals}
 
 
+async def _driver_analyses(user_id: str, name: str):
+    q = {"user_id": user_id}
+    if name and name != "Unassigned":
+        q["driver_name"] = name
+    else:
+        q["$or"] = [{"driver_name": ""}, {"driver_name": None}, {"driver_name": {"$exists": False}}]
+    return await db.tacho_analyses.find(q, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.get("/tacho/driver-detail")
+async def tacho_driver_detail(name: str, user: User = Depends(get_current_user)):
+    analyses = await _driver_analyses(user.user_id, name)
+    infr = []
+    for a in analyses:
+        for i in (a.get("infringements") or []):
+            infr.append({**i, "analysis_id": a.get("id"), "source_period": a.get("period", "")})
+    sev_rank = {"very_serious": 0, "serious": 1, "minor": 2}
+    infr.sort(key=lambda x: (x.get("datetime") or ""), reverse=True)
+    counts = {"very_serious": 0, "serious": 0, "minor": 0}
+    by_type = {}
+    for i in infr:
+        s = i.get("severity") or "minor"
+        if s in counts:
+            counts[s] += 1
+        t = i.get("type") or "Other"
+        by_type[t] = by_type.get(t, 0) + 1
+    return {
+        "driver_name": name, "total": len(infr), "counts": counts, "by_type": by_type,
+        "analyses": [{"id": a.get("id"), "period": a.get("period", ""), "created_at": a.get("created_at"),
+                      "total_infringements": a.get("total_infringements", 0)} for a in analyses],
+        "infringements": infr,
+    }
+
+
+@api_router.get("/tacho/driver-letter")
+async def tacho_driver_letter(name: str, signoff_name: str = "", signoff_role: str = "Transport Manager",
+                              user: User = Depends(get_current_user)):
+    analyses = await _driver_analyses(user.user_id, name)
+    infr = []
+    for a in analyses:
+        for i in (a.get("infringements") or []):
+            infr.append(i)
+    if not infr:
+        raise HTTPException(status_code=400, detail="No infringements recorded for this driver")
+    infr.sort(key=lambda x: (x.get("datetime") or ""))
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    is_ie = (user.region or "UK").upper() in ("IE", "IRELAND", "RSA")
+    authority = "RSA (Ireland)" if is_ie else "DVSA (UK)"
+    dates = [i.get("datetime", "")[:10] for i in infr if i.get("datetime")]
+    period = f"{dates[0]} to {dates[-1]}" if dates else "the analysed period"
+    sev_rank = {"very_serious": 0, "serious": 1, "minor": 2}
+    type_counts = {}
+    for i in infr:
+        t = i.get("type") or "Other"
+        type_counts[t] = type_counts.get(t, 0) + 1
+    summary_lines = "\n".join(f"• {v} × {k}" for k, v in sorted(type_counts.items(), key=lambda x: -x[1]))
+    top = sorted(infr, key=lambda x: (sev_rank.get(x.get("severity"), 3), x.get("datetime") or ""))[:30]
+    detail_lines = "\n".join(
+        f"• {i.get('datetime', '')} — {i.get('type', '')} ({(i.get('severity') or '').replace('_', ' ')}): {i.get('detail', '')}"
+        for i in top)
+    more = f"\n\n(and {len(infr) - len(top)} further item(s) — see the full tacho analysis on file.)" if len(infr) > len(top) else ""
+    body = (
+        f"This letter concerns driver's hours and tachograph infringements identified from your digital tachograph "
+        f"records covering {period}. Our analysis, carried out under {authority}-enforced EU Regulation 561/2006, "
+        f"recorded {len(infr)} potential infringement(s):\n\n"
+        f"{summary_lines}\n\n"
+        f"The specific matters requiring your attention are:\n\n"
+        f"{detail_lines}{more}\n\n"
+        f"As the operator we are legally required to monitor drivers' hours and to take action where the rules are not "
+        f"followed. You are reminded of your personal responsibility to observe daily and weekly driving limits, "
+        f"breaks and rest periods, and to make correct manual entries where the tachograph cannot record your activity.\n\n"
+        f"Please treat this as a formal notification. You are asked to acknowledge receipt and to ensure there is no "
+        f"recurrence. Repeated or serious breaches may lead to further action under our disciplinary procedure and "
+        f"could affect the operator's licence. If you believe any of the above is incorrect, please raise it with us "
+        f"immediately so the record can be reviewed.\n\n"
+        f"Please sign, date and return a copy of this letter to confirm you have read and understood its contents."
+    )
+    gen = datetime.now(timezone.utc).strftime("%d %B %Y")
+    pdf = await asyncio.to_thread(
+        build_letter_pdf, operator, name, "", "Driver's Hours Infringement Notification", body, gen,
+        "Infringement Letter", signoff_name or (operator.get("contact_name") or ""), signoff_role,
+        await _get_logo_bytes(user.user_id, operator))
+    fname = f"infringement-letter-{(name or 'driver').replace(' ', '_')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @api_router.delete("/tacho/analyses/{aid}")
 async def delete_tacho_analysis(aid: str, user: User = Depends(get_current_user)):
     await db.tacho_analyses.delete_one({"id": aid, "user_id": user.user_id})
