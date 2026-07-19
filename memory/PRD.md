@@ -18,6 +18,14 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Implemented (2026-07-19 pt.2 — audit button, defects date, .ddd analyser)
+- **Fleet Audit Report button** (sidebar, desktop+mobile): opens region-aware (DVSA/RSA) full audit — vehicles, trailers, drivers, PMI, defects, service, wheel, walkaround, tacho — view/print/PDF/PDF+evidence. Reuses /reports/audit.
+- **Defect date field** on Report-a-Defect form (defect_date) + logged on cards/PDF.
+- **Log defect from Calendar**: 'Defect' tab in Add-Event dialog; defects render on calendar grid.
+- **PMI routine == interim sheet**: schedule-level /pmi/{pid}/report now concatenates full inspection sheets (build_pmi_sheet_pdf) instead of the old summary table.
+- **.ddd tacho analyser** (server.py parse_ddd + detect_ddd_infringements + run_tacho_analysis): decodes driver-card digital-tacho binary into daily activity records and runs deterministic EU 561/2006 checks (4.5h continuous driving, 9h/10h daily driving, 9h/11h daily rest). Both /tacho/analyse and /driver/tacho/analyse route .ddd to the decoder; images/PDF still use AI vision. Frontend analyse dialog accepts .ddd/.tgd/.c1b/.v1b. Verified end-to-end (upload→decode→3 infringements→PDF).
+
+
 ## Implemented (2026-07-19 — Alerts, trend, PMI sheet & interim)
 - **Overdue auto-alerts** (VERIFIED iter 26): GET /api/alerts auto-syncs in-app alerts (type='overdue', with dedup_key) for every EXPIRED compliance item (MOT/tax/licence/CPC/tacho/PMI/insurance/training/wheel/trailer). Severity map: MOT/Licence/insurance→safety_critical, training/licence-check/tacho→minor, else major. Dismiss (DELETE) persists in db.dismissed_alerts so items aren't recreated; renewed items auto-clear on reconcile. 120s per-user throttle. server.py sync_overdue_alerts().
 - **Compliance trend chart** (VERIFIED iter 26): GET /api/dashboard upserts a daily db.compliance_history snapshot; GET /api/compliance/history?days=90 returns rows. Frontend ComplianceTrend.js (recharts line chart with 60/85 reference bands) on Dashboard.

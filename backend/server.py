@@ -1404,7 +1404,7 @@ async def driver_tacho_analyse(payload: dict, driver: dict = Depends(get_current
     ct = rec.get("content_type") or ct
     ext = (rec.get("original_filename") or "").rsplit(".", 1)[-1].lower()
     region_doc = await db.users.find_one({"user_id": driver["user_id"]}, {"_id": 0, "region": 1}) or {}
-    result = await ai_analyse_tacho(fdata, ct, ext, region_doc.get("region", "UK"), driver.get("name", "")) or {}
+    result = await run_tacho_analysis(fdata, ct, ext, region_doc.get("region", "UK"), driver.get("name", "")) or {}
     infr = result.get("infringements") or []
     analysis = TachoAnalysis(
         user_id=driver["user_id"], driver_name=driver.get("name", ""),
@@ -2364,6 +2364,183 @@ def parse_ddd_last_timestamp(data: bytes):
     return None
 
 
+_DDD_EXTS = ("ddd", "tgd", "c1b", "v1b", "dtc", "esm", "dtg", "tgz")
+_ACT_NAMES = {0: "rest", 1: "available", 2: "work", 3: "driving"}
+
+
+def _mins_hhmm(m):
+    return f"{int(m) // 60:02d}:{int(m) % 60:02d}"
+
+
+def _mins_dur(m):
+    return f"{int(m) // 60}h {int(m) % 60:02d}m"
+
+
+def parse_ddd(data: bytes):
+    """Best-effort decode of a driver-card .ddd file into daily activity records.
+
+    Walks the cyclic CardActivityDailyRecord buffer: each record is
+    prevLen(2) recLen(2) date(TimeReal 4) presence(2) distance(2) then N*ActivityChangeInfo(2).
+    ActivityChangeInfo bits: aa=activity(12-11), time=minutes-from-midnight(10-0).
+    """
+    lo = int(datetime(2005, 1, 1, tzinfo=timezone.utc).timestamp())
+    hi = int(datetime.now(timezone.utc).timestamp()) + 2 * 86400
+    n = len(data)
+    days = {}
+    pos = 0
+    while pos < n - 12:
+        rec_len = int.from_bytes(data[pos + 2:pos + 4], "big")
+        date_val = int.from_bytes(data[pos + 4:pos + 8], "big")
+        if 12 <= rec_len <= 8000 and (rec_len - 12) % 2 == 0 and lo <= date_val <= hi and pos + rec_len <= n:
+            aci_bytes = data[pos + 12:pos + rec_len]
+            acis = [int.from_bytes(aci_bytes[k:k + 2], "big") for k in range(0, len(aci_bytes), 2)]
+            times = [a & 0x07FF for a in acis]
+            if acis and all(t <= 1440 for t in times) and times == sorted(times):
+                distance = int.from_bytes(data[pos + 10:pos + 12], "big")
+                segs = [(a & 0x07FF, (a >> 11) & 0x03) for a in acis]
+                totals = {"driving": 0, "work": 0, "available": 0, "rest": 0}
+                seg_list = []
+                for i2, (t, act) in enumerate(segs):
+                    end = segs[i2 + 1][0] if i2 + 1 < len(segs) else 1440
+                    dur = max(0, end - t)
+                    name = _ACT_NAMES[act]
+                    totals[name] += dur
+                    seg_list.append({"start": t, "activity": name, "dur": dur})
+                date_iso = datetime.fromtimestamp(date_val, tz=timezone.utc).date().isoformat()
+                days[date_val] = {
+                    "date": date_iso, "distance_km": distance,
+                    "driving_min": totals["driving"], "work_min": totals["work"],
+                    "available_min": totals["available"], "rest_min": totals["rest"],
+                    "segments": seg_list,
+                }
+                pos += rec_len
+                continue
+        pos += 1
+    if not days:
+        return {"found": False, "days": []}
+    ordered = [days[k] for k in sorted(days)]
+    return {"found": True, "days": ordered, "start": ordered[0]["date"], "end": ordered[-1]["date"]}
+
+
+def detect_ddd_infringements(decoded, driver_name, region):
+    """Deterministic EU 561/2006 drivers' hours checks against decoded .ddd activity."""
+    is_ie = (region or "UK").upper() in ("IE", "IRELAND", "RSA")
+    authority = "RSA" if is_ie else "DVSA"
+    infr = []
+    for day in decoded["days"]:
+        date = day["date"]
+        cont = 0            # continuous driving since last qualifying break
+        partial15 = False   # had a >=15m break toward a 15+30 split
+        flagged = False
+        for seg in day["segments"]:
+            act, dur = seg["activity"], seg["dur"]
+            if act == "driving":
+                cont += dur
+                if cont > 270 and not flagged:
+                    infr.append({
+                        "type": "Continuous driving without break",
+                        "datetime": f"{date} {_mins_hhmm(seg['start'])}",
+                        "rule": "EU 561/2006 Art.7 — max 4.5h driving before a 45-min break",
+                        "severity": "serious",
+                        "detail": f"Continuous driving reached {_mins_dur(cont)} without a qualifying 45-minute break (may be split 15+30).",
+                        "action": "Remind driver of break requirements; retain record; review working-time.",
+                    })
+                    flagged = True
+            elif act == "rest":
+                if dur >= 45 or (dur >= 30 and partial15):
+                    cont = 0
+                    partial15 = False
+                    flagged = False
+                elif dur >= 15:
+                    partial15 = True
+        d = day["driving_min"]
+        if d > 600:
+            infr.append({
+                "type": "Daily driving limit exceeded", "datetime": date,
+                "rule": "EU 561/2006 Art.6(1) — daily driving 9h (max 10h twice weekly)",
+                "severity": "very_serious",
+                "detail": f"Total driving {_mins_dur(d)} exceeds the absolute 10h daily maximum.",
+                "action": "Investigate immediately — prohibition / graduated fixed penalty risk.",
+            })
+        elif d > 540:
+            infr.append({
+                "type": "Extended daily driving (over 9h)", "datetime": date,
+                "rule": "EU 561/2006 Art.6(1) — over 9h permitted max twice per week",
+                "severity": "minor",
+                "detail": f"Driving {_mins_dur(d)} exceeds 9h — allowed only twice per week; verify weekly count.",
+                "action": "Confirm the driver had no more than two 10h days this week.",
+            })
+    # Daily rest between consecutive calendar days (best-effort from card data)
+    by_date = {x["date"]: x for x in decoded["days"]}
+    for x in decoded["days"]:
+        try:
+            nxt = (datetime.fromisoformat(x["date"]).date() + timedelta(days=1)).isoformat()
+        except Exception:
+            continue
+        nd = by_date.get(nxt)
+        if not nd:
+            continue
+        last_duty_end = 0
+        for seg in x["segments"]:
+            if seg["activity"] != "rest":
+                last_duty_end = seg["start"] + seg["dur"]
+        first_duty = None
+        for seg in nd["segments"]:
+            if seg["activity"] != "rest":
+                first_duty = seg["start"]
+                break
+        if first_duty is None or last_duty_end == 0:
+            continue
+        rest_gap = (1440 - last_duty_end) + first_duty
+        if rest_gap < 540:
+            infr.append({
+                "type": "Insufficient daily rest", "datetime": nxt,
+                "rule": "EU 561/2006 Art.8 — min 11h daily rest (reduced 9h, max 3x/week)",
+                "severity": "serious",
+                "detail": f"Only ~{_mins_dur(rest_gap)} rest between duty on {x['date']} and {nxt} (below the 9h reduced minimum).",
+                "action": "Investigate rostering; ensure compensating rest is taken.",
+            })
+        elif rest_gap < 660:
+            infr.append({
+                "type": "Reduced daily rest", "datetime": nxt,
+                "rule": "EU 561/2006 Art.8 — 11h daily rest; reduced 9h allowed max 3x between weekly rests",
+                "severity": "minor",
+                "detail": f"~{_mins_dur(rest_gap)} rest between duty on {x['date']} and {nxt} (reduced daily rest).",
+                "action": "Confirm no more than three reduced daily rests between weekly rests.",
+            })
+    total_driving = sum(x["driving_min"] for x in decoded["days"])
+    lines = [f"• {x['date']}: drive {_mins_dur(x['driving_min'])}, work {_mins_dur(x['work_min'])}, "
+             f"avail {_mins_dur(x['available_min'])}, rest {_mins_dur(x['rest_min'])}, {x['distance_km']} km"
+             for x in decoded["days"]]
+    summary = (
+        f"Decoded {len(decoded['days'])} day(s) of activity ({decoded['start']} to {decoded['end']}) directly from the "
+        f".ddd digital tachograph file. Total driving {_mins_dur(total_driving)}. "
+        f"{len(infr)} infringement(s) detected under {authority}-enforced EU 561/2006 drivers' hours rules.\n\n"
+        "Daily breakdown:\n" + "\n".join(lines)
+    )
+    return {
+        "driver_name": driver_name, "period": f"{decoded['start']} to {decoded['end']}",
+        "summary": summary, "total_infringements": len(infr), "infringements": infr, "confidence": 0.9,
+    }
+
+
+async def run_tacho_analysis(data: bytes, mime: str, ext: str, region: str, driver_name: str):
+    """Route .ddd digital-tacho downloads to the deterministic decoder; everything else to the AI vision analyser."""
+    if (ext or "").lower() in _DDD_EXTS:
+        decoded = await asyncio.to_thread(parse_ddd, data)
+        if decoded.get("found"):
+            return detect_ddd_infringements(decoded, driver_name, region)
+        last = parse_ddd_last_timestamp(data)
+        return {
+            "driver_name": driver_name, "period": f"last activity {last}" if last else "",
+            "summary": ("This .ddd file could not be decoded into driver activity records — it may be a vehicle-unit "
+                        "download, encrypted, or an unsupported format. Upload the operator's tacho analysis printout "
+                        "(PDF or image) instead for AI infringement analysis."),
+            "total_infringements": 0, "infringements": [], "confidence": 0,
+        }
+    return await ai_analyse_tacho(data, mime, ext, region, driver_name) or {}
+
+
 async def ai_extract_tacho(file_bytes: bytes, mime: str, ext: str):
     from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent, FileContentWithMimeType
     system = (
@@ -2479,7 +2656,7 @@ async def analyse_tacho(payload: TachoAnalyseInput, user: User = Depends(get_cur
     data, ct = get_object(rec["storage_path"])
     ct = rec.get("content_type") or ct
     ext = (rec.get("original_filename") or "").rsplit(".", 1)[-1].lower()
-    result = await ai_analyse_tacho(data, ct, ext, user.region, payload.driver_name) or {}
+    result = await run_tacho_analysis(data, ct, ext, user.region, payload.driver_name) or {}
     infr = result.get("infringements") or []
     analysis = TachoAnalysis(
         user_id=user.user_id, driver_name=payload.driver_name or result.get("driver_name") or "",

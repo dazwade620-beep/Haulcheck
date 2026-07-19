@@ -281,7 +281,7 @@ export default function Tacho() {
 
       <Dialog open={anOpen} onOpenChange={setAnOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><ScanSearch size={18} /> Analyse Tacho Printout</DialogTitle><DialogDescription>Upload a driver-card / vehicle-unit printout or analysis report — AI will flag suspected drivers' hours infringements.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading flex items-center gap-2"><ScanSearch size={18} /> Analyse Tacho Data</DialogTitle><DialogDescription>Upload a digital tachograph download (.ddd) — decoded directly for drivers' hours infringements — or a driver-card / vehicle-unit printout (image / PDF) for AI analysis.</DialogDescription></DialogHeader>
           <div className="space-y-4">
             <Field label="Driver (optional)">
               <Select value={anForm.driver_name || undefined} onValueChange={(v) => setAnForm({ ...anForm, driver_name: v })}>
@@ -289,7 +289,7 @@ export default function Tacho() {
                 <SelectContent>{drivers.map((d) => <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
-            <Field label="Tacho printout / report *"><FileUpload testid="analyse-upload" label="Upload the printout or analysis report (image or PDF)" accept="image/*,application/pdf" attachments={anForm.attachments} onChange={(a) => setAnForm({ ...anForm, attachments: a })} /></Field>
+            <Field label="Tacho file / printout *"><FileUpload testid="analyse-upload" label="Upload a .ddd download, or a printout / report (image or PDF)" accept="image/*,application/pdf,.ddd,.tgd,.c1b,.v1b,.dtc,.esm,.dtg" attachments={anForm.attachments} onChange={(a) => setAnForm({ ...anForm, attachments: a })} /></Field>
             <DialogFooter>
               <Button data-testid="run-analyse-button" onClick={runAnalyse} disabled={analysing || anForm.attachments.length === 0} className="bg-black hover:bg-slate-800 gap-2">
                 {analysing ? <><Loader2 size={16} className="animate-spin" /> Analysing…</> : <><Sparkles size={16} /> Run AI Analysis</>}
