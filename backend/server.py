@@ -150,6 +150,7 @@ class Alert(BaseModel):
     driver_name: str = ""
     link: str = ""
     read: bool = False
+    dedup_key: str = ""
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -521,7 +522,8 @@ class PMICompleteInput(BaseModel):
     attachments: List[Attachment] = []
 
 
-class TrainingRecord(BaseModel):
+class PMIInterimInput(PMICompleteInput):
+    vehicle_reg: str
     id: str = Field(default_factory=lambda: f"trn_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
     driver_id: str = ""
@@ -1175,13 +1177,77 @@ async def revoke_driver_code(did: str, user: User = Depends(get_current_user)):
 
 
 # ---------- Defect alerts (manager) ----------
+# ---------- Overdue auto-alerts (items past their due date) ----------
+_OVERDUE_LINK = {
+    "vehicle": "/vehicles", "trailer": "/vehicles", "driver": "/drivers",
+    "training": "/office", "pmi": "/maintenance", "document": "/office",
+    "insurance": "/office", "tacho": "/tacho", "wheel": "/maintenance",
+}
+_last_overdue_sync: dict = {}
+
+
+def _overdue_severity(a: dict) -> str:
+    t, item = a.get("type"), a.get("item", "")
+    if t == "insurance":
+        return "safety_critical"
+    if t == "vehicle" and item in ("MOT", "Tax"):
+        return "safety_critical" if item == "MOT" else "major"
+    if t == "driver" and item == "Licence":
+        return "safety_critical"
+    if t == "training" or item == "Licence Check" or t == "tacho":
+        return "minor"
+    return "major"
+
+
+async def sync_overdue_alerts(user_id: str, force: bool = False):
+    """Reconcile the alerts panel with items that are past their due date (dedup + auto-clear on renewal)."""
+    import time
+    now = time.time()
+    if not force and now - _last_overdue_sync.get(user_id, 0) < 120:
+        return
+    _last_overdue_sync[user_id] = now
+    stats = await gather_stats(user_id)
+    overdue = {}
+    for a in stats["alerts"]:
+        if a.get("status") != "expired":
+            continue
+        key = f"overdue|{a.get('type')}|{a.get('name')}|{a.get('item')}"
+        overdue[key] = a
+    existing = await db.alerts.find({"user_id": user_id, "dedup_key": {"$ne": ""}}, {"_id": 0}).to_list(1000)
+    existing_keys = {e["dedup_key"] for e in existing}
+    dismissed_doc = await db.dismissed_alerts.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    dismissed = set(dismissed_doc.get("keys", []))
+    for key, a in overdue.items():
+        if key in existing_keys or key in dismissed:
+            continue
+        days = a.get("days")
+        overdue_txt = f"{abs(days)} day(s) overdue" if isinstance(days, int) else "action needed"
+        veh = a["name"] if a.get("type") in ("vehicle", "trailer", "pmi", "wheel") else ""
+        alert = Alert(
+            user_id=user_id, type="overdue", severity=_overdue_severity(a),
+            title=f"{a['name']} — {a['item']} {overdue_txt}",
+            message=f"{a['item']} for {a['name']} is past its due date. Renew it to restore compliance.",
+            vehicle_reg=veh, link=_OVERDUE_LINK.get(a.get("type"), ""), dedup_key=key,
+        )
+        await db.alerts.insert_one(alert.model_dump())
+    stale = [k for k in existing_keys if k not in overdue]
+    if stale:
+        await db.alerts.delete_many({"user_id": user_id, "dedup_key": {"$in": stale}})
+    kept_dismissed = dismissed & set(overdue.keys())
+    if kept_dismissed != dismissed:
+        await db.dismissed_alerts.update_one(
+            {"user_id": user_id}, {"$set": {"user_id": user_id, "keys": list(kept_dismissed)}}, upsert=True)
+
+
 @api_router.get("/alerts")
 async def list_alerts(user: User = Depends(get_current_user)):
+    await sync_overdue_alerts(user.user_id)
     return await db.alerts.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 @api_router.get("/alerts/unread-count")
 async def alerts_unread_count(user: User = Depends(get_current_user)):
+    await sync_overdue_alerts(user.user_id)
     return {"count": await db.alerts.count_documents({"user_id": user.user_id, "read": False})}
 
 
@@ -1199,7 +1265,11 @@ async def mark_all_alerts_read(user: User = Depends(get_current_user)):
 
 @api_router.delete("/alerts/{aid}")
 async def delete_alert(aid: str, user: User = Depends(get_current_user)):
+    doc = await db.alerts.find_one({"id": aid, "user_id": user.user_id}, {"_id": 0})
     await db.alerts.delete_one({"id": aid, "user_id": user.user_id})
+    if doc and doc.get("dedup_key"):
+        await db.dismissed_alerts.update_one(
+            {"user_id": user.user_id}, {"$addToSet": {"keys": doc["dedup_key"]}}, upsert=True)
     return {"ok": True}
 
 
@@ -3123,7 +3193,24 @@ async def dashboard(user: User = Depends(get_current_user)):
     stats["risk_score"] = score
     stats["risk_band"] = band
     stats["registered_users"] = await db.users.count_documents({})
+    today = datetime.now(timezone.utc).date().isoformat()
+    await db.compliance_history.update_one(
+        {"user_id": user.user_id, "date": today},
+        {"$set": {"user_id": user.user_id, "date": today, "score": score, "band": band,
+                  "expired": stats["counts"]["expired"], "due_soon": stats["counts"]["due_soon"],
+                  "recorded_at": now_iso()}},
+        upsert=True,
+    )
     return stats
+
+
+@api_router.get("/compliance/history")
+async def compliance_history(days: int = 90, user: User = Depends(get_current_user)):
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=days)).isoformat()
+    rows = await db.compliance_history.find(
+        {"user_id": user.user_id, "date": {"$gte": cutoff}}, {"_id": 0}
+    ).sort("date", 1).to_list(400)
+    return {"history": rows}
 
 
 async def detect_gaps(user_id: str):
