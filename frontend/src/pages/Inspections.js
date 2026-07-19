@@ -45,6 +45,7 @@ export function InspectionsPanel({ embedded = false }) {
   const [assets, setAssets] = useState([]);
   const [interim, setInterim] = useState(false);
   const [interimReg, setInterimReg] = useState("");
+  const [editRecordId, setEditRecordId] = useState(null);
 
   const load = async () => {
     const [p, r, v, t] = await Promise.all([api.get("/pmi"), api.get("/pmi/records"), api.get("/vehicles"), api.get("/trailers")]);
@@ -71,8 +72,24 @@ export function InspectionsPanel({ embedded = false }) {
 
   const removeRecord = async (id) => { await api.delete(`/pmi/records/${id}`); toast.success("Inspection record removed"); load(); };
 
-  const openComplete = (p) => { setInterim(false); setCompleteFor(p); setCForm({ ...emptyComplete(), inspector: p.inspector || "" }); };
-  const openInterim = () => { setInterim(true); setInterimReg(""); setCForm(emptyComplete()); setCompleteFor({ interim: true }); };
+  const openComplete = (p) => { setEditRecordId(null); setInterim(false); setCompleteFor(p); setCForm({ ...emptyComplete(), inspector: p.inspector || "" }); };
+  const openInterim = () => { setEditRecordId(null); setInterim(true); setInterimReg(""); setCForm(emptyComplete()); setCompleteFor({ interim: true }); };
+  const openEditRecord = (r) => {
+    setEditRecordId(r.id);
+    setInterim(false);
+    setCForm({
+      ...emptyComplete(),
+      inspection_date: r.inspection_date || today(), result: r.result || "pass",
+      inspector: r.inspector || "", rectified_by: r.rectified_by || "", notes: r.notes || "",
+      brake_test_type: r.brake_test_type || "none", laden: !!r.laden,
+      service_brake_pct: r.service_brake_pct || "", secondary_brake_pct: r.secondary_brake_pct || "",
+      parking_brake_pct: r.parking_brake_pct || "", odometer: r.odometer || "", make_model: r.make_model || "",
+      inspector_signature: r.inspector_signature || "", rectifier_signature: r.rectifier_signature || "",
+      attachments: r.attachments || [],
+      checklist: (r.checklist && r.checklist.length) ? r.checklist : buildPmiChecklist(),
+    });
+    setCompleteFor({ editing: true, vehicle_reg: r.vehicle_reg });
+  };
   const setCItem = (idx, patch) => setCForm((f) => ({ ...f, checklist: f.checklist.map((c, i) => (i === idx ? { ...c, ...patch } : c)) }));
   const submitComplete = async (e) => {
     e.preventDefault();
@@ -85,7 +102,10 @@ export function InspectionsPanel({ embedded = false }) {
     const defectSummary = defects.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
     const notes = defects.length ? [defectSummary, cForm.notes].filter(Boolean).join(" — ") : cForm.notes;
     try {
-      if (interim) {
+      if (editRecordId) {
+        await api.put(`/pmi/records/${editRecordId}`, { ...cForm, result, notes });
+        toast.success("Inspection updated");
+      } else if (interim) {
         if (!interimReg) { toast.error("Select a vehicle"); return; }
         await api.post(`/pmi/interim`, { ...cForm, vehicle_reg: interimReg, result, notes });
         toast.success("Interim inspection recorded");
@@ -93,7 +113,7 @@ export function InspectionsPanel({ embedded = false }) {
         await api.post(`/pmi/${completeFor.id}/complete`, { ...cForm, result, notes });
         toast.success("Inspection recorded · next due updated");
       }
-      setCompleteFor(null); load();
+      setCompleteFor(null); setEditRecordId(null); load();
     } catch { toast.error("Could not record inspection"); }
   };
 
@@ -211,6 +231,7 @@ export function InspectionsPanel({ embedded = false }) {
                   {r.checklist?.length > 0 && (
                     <button data-testid="download-sheet-button" onClick={() => downloadPdf(`/pmi/records/${r.id}/sheet`, `inspection-sheet-${r.vehicle_reg}-${r.inspection_date}.pdf`)} title="Download inspection sheet (PDF)" className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"><FileDown size={14} /> Sheet</button>
                   )}
+                  <button data-testid="edit-pmi-record-button" onClick={() => openEditRecord(r)} title="Edit inspection" className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
                   <button data-testid="delete-pmi-record-button" onClick={() => removeRecord(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
                 </div>
               </div>
@@ -241,9 +262,9 @@ export function InspectionsPanel({ embedded = false }) {
       </Dialog>
 
       {/* Record inspection */}
-      <Dialog open={!!completeFor} onOpenChange={(v) => !v && setCompleteFor(null)}>
+      <Dialog open={!!completeFor} onOpenChange={(v) => { if (!v) { setCompleteFor(null); setEditRecordId(null); } }}>
         <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle className="font-heading">{interim ? "Interim Inspection" : `Record PMI — ${completeFor?.vehicle_reg}`}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle className="font-heading">{editRecordId ? `Edit Inspection — ${completeFor?.vehicle_reg}` : interim ? "Interim Inspection" : `Record PMI — ${completeFor?.vehicle_reg}`}</DialogTitle><DialogDescription className="sr-only">Record completed inspection form</DialogDescription></DialogHeader>
           <form onSubmit={submitComplete} className="space-y-4">
             {interim && (
               <Field label="Vehicle *">
@@ -347,7 +368,7 @@ export function InspectionsPanel({ embedded = false }) {
               </div>
             </div>
             <Field label="Inspection report / sheet (save a copy)"><FileUpload testid="pmi-report-upload" attachments={cForm.attachments} onChange={(a) => setCForm({ ...cForm, attachments: a })} label="Upload the signed PMI inspection sheet (image or PDF)" /></Field>
-            <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> {interim ? "Record Interim Inspection" : "Record & Reschedule"}</Button></DialogFooter>
+            <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> {editRecordId ? "Save Changes" : interim ? "Record Interim Inspection" : "Record & Reschedule"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

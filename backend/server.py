@@ -3045,6 +3045,24 @@ async def delete_pmi_record(rid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+@api_router.put("/pmi/records/{rid}")
+async def update_pmi_record(rid: str, data: PMICompleteInput, user: User = Depends(get_current_user)):
+    rec = await db.pmi_records.find_one({"id": rid, "user_id": user.user_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Inspection record not found")
+    upd = {
+        "inspection_date": data.inspection_date, "result": data.result, "inspector": data.inspector,
+        "rectified_by": data.rectified_by, "notes": data.notes, "brake_test_type": data.brake_test_type,
+        "laden": data.laden, "service_brake_pct": data.service_brake_pct,
+        "secondary_brake_pct": data.secondary_brake_pct, "parking_brake_pct": data.parking_brake_pct,
+        "checklist": data.checklist, "attachments": [a.model_dump() for a in data.attachments],
+        "inspector_signature": data.inspector_signature, "rectifier_signature": data.rectifier_signature,
+        "odometer": data.odometer, "make_model": data.make_model,
+    }
+    await db.pmi_records.update_one({"id": rid, "user_id": user.user_id}, {"$set": upd})
+    return {"ok": True, "record": {**rec, **upd}}
+
+
 @api_router.get("/pmi/records/{rid}/sheet")
 async def pmi_record_sheet(rid: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
     rec = await db.pmi_records.find_one({"id": rid, "user_id": user.user_id}, {"_id": 0})
