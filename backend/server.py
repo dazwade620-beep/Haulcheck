@@ -2397,6 +2397,9 @@ def parse_ddd(data: bytes):
             times = [a & 0x07FF for a in acis]
             if acis and all(t <= 1440 for t in times) and times == sorted(times):
                 distance = int.from_bytes(data[pos + 10:pos + 12], "big")
+                if distance > 2000:  # implausible daily distance -> false-positive record
+                    pos += 1
+                    continue
                 segs = [(a & 0x07FF, (a >> 11) & 0x03) for a in acis]
                 totals = {"driving": 0, "work": 0, "available": 0, "rest": 0}
                 seg_list = []
@@ -2418,7 +2421,10 @@ def parse_ddd(data: bytes):
         pos += 1
     if not days:
         return {"found": False, "days": []}
-    ordered = [days[k] for k in sorted(days)]
+    # Drop stray false-positive records far older than the newest record (card holds ~1 year).
+    newest = max(days)
+    cutoff = newest - 500 * 86400
+    ordered = [days[k] for k in sorted(days) if k >= cutoff]
     return {"found": True, "days": ordered, "start": ordered[0]["date"], "end": ordered[-1]["date"]}
 
 
@@ -2470,53 +2476,62 @@ def detect_ddd_infringements(decoded, driver_name, region):
                 "detail": f"Driving {_mins_dur(d)} exceeds 9h — allowed only twice per week; verify weekly count.",
                 "action": "Confirm the driver had no more than two 10h days this week.",
             })
-    # Daily rest between consecutive calendar days (best-effort from card data)
-    by_date = {x["date"]: x for x in decoded["days"]}
-    for x in decoded["days"]:
+    # Daily rest — proper rolling analysis across the whole timeline (merges rest across midnight
+    # and treats unrecorded gaps as rest). A daily rest of >=9h must begin within 24h of duty starting.
+    segs_abs = []
+    for day in decoded["days"]:
         try:
-            nxt = (datetime.fromisoformat(x["date"]).date() + timedelta(days=1)).isoformat()
+            base = datetime.fromisoformat(day["date"]).replace(tzinfo=timezone.utc)
         except Exception:
             continue
-        nd = by_date.get(nxt)
-        if not nd:
-            continue
-        last_duty_end = 0
-        for seg in x["segments"]:
-            if seg["activity"] != "rest":
-                last_duty_end = seg["start"] + seg["dur"]
-        first_duty = None
-        for seg in nd["segments"]:
-            if seg["activity"] != "rest":
-                first_duty = seg["start"]
-                break
-        if first_duty is None or last_duty_end == 0:
-            continue
-        rest_gap = (1440 - last_duty_end) + first_duty
-        if rest_gap < 540:
+        for s in day["segments"]:
+            if s["activity"] != "rest" and s["dur"] > 0:
+                start = base + timedelta(minutes=s["start"])
+                end = base + timedelta(minutes=s["start"] + s["dur"])
+                segs_abs.append((start, end))
+    segs_abs.sort()
+    shifts = []
+    for s, e in segs_abs:
+        if shifts and (s - shifts[-1][1]) < timedelta(hours=9):
+            shifts[-1][1] = max(shifts[-1][1], e)
+        else:
+            shifts.append([s, e])
+    for s, e in shifts:
+        span = e - s
+        hrs = span.total_seconds() / 3600
+        if span > timedelta(hours=24):
             infr.append({
-                "type": "Insufficient daily rest", "datetime": nxt,
-                "rule": "EU 561/2006 Art.8 — min 11h daily rest (reduced 9h, max 3x/week)",
-                "severity": "serious",
-                "detail": f"Only ~{_mins_dur(rest_gap)} rest between duty on {x['date']} and {nxt} (below the 9h reduced minimum).",
-                "action": "Investigate rostering; ensure compensating rest is taken.",
-            })
-        elif rest_gap < 660:
-            infr.append({
-                "type": "Reduced daily rest", "datetime": nxt,
-                "rule": "EU 561/2006 Art.8 — 11h daily rest; reduced 9h allowed max 3x between weekly rests",
+                "type": "Possible missing record / card removed", "datetime": s.date().isoformat(),
+                "rule": "Reg (EU) 165/2014 — driver card must record all activity; gaps require a manual/printout entry",
                 "severity": "minor",
-                "detail": f"~{_mins_dur(rest_gap)} rest between duty on {x['date']} and {nxt} (reduced daily rest).",
+                "detail": f"A {hrs:.0f}h continuous duty span ({s.strftime('%d %b %H:%M')} to {e.strftime('%d %b %H:%M')}) with no 9h+ rest usually means the card was removed or records are missing — review manually.",
+                "action": "Check for a manual entry / printout covering this gap.",
+            })
+        elif span > timedelta(hours=15):
+            infr.append({
+                "type": "Insufficient daily rest", "datetime": s.date().isoformat(),
+                "rule": "EU 561/2006 Art.8 — a daily rest (11h, reduced 9h) must begin within 24h of duty starting",
+                "severity": "serious",
+                "detail": f"Duty period ran {hrs:.1f}h ({s.strftime('%d %b %H:%M')} to {e.strftime('%d %b %H:%M')}) without a qualifying daily rest inside the 24-hour window.",
+                "action": "Investigate rostering; ensure a full/compensating rest is taken.",
+            })
+    for i in range(1, len(shifts)):
+        rest = shifts[i][0] - shifts[i - 1][1]
+        if timedelta(hours=9) <= rest < timedelta(hours=11):
+            hrs = rest.total_seconds() / 3600
+            infr.append({
+                "type": "Reduced daily rest", "datetime": shifts[i][0].date().isoformat(),
+                "rule": "EU 561/2006 Art.8 — reduced daily rest (9-11h) allowed max 3x between weekly rests",
+                "severity": "minor",
+                "detail": f"Daily rest of {hrs:.1f}h taken before duty on {shifts[i][0].strftime('%d %b')}.",
                 "action": "Confirm no more than three reduced daily rests between weekly rests.",
             })
     total_driving = sum(x["driving_min"] for x in decoded["days"])
-    lines = [f"• {x['date']}: drive {_mins_dur(x['driving_min'])}, work {_mins_dur(x['work_min'])}, "
-             f"avail {_mins_dur(x['available_min'])}, rest {_mins_dur(x['rest_min'])}, {x['distance_km']} km"
-             for x in decoded["days"]]
     summary = (
         f"Decoded {len(decoded['days'])} day(s) of activity ({decoded['start']} to {decoded['end']}) directly from the "
         f".ddd digital tachograph file. Total driving {_mins_dur(total_driving)}. "
-        f"{len(infr)} infringement(s) detected under {authority}-enforced EU 561/2006 drivers' hours rules.\n\n"
-        "Daily breakdown:\n" + "\n".join(lines)
+        f"{len(infr)} potential infringement(s) detected under {authority}-enforced EU 561/2006 drivers' hours rules. "
+        "Rest-related items are indicative and should be reviewed alongside weekly rest and any manual entries."
     )
     return {
         "driver_name": driver_name, "period": f"{decoded['start']} to {decoded['end']}",
