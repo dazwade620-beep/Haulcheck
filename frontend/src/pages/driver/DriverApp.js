@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   Truck, ClipboardCheck, AlertTriangle, IdCard, FileText, ScanSearch, LogOut,
   Check, X, ChevronLeft, Loader2, Camera, ShieldCheck, ChevronRight, Gauge,
+  Download, Share, Plus,
 } from "lucide-react";
 
 const STATUS = {
@@ -15,6 +16,63 @@ const STATUS = {
 };
 const statusLabel = { valid: "Valid", due_soon: "Due soon", expired: "Expired", unknown: "—" };
 const fileUrl = (id) => `${process.env.REACT_APP_BACKEND_URL}/api/driver/files/${id}?auth=${localStorage.getItem("driver_token")}`;
+
+// ---------- Install to home screen ----------
+function InstallPrompt() {
+  const [deferred, setDeferred] = useState(null);
+  const [showIosHelp, setShowIosHelp] = useState(false);
+
+  const isStandalone =
+    typeof window !== "undefined" &&
+    (window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true);
+  const isIos =
+    typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setDeferred(e); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  if (isStandalone) return null;
+
+  // Android / Chrome — native install prompt available
+  if (deferred) {
+    return (
+      <button
+        data-testid="install-app-button"
+        onClick={async () => { deferred.prompt(); await deferred.userChoice; setDeferred(null); }}
+        className="w-full mt-4 bg-slate-800 border border-slate-700 text-white font-semibold rounded-xl py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+      >
+        <Download size={18} /> Add HaulCheck to home screen
+      </button>
+    );
+  }
+
+  // iOS Safari — no native prompt, show manual steps
+  if (isIos) {
+    return (
+      <div className="mt-4">
+        <button
+          data-testid="install-ios-help-button"
+          onClick={() => setShowIosHelp((v) => !v)}
+          className="w-full bg-slate-800 border border-slate-700 text-white font-semibold rounded-xl py-3 flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+        >
+          <Download size={18} /> Add to home screen
+        </button>
+        {showIosHelp && (
+          <div data-testid="install-ios-help" className="mt-3 rounded-xl bg-slate-900 border border-slate-800 p-4 text-sm text-slate-300 leading-relaxed">
+            <p className="flex items-center gap-1.5">1. Tap the <Share size={15} className="inline" /> Share button in Safari's toolbar.</p>
+            <p className="mt-2 flex items-center gap-1.5">2. Choose <Plus size={15} className="inline" /> <span className="font-semibold text-white">Add to Home Screen</span>.</p>
+            <p className="mt-2">3. Tap <span className="font-semibold text-white">Add</span> — HaulCheck will appear as an app icon.</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
 
 // ---------- Login ----------
 function DriverLogin({ onLogin }) {
@@ -60,6 +118,7 @@ function DriverLogin({ onLogin }) {
           Are you a transport manager?{" "}
           <a data-testid="driver-manager-login-link" href="/login" className="font-semibold text-white underline underline-offset-4">Sign in here</a>
         </p>
+        <InstallPrompt />
       </div>
     </div>
   );

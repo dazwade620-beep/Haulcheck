@@ -18,7 +18,16 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
-## Bug Fix (2026-06 fork — invited user saw inviter's records)
+## Enhancement (2026-06 fork — PWA install + login front-door)
+- Manager login page (`/login`) is the front door for logged-out visitors (root already redirects there);
+  added "Are you a driver? Open the driver app" link -> /driver, and reciprocal "Sign in here" (manager)
+  link on the driver screen so neither user type gets stuck.
+- Made the Driver App installable (Add to Home Screen): added public/manifest.json (start_url /driver,
+  standalone), public/sw.js (network-first passthrough), icons (192/512/maskable/apple-touch), meta tags
+  in index.html, and SW registration in index.js.
+- Added `InstallPrompt` on the driver login screen: native prompt on Android/Chrome (beforeinstallprompt),
+  manual step-by-step help on iOS Safari, hidden when already installed. Test on a real phone.
+
 - Root cause: `_authenticate` used `cookie_token or bearer`, so a stale Google `session_token` cookie
   (from the inviter's Google login on a shared/previously-used browser) overrode the invitee's fresh
   JWT bearer -> invitee/inviter saw the inviter's account. API data isolation itself was correct.

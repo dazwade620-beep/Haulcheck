@@ -24,6 +24,13 @@ const swallowResizeObserver = (e) => {
 };
 window.addEventListener("error", swallowResizeObserver);
 
+// Register the service worker so the driver app is installable to the home screen.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
