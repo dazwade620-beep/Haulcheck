@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Copy, Trash2, CheckCircle2, Clock, Ban, RotateCcw } from "lucide-react";
+import { UserPlus, Mail, Copy, Trash2, CheckCircle2, Clock, Ban, RotateCcw, ShieldCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const StatusPill = ({ inv }) => {
@@ -87,12 +87,44 @@ export default function Team() {
     } catch (err) { toast.error(err.response?.data?.detail || "Could not update member"); }
   };
 
+  const activeCount = invites.filter((i) => i.status === "accepted" && i.active !== false).length;
+  const pendingCount = invites.filter((i) => i.status === "pending").length;
+  const suspendedCount = invites.filter((i) => i.status === "accepted" && i.active === false).length;
+
   return (
     <div data-testid="team-page">
       <div className="mb-8">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Account</p>
         <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Team &amp; Users</h1>
         <p className="text-slate-500 text-sm mt-1">Invite other operators to set up their own isolated compliance account, pre-seeded with your links &amp; reminder template.</p>
+      </div>
+
+      {/* At-a-glance summary */}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6" data-testid="team-summary">
+        <div className="bg-white border border-slate-200 rounded-md p-4 animate-in-up" data-testid="summary-active">
+          <div className="flex items-center gap-2 text-emerald-700">
+            <Users size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Active</span>
+          </div>
+          <p className="font-heading text-2xl sm:text-3xl font-black text-slate-900 mt-1">{activeCount}</p>
+          <p className="text-xs text-slate-400 mt-0.5">on their own records</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-md p-4 animate-in-up" data-testid="summary-pending">
+          <div className="flex items-center gap-2 text-amber-700">
+            <Clock size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Pending</span>
+          </div>
+          <p className="font-heading text-2xl sm:text-3xl font-black text-slate-900 mt-1">{pendingCount}</p>
+          <p className="text-xs text-slate-400 mt-0.5">not yet accepted</p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-md p-4 animate-in-up" data-testid="summary-suspended">
+          <div className="flex items-center gap-2 text-red-700">
+            <Ban size={16} />
+            <span className="text-xs font-semibold uppercase tracking-wider">Suspended</span>
+          </div>
+          <p className="font-heading text-2xl sm:text-3xl font-black text-slate-900 mt-1">{suspendedCount}</p>
+          <p className="text-xs text-slate-400 mt-0.5">access revoked</p>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
@@ -135,6 +167,11 @@ export default function Team() {
                         ? `Activated ${inv.accepted_at ? new Date(inv.accepted_at).toLocaleDateString() : "—"} · last active ${relTime(inv.last_login_at)}`
                         : `Invited ${new Date(inv.created_at).toLocaleDateString()}`}
                     </p>
+                    {inv.status === "accepted" && (
+                      <span data-testid={`isolated-badge-${inv.id}`} className="inline-flex items-center gap-1 mt-1 text-[11px] font-medium text-slate-500">
+                        <ShieldCheck size={12} className="text-emerald-600" /> Own isolated records
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <StatusPill inv={inv} />
