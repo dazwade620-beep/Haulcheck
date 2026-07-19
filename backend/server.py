@@ -756,8 +756,20 @@ async def create_alert(user_id, type_, severity, title, message, vehicle_reg="",
 
 
 async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> Optional[User]:
+    # Prefer an explicit Bearer JWT: it is set by the current email/password/invite
+    # login and must take precedence over any stale Google session cookie left in
+    # the browser (otherwise an invited user on a shared browser sees the inviter's data).
+    if bearer:
+        try:
+            payload = jwt.decode(bearer, JWT_SECRET, algorithms=["HS256"])
+            if payload.get("role") != "driver":
+                user_doc = await db.users.find_one({"user_id": payload["user_id"]}, {"_id": 0})
+                if user_doc and user_doc.get("active", True):
+                    return User(**user_doc)
+        except jwt.PyJWTError:
+            pass
+    # Fall back to Google session token (cookie, or a session token sent as bearer)
     candidate = cookie_token or bearer
-    # Google session token
     if candidate:
         session = await db.user_sessions.find_one({"session_token": candidate}, {"_id": 0})
         if session:
@@ -771,17 +783,6 @@ async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> O
             user_doc = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
             if user_doc and user_doc.get("active", True):
                 return User(**user_doc)
-    # JWT (email/password)
-    if bearer:
-        try:
-            payload = jwt.decode(bearer, JWT_SECRET, algorithms=["HS256"])
-            if payload.get("role") == "driver":
-                return None
-            user_doc = await db.users.find_one({"user_id": payload["user_id"]}, {"_id": 0})
-            if user_doc and user_doc.get("active", True):
-                return User(**user_doc)
-        except jwt.PyJWTError:
-            pass
     return None
 
 
@@ -796,7 +797,7 @@ async def get_current_user(request: Request) -> User:
 
 
 @api_router.post("/auth/register")
-async def register(data: RegisterInput):
+async def register(data: RegisterInput, response: Response):
     email = data.email.lower().strip()
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -812,6 +813,7 @@ async def register(data: RegisterInput):
         "password_hash": pwd_context.hash(data.password),
         "created_at": now_iso(),
     })
+    response.delete_cookie("session_token", path="/")
     token = create_jwt(user_id)
     return {"token": token, "user": {"user_id": user_id, "email": email, "name": data.name, "role": data.role, "region": "UK"}}
 
@@ -923,7 +925,7 @@ async def verify_invitation(token: str):
 
 
 @api_router.post("/auth/accept-invite")
-async def accept_invite(data: AcceptInviteInput):
+async def accept_invite(data: AcceptInviteInput, response: Response):
     inv = await db.invitations.find_one({"token": data.token})
     if not inv or inv.get("status") != "pending":
         raise HTTPException(status_code=400, detail="Invitation not found or already used")
@@ -943,6 +945,7 @@ async def accept_invite(data: AcceptInviteInput):
     await _seed_template(user_id, inv["invited_by"], email)
     await db.invitations.update_one({"id": inv["id"]}, {"$set": {"status": "accepted", "accepted_at": now_iso(), "accepted_user_id": user_id}})
     fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    response.delete_cookie("session_token", path="/")
     return {"token": create_jwt(user_id), "user": {"user_id": user_id, "email": email, "name": data.name, "role": "manager", "region": fresh.get("region", "UK")}}
 
 
@@ -971,7 +974,7 @@ async def update_operator(data: OperatorInput, user: User = Depends(get_current_
 
 
 @api_router.post("/auth/login")
-async def login(data: LoginInput):
+async def login(data: LoginInput, response: Response):
     user_doc = await db.users.find_one({"email": data.email.lower().strip()})
     if not user_doc or not user_doc.get("password_hash"):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -980,6 +983,7 @@ async def login(data: LoginInput):
     if user_doc.get("active", True) is False:
         raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact the operator who invited you.")
     await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"last_login_at": now_iso()}})
+    response.delete_cookie("session_token", path="/")
     token = create_jwt(user_doc["user_id"])
     return {"token": token, "user": {"user_id": user_doc["user_id"], "email": user_doc["email"], "name": user_doc["name"], "role": user_doc.get("role", "manager")}}
 

@@ -18,6 +18,15 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Bug Fix (2026-06 fork — invited user saw inviter's records)
+- Root cause: `_authenticate` used `cookie_token or bearer`, so a stale Google `session_token` cookie
+  (from the inviter's Google login on a shared/previously-used browser) overrode the invitee's fresh
+  JWT bearer -> invitee/inviter saw the inviter's account. API data isolation itself was correct.
+- Fix: (1) `_authenticate` now prefers a valid Bearer JWT over the cookie; (2) `/auth/login`,
+  `/auth/register`, `/auth/accept-invite` clear the `session_token` cookie on their response;
+  (3) AuthCallback clears any stale localStorage bearer before Google login.
+- Verified via curl: bearer beats stale cookie, Google cookie-only still works, login clears cookie.
+
 ## Implemented (2026-06 fork — Forgot Password flow)
 - Login screen now has a "Forgot password?" link -> email-only reset form.
 - Backend: POST /api/auth/forgot-password (emails secure 1hr reset link via Resend, no email-existence leak),

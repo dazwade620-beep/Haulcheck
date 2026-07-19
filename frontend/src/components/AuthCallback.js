@@ -18,6 +18,9 @@ export default function AuthCallback() {
         return;
       }
       try {
+        // Clear any stale email/password bearer token so the Google session
+        // cookie is the only credential in play for this login.
+        localStorage.removeItem("token");
         await api.post("/auth/session", {}, { headers: { "X-Session-ID": sessionId } });
         window.location.href = "/dashboard";
       } catch (e) {
