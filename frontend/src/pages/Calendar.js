@@ -67,6 +67,7 @@ export default function Calendar() {
   const [evtMode, setEvtMode] = useState("event"); // event | tacho | holiday
   const [tachoForm, setTachoForm] = useState({ source_type: "Vehicle Unit", reference: "", last_download: "", frequency_days: 90 });
   const [holForm, setHolForm] = useState({ name: "", from_date: "", to_date: "", notes: "" });
+  const [defectForm, setDefectForm] = useState({ vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: "", odometer: "" });
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,6 +87,7 @@ export default function Calendar() {
     setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
     setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: format(selected, "yyyy-MM-dd"), frequency_days: 90 });
     setHolForm({ name: "", from_date: format(selected, "yyyy-MM-dd"), to_date: format(selected, "yyyy-MM-dd"), notes: "" });
+    setDefectForm({ vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: format(selected, "yyyy-MM-dd"), odometer: "" });
     setEvtMode("event");
     setEvtEditId(null);
     setEvtOpen(true);
@@ -115,6 +117,16 @@ export default function Calendar() {
         toast.success("Holiday added across the date range");
         setEvtOpen(false); loadEvents();
       } catch { toast.error("Could not save holiday"); }
+      return;
+    }
+    if (evtMode === "defect") {
+      if (!defectForm.vehicle_reg) { toast.error("Select a vehicle"); return; }
+      if (!defectForm.description) { toast.error("Enter a description"); return; }
+      try {
+        await api.post("/defects", { ...defectForm, defect_date: defectForm.defect_date || null, attachments: [] });
+        toast.success("Defect logged & added to calendar");
+        setEvtOpen(false); loadEvents();
+      } catch { toast.error("Could not log defect"); }
       return;
     }
     try {
@@ -305,6 +317,10 @@ export default function Calendar() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "holiday" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
                 <Palmtree size={13} /> Holiday
               </button>
+              <button type="button" data-testid="event-mode-defect" onClick={() => setEvtMode("defect")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "defect" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
+                <FileWarning size={13} /> Defect
+              </button>
             </div>
           )}
 
@@ -357,7 +373,7 @@ export default function Calendar() {
                 </div>
                 <p className="text-xs text-slate-400">Logs the download and schedules the next due date on the calendar & Tacho Portal. (Driver cards typically every 28 days, vehicle units every 90 days.)</p>
               </>
-            ) : (
+            ) : evtMode === "holiday" ? (
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Who is it for?</label>
@@ -383,8 +399,50 @@ export default function Calendar() {
                 </div>
                 <p className="text-xs text-slate-400">Adds the holiday to every day between the two dates automatically.</p>
               </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Vehicle *</label>
+                  <Select value={defectForm.vehicle_reg} onValueChange={(v) => setDefectForm({ ...defectForm, vehicle_reg: v })}>
+                    <SelectTrigger data-testid="cal-defect-vehicle"><SelectValue placeholder={vehicleRegs.length ? "Select vehicle / trailer" : "Add a vehicle first"} /></SelectTrigger>
+                    <SelectContent>{vehicleRegs.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Reported by</label>
+                    <Select value={defectForm.reported_by} onValueChange={(v) => setDefectForm({ ...defectForm, reported_by: v })}>
+                      <SelectTrigger data-testid="cal-defect-reporter"><SelectValue placeholder={driverNames.length ? "Select driver" : "Add a driver first"} /></SelectTrigger>
+                      <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Date</label>
+                    <Input data-testid="cal-defect-date" type="date" value={defectForm.defect_date} onChange={(e) => setDefectForm({ ...defectForm, defect_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Category</label>
+                    <Select value={defectForm.category} onValueChange={(v) => setDefectForm({ ...defectForm, category: v })}>
+                      <SelectTrigger data-testid="cal-defect-category"><SelectValue /></SelectTrigger>
+                      <SelectContent>{["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Severity</label>
+                    <Select value={defectForm.severity} onValueChange={(v) => setDefectForm({ ...defectForm, severity: v })}>
+                      <SelectTrigger data-testid="cal-defect-severity"><SelectValue /></SelectTrigger>
+                      <SelectContent>{[["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Description *</label>
+                  <Textarea data-testid="cal-defect-description" rows={3} value={defectForm.description} onChange={(e) => setDefectForm({ ...defectForm, description: e.target.value })} placeholder="Describe the defect…" />
+                </div>
+                <p className="text-xs text-slate-400">Logs the defect (with AI safety triage) and pins it to this date on the calendar.</p>
+              </>
             )}
-            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtMode === "holiday" ? "Add Holiday" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtMode === "holiday" ? "Add Holiday" : evtMode === "defect" ? "Log Defect" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

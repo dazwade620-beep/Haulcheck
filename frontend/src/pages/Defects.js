@@ -13,7 +13,7 @@ import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { ReportDownload } from "@/components/ReportDownload";
 
-const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", odometer: "", attachments: [] };
+const empty = { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", odometer: "", defect_date: "", attachments: [] };
 const SEVERITY = [["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]];
 const CATEGORY = ["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"];
 const STATUS = [["open", "Open"], ["monitoring", "Monitoring"], ["rectified", "Rectified"]];
@@ -28,6 +28,8 @@ export function DefectsPanel({ embedded = false }) {
   const [drivers, setDrivers] = useState([]);
   const [rectifyFor, setRectifyFor] = useState(null);
   const [rForm, setRForm] = useState({ rectified_date: new Date().toISOString().slice(0, 10), rectified_by: "", rectification_notes: "" });
+
+  const openNew = () => { setForm({ ...empty, defect_date: new Date().toISOString().slice(0, 10) }); setOpen(true); };
 
   const load = async () => {
     const [d, v, t, dr] = await Promise.all([api.get("/defects"), api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]);
@@ -64,10 +66,10 @@ export function DefectsPanel({ embedded = false }) {
 
   return (
     <div data-testid="defects-page">
-      {!embedded && <Header title="Defect Reports" subtitle="Driver defect reporting with AI safety triage" onAdd={() => { setForm(empty); setOpen(true); }} addTestId="add-defect-button" addLabel="Report Defect" />}
+      {!embedded && <Header title="Defect Reports" subtitle="Driver defect reporting with AI safety triage" onAdd={openNew} addTestId="add-defect-button" addLabel="Report Defect" />}
       <div className="flex justify-end gap-2 mb-4">
         <ReportDownload path="/reports/defects" filename="defects-report.pdf" testid="download-defects-pdf" evidence />
-        {embedded && <Button data-testid="add-defect-button" onClick={() => { setForm(empty); setOpen(true); }} className="bg-black hover:bg-slate-800 rounded-md gap-2">Report Defect</Button>}
+        {embedded && <Button data-testid="add-defect-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Report Defect</Button>}
       </div>
 
       {items.length === 0 ? <Empty icon={FileWarning} text="No defects reported. Drivers can log vehicle defects here." /> : (
@@ -100,7 +102,7 @@ export function DefectsPanel({ embedded = false }) {
                       </p>
                     </div>
                   )}
-                  <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{d.odometer && `${d.odometer} · `}{new Date(d.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-slate-400 mt-2">{d.reported_by && `Reported by ${d.reported_by} · `}{d.odometer && `${d.odometer} · `}{d.defect_date || new Date(d.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
                   <Select value={d.status} onValueChange={(v) => setStatus(d.id, v)}>
@@ -152,7 +154,10 @@ export function DefectsPanel({ embedded = false }) {
                 </Select>
               </Field>
             </div>
-            <Field label="Mileage / Odometer"><Input data-testid="defect-odometer" value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} placeholder="e.g. 128,400 mi" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Date reported"><Input data-testid="defect-date" type="date" value={form.defect_date} onChange={(e) => setForm({ ...form, defect_date: e.target.value })} /></Field>
+              <Field label="Mileage / Odometer"><Input data-testid="defect-odometer" value={form.odometer} onChange={(e) => setForm({ ...form, odometer: e.target.value })} placeholder="e.g. 128,400 mi" /></Field>
+            </div>
             <Field label="Description *"><Textarea data-testid="defect-description" required rows={4} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the defect in detail…" /></Field>
             <Field label="Photos"><FileUpload testid="defect-upload" attachments={form.attachments} onChange={(a) => setForm({ ...form, attachments: a })} /></Field>
             <DialogFooter><Button data-testid="save-defect-button" type="submit" disabled={busy} className="bg-black hover:bg-slate-800 gap-2"><Sparkles size={15} /> {busy ? "Analysing…" : "Log & Summarise"}</Button></DialogFooter>
