@@ -56,6 +56,10 @@ function DriverLogin({ onLogin }) {
             {busy ? <Loader2 size={18} className="animate-spin" /> : "Log in"}
           </button>
         </form>
+        <p className="text-center text-sm text-slate-500 mt-6">
+          Are you a transport manager?{" "}
+          <a data-testid="driver-manager-login-link" href="/login" className="font-semibold text-white underline underline-offset-4">Sign in here</a>
+        </p>
       </div>
     </div>
   );
