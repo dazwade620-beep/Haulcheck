@@ -416,6 +416,19 @@ def _image_to_pdf(data):
     return buf.getvalue()
 
 
+def concat_pdfs(pdf_list):
+    """Concatenate a list of PDF byte-strings into one PDF."""
+    writer = PdfWriter()
+    for pb in pdf_list:
+        if not pb:
+            continue
+        for page in PdfReader(io.BytesIO(pb)).pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 def merge_pack(summary_bytes, files):
     """files: list of (data_bytes, content_type, filename). Returns merged PDF bytes."""
     writer = PdfWriter()

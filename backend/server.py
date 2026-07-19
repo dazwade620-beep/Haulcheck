@@ -19,7 +19,7 @@ import base64
 import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
-from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf
+from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf, concat_pdfs
 import reports
 
 ROOT_DIR = Path(__file__).parent
@@ -2743,13 +2743,18 @@ async def pmi_history_report(pid: str, include_files: bool = Query(False), user:
     if not sched:
         raise HTTPException(status_code=404, detail="PMI schedule not found")
     recs = await db.pmi_records.find({"pmi_id": pid, "user_id": user.user_id}, {"_id": 0}).to_list(2000)
-    title, subtitle, sections = reports.pmi_history_report(sched, recs, user.region)
+    recs.sort(key=lambda r: r.get("inspection_date") or "", reverse=True)
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
-    pdf = await asyncio.to_thread(
-        build_report_pdf, title, subtitle,
-        [("Operator", operator.get("company_name", ""))], sections,
-        await _get_logo_bytes(user.user_id, operator), authority)
+    logo = await _get_logo_bytes(user.user_id, operator)
+    if recs:
+        sheets = [await asyncio.to_thread(build_pmi_sheet_pdf, operator, r, user.region, logo) for r in recs]
+        pdf = await asyncio.to_thread(concat_pdfs, sheets)
+    else:
+        authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+        title, subtitle, sections = reports.pmi_history_report(sched, recs, user.region)
+        pdf = await asyncio.to_thread(
+            build_report_pdf, title, subtitle,
+            [("Operator", operator.get("company_name", ""))], sections, logo, authority)
     if include_files:
         fids = [a.get("file_id") for r in recs for a in (r.get("attachments") or [])]
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
