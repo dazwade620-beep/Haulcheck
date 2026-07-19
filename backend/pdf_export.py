@@ -1,5 +1,6 @@
 """PDF export: compliance summary reports + merging uploaded files into one pack."""
 import io
+import base64
 from datetime import datetime, timezone
 
 from reportlab.lib.pagesizes import A4
@@ -353,10 +354,30 @@ def build_pmi_sheet_pdf(operator, record, region, logo_bytes=None):
 
     # Declaration / signature
     result = (record.get("result") or "pass").upper()
+
+    def _sig_cell(data_url):
+        if data_url and isinstance(data_url, str) and "base64," in data_url:
+            try:
+                raw = base64.b64decode(data_url.split("base64,", 1)[1])
+                im = Image.open(io.BytesIO(raw))
+                if im.mode not in ("RGB", "RGBA"):
+                    im = im.convert("RGBA")
+                lb = io.BytesIO()
+                im.save(lb, format="PNG")
+                lb.seek(0)
+                iw, ih = im.size
+                ratio = min((55 * mm) / iw, (14 * mm) / ih)
+                img = RLImage(lb, width=iw * ratio, height=ih * ratio)
+                img.hAlign = "LEFT"
+                return img
+            except Exception:
+                pass
+        return Paragraph("Signature: ______________________", ss["SheetCell"])
+
     sig_rows = [
         [Paragraph("<b>Inspection carried out by</b>", ss["SheetCell"]), Paragraph("<b>Defects rectified by</b>", ss["SheetCell"])],
         [Paragraph(f"Name: {record.get('inspector') or ''}", ss["SheetCell"]), Paragraph(f"Name: {record.get('rectified_by') or ''}", ss["SheetCell"])],
-        [Paragraph("Signature: ______________________", ss["SheetCell"]), Paragraph("Signature: ______________________", ss["SheetCell"])],
+        [_sig_cell(record.get("inspector_signature")), _sig_cell(record.get("rectifier_signature"))],
         [Paragraph("Position: ______________________", ss["SheetCell"]), Paragraph("Position: ______________________", ss["SheetCell"])],
         [Paragraph(f"Date: {record.get('inspection_date') or ''}", ss["SheetCell"]), Paragraph("Date: ______________________", ss["SheetCell"])],
     ]

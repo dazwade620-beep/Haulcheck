@@ -520,6 +520,8 @@ class PMICompleteInput(BaseModel):
     parking_brake_pct: str = ""
     checklist: List[dict] = []
     attachments: List[Attachment] = []
+    inspector_signature: str = ""
+    rectifier_signature: str = ""
 
 
 class PMIInterimInput(PMICompleteInput):
@@ -2645,6 +2647,8 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
         "parking_brake_pct": data.parking_brake_pct,
         "checklist": data.checklist,
         "attachments": [a.model_dump() for a in data.attachments],
+        "inspector_signature": data.inspector_signature,
+        "rectifier_signature": data.rectifier_signature,
         "inspection_type": "routine",
         "created_at": now_iso(),
     }
@@ -2683,6 +2687,8 @@ async def interim_pmi(data: PMIInterimInput, user: User = Depends(get_current_us
         "parking_brake_pct": data.parking_brake_pct,
         "checklist": data.checklist,
         "attachments": [a.model_dump() for a in data.attachments],
+        "inspector_signature": data.inspector_signature,
+        "rectifier_signature": data.rectifier_signature,
         "inspection_type": "interim",
         "created_at": now_iso(),
     }

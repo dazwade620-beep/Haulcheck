@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
+import { SignaturePad } from "@/components/SignaturePad";
 import { downloadPdf } from "@/lib/download";
 import { ReportDownload } from "@/components/ReportDownload";
 
@@ -28,7 +29,7 @@ const PMI_CHECKLIST = [
   { section: "C: Brake performance", items: ["Service Brake performance", "Emergency/Secondary brake performance", "Parking brake performance"] },
 ];
 const buildPmiChecklist = () => PMI_CHECKLIST.flatMap((s) => s.items.map((item) => ({ section: s.section, item, ok: true, note: "" })));
-const emptyComplete = () => ({ inspection_date: today(), result: "pass", inspector: "", rectified_by: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", checklist: buildPmiChecklist(), attachments: [] });
+const emptyComplete = () => ({ inspection_date: today(), result: "pass", inspector: "", rectified_by: "", notes: "", brake_test_type: "none", laden: false, service_brake_pct: "", secondary_brake_pct: "", parking_brake_pct: "", checklist: buildPmiChecklist(), attachments: [], inspector_signature: "", rectifier_signature: "" });
 
 export function InspectionsPanel({ embedded = false }) {
   const { user } = useAuth();
@@ -330,6 +331,13 @@ export function InspectionsPanel({ embedded = false }) {
               </div>
             </div>
             <Field label="Notes"><Textarea data-testid="complete-notes" rows={3} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} placeholder="Advisories, work carried out…" /></Field>
+            <div className="border-t border-slate-100 pt-3">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Signatures (Suitably Qualified Person)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <SignaturePad testid="inspector-signature" label="Inspection carried out by" value={cForm.inspector_signature} onChange={(v) => setCForm((f) => ({ ...f, inspector_signature: v }))} />
+                <SignaturePad testid="rectifier-signature" label="Defects rectified by" value={cForm.rectifier_signature} onChange={(v) => setCForm((f) => ({ ...f, rectifier_signature: v }))} />
+              </div>
+            </div>
             <Field label="Inspection report / sheet (save a copy)"><FileUpload testid="pmi-report-upload" attachments={cForm.attachments} onChange={(a) => setCForm({ ...cForm, attachments: a })} label="Upload the signed PMI inspection sheet (image or PDF)" /></Field>
             <DialogFooter><Button data-testid="submit-complete-button" type="submit" className="bg-black hover:bg-slate-800 gap-2"><CheckCircle2 size={15} /> {interim ? "Record Interim Inspection" : "Record & Reschedule"}</Button></DialogFooter>
           </form>
