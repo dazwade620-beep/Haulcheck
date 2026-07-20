@@ -265,6 +265,17 @@ def pmi_history_report(schedule, records, region):
     return f"PMI History — {schedule.get('vehicle_reg')}", f"{len(rows)} inspection(s) recorded", sections
 
 
+def _short(text, limit=220):
+    t = (text or "").strip().replace("\n", " ")
+    if len(t) <= limit:
+        return t or "—"
+    # prefer a clean cut at the first sentence end, else hard cut
+    dot = t.find(". ")
+    if 40 <= dot <= limit:
+        return t[:dot + 1]
+    return t[:limit].rsplit(" ", 1)[0] + "…"
+
+
 def tacho_report(analyses, region):
     rows = []
     for a in sorted(analyses, key=lambda x: (x.get("created_at") or ""), reverse=True):
@@ -272,7 +283,7 @@ def tacho_report(analyses, region):
             "cells": [
                 (a.get("created_at") or "")[:10], a.get("driver_name") or "—",
                 a.get("period") or "—", a.get("total_infringements", 0),
-                a.get("summary") or "—",
+                _short(a.get("summary")),
             ],
             "status": ("expired" if (a.get("total_infringements") or 0) > 0 else "valid"),
         })

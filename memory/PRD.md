@@ -18,7 +18,20 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
-## Feature (2026-06 fork — Weekly Walkaround Check, kept alongside Daily)
+## Improvements batch (2026-06 fork — audit/weekly/QR/refactor)
+- (a) Fleet Audit Report now includes a **Weekly Walkaround Checks** section + count (reports.weekly_walkaround_report,
+  audit_pack, _REPORT_BUILDERS 'weekly_walkaround').
+- (b) **Missed-day flags**: past weekdays with no check show red on the manager weekly-card and driver screen
+  (WeeklyWalkaround.js isMissed/missedCount; DriverApp.js driver-weekly-missed).
+- (c) Daily expiry **digest email** confirmed already live (APScheduler daily 07:00 UTC) — just needs recipients in Reminders.
+- (d) **QR driver onboarding**: Drivers page shows a QR (qrcode.react) encoding /driver?code=CODE; the driver app
+  auto-logs-in from the ?code= param (DriverLogin useEffect).
+- (e) **Refactor**: extracted the pure .ddd tacho decoder + EU561 engine into `tacho_engine.py`
+  (parse_ddd, parse_ddd_last_timestamp, detect_ddd_infringements, _DDD_EXTS). server.py 4483 -> 4292 lines, no regression.
+- BUG FIXED (HIGH, pre-existing): audit/tacho PDF 500'd when a tacho summary was long — reports.tacho_report now
+  truncates the summary cell (_short) to the first sentence so reportlab can paginate. Verified 200 with a 4,949-char summary.
+- Tested: iteration_29.json (refactor regression + features) all pass after the PDF fix.
+
 - New WEEKLY vehicle walkaround sheet (one page = one vehicle, Mon–Sun grid, 24 items ✓/✗ per day),
   with Mileage Start/Finish/Total (auto), Fault Reporting/Action Taken box, ONE driver signature per week.
   PDF header uses the operator company name from Settings. Daily check is unchanged and still present.
