@@ -30,6 +30,19 @@ const daysDone = (rec) => DAYS.filter(([k]) => (rec.days?.[k]?.checklist || []).
 const defectCount = (rec) =>
   DAYS.reduce((n, [k]) => n + (rec.days?.[k]?.checklist || []).filter((c) => !c.ok).length, 0);
 
+const dayDate = (weekStart, idx) => {
+  const d = new Date(`${weekStart}T00:00:00`);
+  d.setDate(d.getDate() + idx);
+  return d;
+};
+// a weekday counts as "missed" if its date is already in the past and it has no check recorded
+const isMissed = (rec, idx, key) => {
+  if ((rec.days?.[key]?.checklist || []).length > 0) return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return dayDate(rec.week_start, idx) < today;
+};
+const missedCount = (rec) => DAYS.filter(([k], i) => isMissed(rec, i, k)).length;
+
 // cell value for an item on a day: true=ok, false=defect, null=not recorded
 const cellFor = (rec, dayKey, itemName) => {
   const cl = rec.days?.[dayKey]?.checklist || [];
@@ -96,15 +109,22 @@ export function WeeklyWalkaroundPanel() {
                   <button data-testid="delete-weekly-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
                 </div>
                 <div className="flex items-center gap-1 mt-3">
-                  {DAYS.map(([k, lbl]) => {
+                  {DAYS.map(([k, lbl], i) => {
                     const filled = (a.days?.[k]?.checklist || []).length > 0;
                     const hasDefect = (a.days?.[k]?.checklist || []).some((c) => !c.ok);
+                    const missed = isMissed(a, i, k);
+                    const cls = filled
+                      ? (hasDefect ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700")
+                      : missed ? "bg-red-100 text-red-600" : "bg-slate-100 text-slate-400";
                     return (
-                      <div key={k} className={`flex-1 text-center text-[10px] font-bold py-1.5 rounded ${filled ? (hasDefect ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700") : "bg-slate-100 text-slate-400"}`}>{lbl}</div>
+                      <div key={k} data-testid={`weekly-card-day-${k}`} className={`flex-1 text-center text-[10px] font-bold py-1.5 rounded ${cls}`}>{lbl}</div>
                     );
                   })}
                 </div>
-                <p className="text-xs text-slate-400 mt-2">{done}/7 days recorded · {total(a.mileage_start, a.mileage_finish)} mi total</p>
+                <p className="text-xs text-slate-400 mt-2">
+                  {done}/7 days recorded · {total(a.mileage_start, a.mileage_finish)} mi total
+                  {missedCount(a) > 0 && <span data-testid="weekly-missed-flag" className="text-red-600 font-semibold"> · {missedCount(a)} missed day(s)</span>}
+                </p>
                 <div className="flex gap-2 mt-4">
                   <Button data-testid="edit-weekly-button" onClick={() => setEdit(a)} variant="outline" size="sm" className="rounded-md flex-1">Open / Edit</Button>
                   <Button data-testid="download-weekly-button" onClick={() => downloadPdf(`/weekly-walkarounds/${a.id}/sheet`, `weekly-${(a.vehicle_reg || "veh").replace(/ /g, "_")}-${a.week_start}.pdf`)} variant="outline" size="sm" className="rounded-md gap-1.5"><FileDown size={14} /> PDF</Button>

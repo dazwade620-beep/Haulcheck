@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText, Smartphone } from "lucide-react";
+import { Trash2, Pencil, Users, Clock, GraduationCap, FileDown, FileText, Smartphone, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { downloadPdf } from "@/lib/download";
+import { QRCodeSVG } from "qrcode.react";
 
 const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", notes: "" };
 const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
@@ -28,6 +29,7 @@ export default function Drivers() {
   const [docForm, setDocForm] = useState(emptyDoc);
   const [cpcFor, setCpcFor] = useState(null);
   const [cpcForm, setCpcForm] = useState({ course_name: "", hours: "", completed_date: new Date().toISOString().slice(0, 10), provider: "" });
+  const [qrFor, setQrFor] = useState(null);
 
   const load = async () => {
     const [d, t, docs, v] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents"), api.get("/vehicles")]);
@@ -161,7 +163,10 @@ export default function Drivers() {
                   {d.access_code ? (
                     <div className="mt-1.5 flex items-center justify-between">
                       <span data-testid="driver-code-value" className="font-mono font-black text-lg tracking-[0.25em] text-slate-900">{d.access_code}</span>
-                      {d.assigned_vehicle_reg && <span className="text-xs text-slate-400">→ {d.assigned_vehicle_reg}</span>}
+                      <div className="flex items-center gap-2">
+                        {d.assigned_vehicle_reg && <span className="text-xs text-slate-400">→ {d.assigned_vehicle_reg}</span>}
+                        <button data-testid="show-qr-button" onClick={() => setQrFor(d)} title="Show QR to install & auto-login" className="text-slate-400 hover:text-slate-900"><QrCode size={17} /></button>
+                      </div>
                     </div>
                   ) : <p className="text-[11px] text-slate-400 mt-1">Generate a code so this driver can log in at <span className="font-semibold">/driver</span></p>}
                 </div>
@@ -275,6 +280,25 @@ export default function Drivers() {
             <Field label="Provider"><Input data-testid="cpc-provider" value={cpcForm.provider} onChange={(e) => setCpcForm({ ...cpcForm, provider: e.target.value })} placeholder="Training centre" /></Field>
             <DialogFooter><Button data-testid="save-cpc-button" onClick={saveCpc} disabled={!cpcForm.course_name || !cpcForm.hours} className="bg-black hover:bg-slate-800">Log Training</Button></DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!qrFor} onOpenChange={(o) => !o && setQrFor(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="font-heading">Driver app QR — {qrFor?.name}</DialogTitle>
+            <DialogDescription>Ask the driver to scan this with their phone camera. It opens the app and fills in their code automatically.</DialogDescription>
+          </DialogHeader>
+          {qrFor && (
+            <div className="flex flex-col items-center gap-4 py-2" data-testid="driver-qr">
+              <div className="bg-white p-4 rounded-lg border border-slate-200">
+                <QRCodeSVG value={`${window.location.origin}/driver?code=${qrFor.access_code}`} size={200} level="M" />
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Access code</p>
+                <p className="font-mono font-black text-xl tracking-[0.25em] text-slate-900">{qrFor.access_code}</p>
+              </div>
+              <p className="text-[11px] text-slate-400 text-center">On the phone, after it opens they can tap <span className="font-semibold">Add to Home Screen</span> to install HaulCheck.</p>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

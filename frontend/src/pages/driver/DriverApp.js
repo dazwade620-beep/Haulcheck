@@ -79,19 +79,24 @@ function InstallPrompt() {
 function DriverLogin({ onLogin }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!code.trim()) return;
+  const doLogin = useCallback(async (raw) => {
+    const c = (raw || "").trim().toUpperCase();
+    if (!c) return;
     setBusy(true);
     try {
-      const { data } = await driverApi.post("/driver/login", { code: code.trim().toUpperCase() });
+      const { data } = await driverApi.post("/driver/login", { code: c });
       localStorage.setItem("driver_token", data.token);
       onLogin(data.driver);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Invalid access code");
     }
     setBusy(false);
-  };
+  }, [onLogin]);
+  const submit = (e) => { e.preventDefault(); doLogin(code); };
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get("code");
+    if (c) { setCode(c.toUpperCase()); doLogin(c); }
+  }, [doLogin]);
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center px-6 text-white" data-testid="driver-login">
       <div className="w-full max-w-sm">
@@ -274,6 +279,12 @@ function DriverWeeklyWalkaround({ driver, back }) {
   const tKey = todayKey();
   const todayDone = (sheet?.days?.[tKey]?.checklist || []).length > 0;
   const needSignature = sheet && !sheet.driver_signature;
+  const missedDays = !sheet?.week_start ? 0 : DAY_LABELS.filter(([k], i) => {
+    if ((sheet?.days?.[k]?.checklist || []).length > 0) return false;
+    const d = new Date(`${sheet.week_start}T00:00:00`); d.setDate(d.getDate() + i);
+    const t = new Date(); t.setHours(0, 0, 0, 0);
+    return d < t;
+  }).length;
 
   const submit = async () => {
     if (needSignature && !signature) { toast.error("Please add your signature for the week"); return; }
@@ -344,14 +355,24 @@ function DriverWeeklyWalkaround({ driver, back }) {
           <span className="text-xs text-slate-400">w/c {sheet?.week_start}</span>
         </div>
         <div className="flex items-center gap-1.5 mt-4">
-          {DAY_LABELS.map(([k, lbl]) => {
+          {DAY_LABELS.map(([k, lbl], i) => {
             const filled = (sheet?.days?.[k]?.checklist || []).length > 0;
             const hasDefect = (sheet?.days?.[k]?.checklist || []).some((c) => !c.ok);
+            let missed = false;
+            if (!filled && sheet?.week_start) {
+              const d = new Date(`${sheet.week_start}T00:00:00`); d.setDate(d.getDate() + i);
+              const t = new Date(); t.setHours(0, 0, 0, 0);
+              missed = d < t;
+            }
+            const cls = filled
+              ? (hasDefect ? "bg-amber-500/25 text-amber-200" : "bg-emerald-500/25 text-emerald-200")
+              : missed ? "bg-red-500/25 text-red-300" : "bg-slate-800 text-slate-500";
             return (
-              <div key={k} data-testid={`weekly-day-${k}`} className={`flex-1 text-center text-[11px] font-bold py-2 rounded-lg ${k === tKey ? "ring-2 ring-white/40 " : ""}${filled ? (hasDefect ? "bg-amber-500/25 text-amber-200" : "bg-emerald-500/25 text-emerald-200") : "bg-slate-800 text-slate-500"}`}>{lbl}</div>
+              <div key={k} data-testid={`weekly-day-${k}`} className={`flex-1 text-center text-[11px] font-bold py-2 rounded-lg ${k === tKey ? "ring-2 ring-white/40 " : ""}${cls}`}>{lbl}</div>
             );
           })}
         </div>
+        {missedDays > 0 && <p data-testid="driver-weekly-missed" className="text-xs text-red-300 mt-3">{missedDays} day(s) this week were missed — catch up if the vehicle was used.</p>}
       </div>
       <button
         data-testid="driver-start-weekly-today"

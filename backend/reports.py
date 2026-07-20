@@ -173,6 +173,41 @@ def walkaround_report(checks, region):
     return "Daily Walkaround Checks", f"{len(rows)} check(s)", sections
 
 
+_WK_DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _weekly_stats(w):
+    days = w.get("days") or {}
+    recorded = sum(1 for k in _WK_DAY_KEYS if (days.get(k) or {}).get("checklist"))
+    defects = sum(1 for k in _WK_DAY_KEYS for c in ((days.get(k) or {}).get("checklist") or []) if not c.get("ok", True))
+    return recorded, defects
+
+
+def weekly_walkaround_report(checks, region):
+    rows = []
+    for w in sorted(checks, key=lambda x: (x.get("week_start") or ""), reverse=True):
+        recorded, defects = _weekly_stats(w)
+        ms, mf = w.get("mileage_start"), w.get("mileage_finish")
+        try:
+            total = str(int(str(mf).replace(",", "")) - int(str(ms).replace(",", "")))
+        except Exception:
+            total = "—"
+        rows.append({
+            "cells": [
+                w.get("week_start") or "—", w.get("vehicle_reg") or "—",
+                w.get("driver_name") or "—", f"{recorded}/7",
+                (f"{defects} defect(s)" if defects else "Nil defect"), total,
+            ],
+            "status": ("due_soon" if defects else "valid"),
+        })
+    sections = [{
+        "heading": "Weekly Walkaround Checks",
+        "columns": ["Week commencing", "Vehicle", "Driver", "Days recorded", "Defects", "Total mi"],
+        "rows": rows,
+    }]
+    return "Weekly Walkaround Checks", f"{len(rows)} weekly sheet(s)", sections
+
+
 def pmi_report(schedules, records, region):
     sched_rows = []
     for p in sorted(schedules, key=lambda x: (x.get("vehicle_reg") or "")):
@@ -264,6 +299,7 @@ def audit_pack(data, region):
             ("Service records", counts.get("service", 0)),
             ("Wheel audits", counts.get("wheel", 0)),
             ("Daily checks", counts.get("walkaround", 0)),
+            ("Weekly checks", counts.get("weekly_walkaround", 0)),
             ("Tacho analyses", counts.get("tacho", 0)),
         ],
     }]
@@ -275,6 +311,7 @@ def audit_pack(data, region):
     sections += service_report(data.get("service", []), region)[2]
     sections += wheel_report(data.get("wheel", []), region)[2]
     sections += walkaround_report(data.get("walkaround", []), region)[2]
+    sections += weekly_walkaround_report(data.get("weekly_walkaround", []), region)[2]
     sections += tacho_report(data.get("tacho", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
     return "Fleet Audit Report", f"Full operator compliance snapshot · {gen}", sections
