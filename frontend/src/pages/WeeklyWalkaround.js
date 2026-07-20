@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, CalendarRange, FileDown, Check, X, Minus } from "lucide-react";
 import { toast } from "sonner";
@@ -118,7 +118,9 @@ export function WeeklyWalkaroundPanel() {
       {/* New sheet dialog */}
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>New weekly walkaround sheet</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>New weekly walkaround sheet</DialogTitle>
+            <DialogDescription>Create a Mon–Sun check sheet for one vehicle. It snaps to the Monday of the chosen week.</DialogDescription>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Vehicle *">
               <Select value={nf.vehicle_reg} onValueChange={(v) => setNf({ ...nf, vehicle_reg: v })}>
@@ -184,7 +186,9 @@ function WeeklyEditor({ record, onClose, onSaved }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="weekly-editor">
-        <DialogHeader><DialogTitle>Weekly sheet — {rec.vehicle_reg} · w/c {rec.week_start}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Weekly sheet — {rec.vehicle_reg} · w/c {rec.week_start}</DialogTitle>
+          <DialogDescription>Tap each cell to record ✓ or ✗ per day, add mileage, fault notes and the driver signature.</DialogDescription>
+        </DialogHeader>
         <div className="grid grid-cols-3 gap-4">
           <Field label="Driver"><Input data-testid="weekly-edit-driver" value={rec.driver_name || ""} onChange={(e) => setRec({ ...rec, driver_name: e.target.value })} /></Field>
           <Field label="Mileage start"><Input data-testid="weekly-edit-mstart" value={rec.mileage_start || ""} onChange={(e) => setRec({ ...rec, mileage_start: e.target.value })} /></Field>

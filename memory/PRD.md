@@ -18,7 +18,18 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
-## Enhancement (2026-06 fork — PWA install + login front-door)
+## Feature (2026-06 fork — Weekly Walkaround Check, kept alongside Daily)
+- New WEEKLY vehicle walkaround sheet (one page = one vehicle, Mon–Sun grid, 24 items ✓/✗ per day),
+  with Mileage Start/Finish/Total (auto), Fault Reporting/Action Taken box, ONE driver signature per week.
+  PDF header uses the operator company name from Settings. Daily check is unchanged and still present.
+- Driver flow: "running weekly sheet" — driver taps "Do today's check" each day; it fills that day's column
+  on the same (vehicle, week) sheet; signature captured once; defects raise a manager alert.
+- Backend collection `weekly_walkarounds` keyed by (user_id, vehicle_reg, week_start=Monday). Endpoints:
+  GET/POST/PUT/DELETE /api/weekly-walkarounds, GET /api/weekly-walkarounds/{id}/sheet,
+  GET /api/driver/weekly-walkaround, POST /api/driver/weekly-walkaround/day. PDF: build_weekly_walkaround_pdf.
+- UI: Maintenance "Weekly Checks" tab (WeeklyWalkaround.js grid editor) + driver "Weekly Walkaround" tile.
+- Verified: 15/15 backend pytest + full manager & driver E2E (iteration_28.json). 100%.
+
 - Manager login page (`/login`) is the front door for logged-out visitors (root already redirects there);
   added "Are you a driver? Open the driver app" link -> /driver, and reciprocal "Sign in here" (manager)
   link on the driver screen so neither user type gets stuck.
