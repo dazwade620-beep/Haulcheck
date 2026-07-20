@@ -399,6 +399,178 @@ def build_pmi_sheet_pdf(operator, record, region, logo_bytes=None):
     return buf.getvalue()
 
 
+WALKAROUND_SECTIONS = [
+    ("INTERNAL CHECKS", ["Mirrors and glass", "Windscreen wipers and washers", "Front view", "Warning lamps",
+                         "Steering", "Horn", "Brakes and air build-up", "Height marker", "Seatbelts"]),
+    ("EXTERNAL CHECKS", ["Lights and indicators", "Fuel/oil leaks", "Battery security and condition",
+                         "Diesel exhaust fluid (AdBlue)", "Excessive engine exhaust smoke", "Security of body/wings",
+                         "Spray suppression", "Tyres and wheel fixing", "Brake line", "Electrical connections",
+                         "Coupling security", "Security of load", "Number plate", "Reflectors and lights", "Markers"]),
+]
+_WEEK_DAYS = [("mon", "Mon"), ("tue", "Tue"), ("wed", "Wed"), ("thu", "Thu"), ("fri", "Fri"), ("sat", "Sat"), ("sun", "Sun")]
+
+
+def build_weekly_walkaround_pdf(operator, record, region, logo_bytes=None):
+    """One-page weekly driver walkaround sheet — Mon–Sun grid of ✓/✗ per check item."""
+    is_ie = region == "IE"
+    authority = "RSA" if is_ie else "DVSA"
+    doc_title = "WEEKLY VEHICLE WALKAROUND CHECK"
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=14 * mm, bottomMargin=14 * mm,
+                            leftMargin=12 * mm, rightMargin=12 * mm, title=doc_title)
+    ss = _styles()
+    if "WkLabel" not in ss:
+        ss.add(ParagraphStyle("WkLabel", fontName="Helvetica-Bold", fontSize=7.5, textColor=SLATE, leading=9))
+        ss.add(ParagraphStyle("WkVal", fontName="Helvetica", fontSize=9, textColor=DARK, leading=11))
+        ss.add(ParagraphStyle("WkItem", fontName="Helvetica", fontSize=7.8, textColor=DARK, leading=9))
+        ss.add(ParagraphStyle("WkHead", fontName="Helvetica-Bold", fontSize=7.5, textColor=colors.white, leading=9, alignment=1))
+        ss.add(ParagraphStyle("WkSection", fontName="Helvetica-Bold", fontSize=8, textColor=colors.white, leading=10))
+        ss.add(ParagraphStyle("WkNote", fontName="Helvetica-Oblique", fontSize=7.5, textColor=SLATE, leading=10))
+        ss.add(ParagraphStyle("WkCell", fontName="Helvetica", fontSize=8, textColor=DARK, leading=10))
+
+    # Build per-day item→ok lookup
+    days = record.get("days") or {}
+    day_lookup = {}
+    for dk, _ in _WEEK_DAYS:
+        d = days.get(dk) or {}
+        m = {}
+        for c in (d.get("checklist") or []):
+            m[c.get("item")] = c.get("ok", True)
+        day_lookup[dk] = {"map": m, "submitted": bool(d.get("checklist")), "date": d.get("date")}
+
+    story = []
+    if logo_bytes:
+        lf = _logo_flowable(logo_bytes, max_w_mm=40, max_h_mm=18)
+        if lf:
+            story.append(lf)
+            story.append(Spacer(1, 4))
+    company = (operator or {}).get("company_name") or "Fleet Operator"
+    story.append(Paragraph(f"HAULCHECK · {authority} COMPLIANCE", ss["Brand"]))
+    story.append(Paragraph(company.upper(), ss["BigTitle"]))
+    story.append(Paragraph(doc_title, ss["Sub"]))
+    story.append(Spacer(1, 6))
+
+    # Mileage total
+    def _num(v):
+        try:
+            return int(str(v).replace(",", "").strip())
+        except Exception:
+            return None
+    ms, mf = _num(record.get("mileage_start")), _num(record.get("mileage_finish"))
+    total = str(mf - ms) if (ms is not None and mf is not None and mf >= ms) else "—"
+
+    def kv(label, value):
+        return [Paragraph(label, ss["WkLabel"]), Paragraph(str(value or "—"), ss["WkVal"])]
+
+    header_rows = [
+        kv("Vehicle registration", record.get("vehicle_reg")) + kv("Week commencing", record.get("week_start")),
+        kv("Driver name", record.get("driver_name")) + kv("Mileage start", record.get("mileage_start")),
+        kv("Mileage finish", record.get("mileage_finish")) + kv("Total", total),
+    ]
+    ht = Table(header_rows, colWidths=[34 * mm, 55 * mm, 32 * mm, 65 * mm])
+    ht.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.6, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5), ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(ht)
+    story.append(Spacer(1, 5))
+    story.append(Paragraph("✓ or ✗ should be recorded for every item each day. If ✗, add details in Fault Reporting / Action Taken below.", ss["WkNote"]))
+    story.append(Spacer(1, 5))
+
+    head = [Paragraph("Check item", ss["WkHead"])] + [Paragraph(lbl, ss["WkHead"]) for _, lbl in _WEEK_DAYS]
+    data = [head]
+    section_rows = []
+    for sec_name, items in WALKAROUND_SECTIONS:
+        section_rows.append(len(data))
+        data.append([Paragraph(sec_name, ss["WkSection"])] + ["" for _ in _WEEK_DAYS])
+        for item in items:
+            row = [Paragraph(item, ss["WkItem"])]
+            for dk, _ in _WEEK_DAYS:
+                info = day_lookup[dk]
+                if not info["submitted"] or item not in info["map"]:
+                    row.append("")
+                elif info["map"][item]:
+                    row.append(Paragraph(f'<font name="{_SYMBOL_FONT}" size="10" color="#16a34a">\u2713</font>', ss["WkCell"]))
+                else:
+                    row.append(Paragraph(f'<font name="{_SYMBOL_FONT}" size="10" color="#dc2626">\u2717</font>', ss["WkCell"]))
+            data.append(row)
+
+    day_w = 17 * mm
+    ct = Table(data, colWidths=[66 * mm] + [day_w] * 7, repeatRows=1)
+    style = [
+        ("BACKGROUND", (0, 0), (-1, 0), DARK),
+        ("BOX", (0, 0), (-1, -1), 0.5, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.6), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]
+    for r in section_rows:
+        style.append(("BACKGROUND", (0, r), (-1, r), colors.HexColor("#334155")))
+        style.append(("SPAN", (0, r), (-1, r)))
+    ct.setStyle(TableStyle(style))
+    story.append(ct)
+    story.append(Spacer(1, 8))
+
+    # Fault reporting / action taken
+    story.append(Paragraph("Fault Reporting / Action Taken", ss["Heading"]))
+    defect_lines = []
+    for dk, lbl in _WEEK_DAYS:
+        d = days.get(dk) or {}
+        for c in (d.get("checklist") or []):
+            if not c.get("ok", True):
+                note = c.get("note") or ""
+                defect_lines.append(f"<b>{lbl}</b> — {c.get('item')}{(': ' + note) if note else ''}")
+    body = record.get("fault_reporting") or ""
+    if defect_lines:
+        story.append(Paragraph("<br/>".join(defect_lines), ss["WkCell"]))
+        story.append(Spacer(1, 3))
+    if body:
+        story.append(Paragraph(body.replace("\n", "<br/>"), ss["WkCell"]))
+    if not defect_lines and not body:
+        story.append(Paragraph("No defects reported — vehicle serviceable all week.", ss["WkVal"]))
+    story.append(Spacer(1, 12))
+
+    # Driver signature (once for the week)
+    def _sig_cell(data_url):
+        if data_url and isinstance(data_url, str) and "base64," in data_url:
+            try:
+                raw = base64.b64decode(data_url.split("base64,", 1)[1])
+                im = Image.open(io.BytesIO(raw))
+                if im.mode not in ("RGB", "RGBA"):
+                    im = im.convert("RGBA")
+                lb = io.BytesIO()
+                im.save(lb, format="PNG")
+                lb.seek(0)
+                iw, ih = im.size
+                ratio = min((60 * mm) / iw, (16 * mm) / ih)
+                img = RLImage(lb, width=iw * ratio, height=ih * ratio)
+                img.hAlign = "LEFT"
+                return img
+            except Exception:
+                pass
+        return Paragraph("Signature: ______________________", ss["WkCell"])
+
+    sig_rows = [
+        [Paragraph(f"Driver name: {record.get('driver_name') or ''}", ss["WkCell"]),
+         Paragraph(f"Week commencing: {record.get('week_start') or ''}", ss["WkCell"])],
+        [_sig_cell(record.get("driver_signature")), Paragraph("Driver signature", ss["WkNote"])],
+    ]
+    stt = Table(sig_rows, colWidths=[89 * mm, 89 * mm])
+    stt.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.5, LINE), ("INNERGRID", (0, 0), (-1, -1), 0.3, LINE),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(stt)
+    doc.build(story)
+    return buf.getvalue()
+
+
+
 def _divider_pdf(title):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40 * mm, leftMargin=16 * mm, rightMargin=16 * mm)

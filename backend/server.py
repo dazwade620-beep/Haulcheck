@@ -19,7 +19,7 @@ import base64
 import tempfile
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
-from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf, concat_pdfs
+from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf, concat_pdfs, build_weekly_walkaround_pdf
 import reports
 
 ROOT_DIR = Path(__file__).parent
@@ -664,6 +664,54 @@ class WalkaroundInput(BaseModel):
     defects_noted: str = ""
     checklist: List[dict] = []
     attachments: List[Attachment] = []
+
+
+WEEK_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def week_start_of(d: Optional[str] = None) -> str:
+    """Monday (ISO date) of the week containing d (or today if None)."""
+    dt = datetime.fromisoformat(d).date() if d else datetime.now(timezone.utc).date()
+    return (dt - timedelta(days=dt.weekday())).isoformat()
+
+
+class WeeklyWalkaround(BaseModel):
+    id: str = Field(default_factory=lambda: f"wwc_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str = ""
+    driver_name: str = ""
+    week_start: str = ""
+    mileage_start: str = ""
+    mileage_finish: str = ""
+    days: dict = {}  # { "mon": {date, result, checklist:[...], submitted_at}, ... }
+    fault_reporting: str = ""
+    driver_signature: str = ""
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class WeeklyCreateInput(BaseModel):
+    vehicle_reg: str
+    driver_name: str = ""
+    week_start: Optional[str] = None
+    mileage_start: str = ""
+    mileage_finish: str = ""
+
+
+class WeeklyUpdateInput(BaseModel):
+    driver_name: Optional[str] = None
+    mileage_start: Optional[str] = None
+    mileage_finish: Optional[str] = None
+    days: Optional[dict] = None
+    fault_reporting: Optional[str] = None
+    driver_signature: Optional[str] = None
+
+
+class WeeklyDayInput(BaseModel):
+    vehicle_reg: str = ""
+    checklist: List[dict] = []
+    mileage: str = ""
+    signature: str = ""
 
 
 class TestHistory(BaseModel):
@@ -3276,6 +3324,107 @@ async def rectify_walkaround(wid: str, data: WalkaroundRectifyInput, user: User 
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Walkaround check not found")
     return {"ok": True}
+
+
+# ---------- Weekly Walkaround Checks ----------
+async def _get_or_create_weekly(user_id: str, vehicle_reg: str, week_start: str, driver_name: str = "") -> dict:
+    existing = await db.weekly_walkarounds.find_one(
+        {"user_id": user_id, "vehicle_reg": vehicle_reg, "week_start": week_start}, {"_id": 0})
+    if existing:
+        return existing
+    w = WeeklyWalkaround(user_id=user_id, vehicle_reg=vehicle_reg, week_start=week_start, driver_name=driver_name)
+    await db.weekly_walkarounds.insert_one(w.model_dump())
+    return w.model_dump()
+
+
+@api_router.get("/weekly-walkarounds")
+async def list_weekly_walkarounds(user: User = Depends(get_current_user)):
+    return await db.weekly_walkarounds.find({"user_id": user.user_id}, {"_id": 0}).sort("week_start", -1).to_list(2000)
+
+
+@api_router.post("/weekly-walkarounds")
+async def create_weekly_walkaround(data: WeeklyCreateInput, user: User = Depends(get_current_user)):
+    ws = week_start_of(data.week_start)
+    rec = await _get_or_create_weekly(user.user_id, data.vehicle_reg, ws, data.driver_name)
+    patch = {}
+    if data.driver_name:
+        patch["driver_name"] = data.driver_name
+    if data.mileage_start:
+        patch["mileage_start"] = data.mileage_start
+    if data.mileage_finish:
+        patch["mileage_finish"] = data.mileage_finish
+    if patch:
+        patch["updated_at"] = now_iso()
+        await db.weekly_walkarounds.update_one({"id": rec["id"], "user_id": user.user_id}, {"$set": patch})
+        rec.update(patch)
+    return rec
+
+
+@api_router.put("/weekly-walkarounds/{wid}")
+async def update_weekly_walkaround(wid: str, data: WeeklyUpdateInput, user: User = Depends(get_current_user)):
+    patch = {k: v for k, v in data.model_dump().items() if v is not None}
+    patch["updated_at"] = now_iso()
+    res = await db.weekly_walkarounds.update_one({"id": wid, "user_id": user.user_id}, {"$set": patch})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Weekly walkaround not found")
+    return {"ok": True}
+
+
+@api_router.delete("/weekly-walkarounds/{wid}")
+async def delete_weekly_walkaround(wid: str, user: User = Depends(get_current_user)):
+    await db.weekly_walkarounds.delete_one({"id": wid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/weekly-walkarounds/{wid}/sheet")
+async def weekly_walkaround_sheet(wid: str, user: User = Depends(get_current_user)):
+    rec = await db.weekly_walkarounds.find_one({"id": wid, "user_id": user.user_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Weekly walkaround not found")
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    pdf = await asyncio.to_thread(
+        build_weekly_walkaround_pdf, operator, rec, user.region,
+        await _get_logo_bytes(user.user_id, operator))
+    fname = f"weekly-walkaround-{(rec.get('vehicle_reg') or 'vehicle').replace(' ', '_')}-{rec.get('week_start')}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.get("/driver/weekly-walkaround")
+async def driver_get_weekly(driver: dict = Depends(get_current_driver)):
+    reg = driver.get("assigned_vehicle_reg", "")
+    ws = week_start_of(None)
+    return await _get_or_create_weekly(driver["user_id"], reg, ws, driver.get("name", ""))
+
+
+@api_router.post("/driver/weekly-walkaround/day")
+async def driver_submit_weekly_day(data: WeeklyDayInput, driver: dict = Depends(get_current_driver)):
+    reg = data.vehicle_reg or driver.get("assigned_vehicle_reg", "")
+    today = datetime.now(timezone.utc).date()
+    ws = week_start_of(None)
+    dk = WEEK_DAYS[today.weekday()]
+    rec = await _get_or_create_weekly(driver["user_id"], reg, ws, driver.get("name", ""))
+    days = rec.get("days") or {}
+    failed = [c.get("item") for c in data.checklist if not c.get("ok", True)]
+    days[dk] = {
+        "date": today.isoformat(),
+        "checklist": data.checklist,
+        "result": "defects_found" if failed else "nil_defect",
+        "submitted_at": now_iso(),
+    }
+    patch = {"days": days, "updated_at": now_iso()}
+    if data.mileage:
+        if not rec.get("mileage_start"):
+            patch["mileage_start"] = data.mileage
+        patch["mileage_finish"] = data.mileage
+    if data.signature and not rec.get("driver_signature"):
+        patch["driver_signature"] = data.signature
+    await db.weekly_walkarounds.update_one({"id": rec["id"], "user_id": driver["user_id"]}, {"$set": patch})
+    if failed:
+        await create_alert(driver["user_id"], "walkaround_defect", "major",
+                           f"Weekly walkaround defect — {reg}", ", ".join(failed),
+                           vehicle_reg=reg, driver_name=driver.get("name", ""), link="/maintenance")
+    rec.update(patch)
+    return rec
 
 
 # ---------- Test History / Prohibitions ----------

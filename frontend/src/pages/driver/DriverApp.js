@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import driverApi from "@/lib/driverApi";
 import { CHECKLIST, buildChecklist } from "@/pages/Walkaround";
+import { SignaturePad } from "@/components/SignaturePad";
 import { toast } from "sonner";
 import {
   Truck, ClipboardCheck, AlertTriangle, IdCard, FileText, ScanSearch, LogOut,
   Check, X, ChevronLeft, Loader2, Camera, ShieldCheck, ChevronRight, Gauge,
-  Download, Share, Plus,
+  Download, Share, Plus, CalendarRange,
 } from "lucide-react";
 
 const STATUS = {
@@ -145,6 +146,7 @@ function StatusChip({ status }) {
 function DriverHome({ driver, go, logout }) {
   const tiles = [
     { key: "walkaround", label: "Daily Walkaround Check", desc: "24-point DVSA check", icon: ClipboardCheck },
+    { key: "weekly", label: "Weekly Walkaround", desc: "One sheet, tick each day", icon: CalendarRange },
     { key: "defect", label: "Report a Defect", desc: "With photo", icon: AlertTriangle },
     { key: "compliance", label: "My Compliance", desc: "Licence · CPC · Tacho", icon: IdCard },
     { key: "vehicle", label: "My Vehicle", desc: driver.assigned_vehicle_reg || "Not assigned", icon: Truck },
@@ -243,6 +245,123 @@ function DriverWalkaround({ driver, back }) {
       <button data-testid="driver-submit-walkaround" disabled={busy || !driver.assigned_vehicle_reg} onClick={submit} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
         {busy ? <Loader2 size={18} className="animate-spin" /> : "Submit check"}
       </button>
+    </Screen>
+  );
+}
+
+// ---------- Weekly Walkaround ----------
+const DAY_LABELS = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+const todayKey = () => DAY_LABELS[(new Date().getDay() + 6) % 7][0];
+
+function DriverWeeklyWalkaround({ driver, back }) {
+  const [sheet, setSheet] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(false); // in checklist mode
+  const [checklist, setChecklist] = useState(buildChecklist());
+  const [mileage, setMileage] = useState("");
+  const [signature, setSignature] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const loadSheet = useCallback(async () => {
+    try { const { data } = await driverApi.get("/driver/weekly-walkaround"); setSheet(data); }
+    catch { toast.error("Could not load this week's sheet"); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { loadSheet(); }, [loadSheet]);
+
+  const setItem = (idx, patch) => setChecklist((cl) => cl.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
+  const failCount = checklist.filter((c) => !c.ok).length;
+  const tKey = todayKey();
+  const todayDone = (sheet?.days?.[tKey]?.checklist || []).length > 0;
+  const needSignature = sheet && !sheet.driver_signature;
+
+  const submit = async () => {
+    if (needSignature && !signature) { toast.error("Please add your signature for the week"); return; }
+    setBusy(true);
+    try {
+      const { data } = await driverApi.post("/driver/weekly-walkaround/day", {
+        vehicle_reg: driver.assigned_vehicle_reg, checklist, mileage, signature,
+      });
+      setSheet(data);
+      toast.success(failCount ? `Today logged — ${failCount} defect(s)` : "Today's check logged");
+      setChecking(false); setChecklist(buildChecklist()); setMileage(""); setSignature("");
+    } catch { toast.error("Could not save check"); }
+    setBusy(false);
+  };
+
+  if (loading) return <Screen title="Weekly Walkaround" onBack={back} testid="driver-weekly"><div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-500" /></div></Screen>;
+
+  if (checking) {
+    let flat = -1;
+    return (
+      <Screen title="Today's Check" onBack={() => setChecking(false)} testid="driver-weekly-check">
+        <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
+          <span className="font-mono font-bold">{driver.assigned_vehicle_reg || "—"}</span>
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${failCount ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"}`}>{failCount ? `${failCount} defect(s)` : "Nil defect"}</span>
+        </div>
+        <input data-testid="driver-weekly-mileage" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="Odometer today (optional)" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 mb-4 text-white placeholder:text-slate-500" />
+        {CHECKLIST.map((sec) => (
+          <div key={sec.section} className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{sec.section}</p>
+            <div className="space-y-2">
+              {sec.items.map((item) => {
+                flat += 1; const idx = flat; const c = checklist[idx];
+                return (
+                  <div key={item} data-testid="driver-weekly-item" className="bg-slate-900 border border-slate-800 rounded-xl p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm">{item}</span>
+                      <div className="flex gap-1.5 shrink-0">
+                        <button data-testid={`weekly-item-ok-${idx}`} onClick={() => setItem(idx, { ok: true, note: "" })} className={`w-9 h-8 rounded-lg flex items-center justify-center border ${c.ok ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-700 text-slate-500"}`}><Check size={16} /></button>
+                        <button data-testid={`weekly-item-fail-${idx}`} onClick={() => setItem(idx, { ok: false })} className={`w-9 h-8 rounded-lg flex items-center justify-center border ${!c.ok ? "bg-red-500 border-red-500 text-white" : "border-slate-700 text-slate-500"}`}><X size={16} /></button>
+                      </div>
+                    </div>
+                    {!c.ok && <input data-testid={`weekly-item-note-${idx}`} value={c.note} onChange={(e) => setItem(idx, { note: e.target.value })} placeholder="Describe the defect…" className="w-full mt-2 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600" />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {needSignature && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 mb-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Driver signature (once for the week)</p>
+            <div className="bg-white rounded-lg overflow-hidden"><SignaturePad testid="driver-weekly-signature" value={signature} onChange={setSignature} /></div>
+          </div>
+        )}
+        <button data-testid="driver-submit-weekly" disabled={busy || !driver.assigned_vehicle_reg} onClick={submit} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
+          {busy ? <Loader2 size={18} className="animate-spin" /> : "Submit today's check"}
+        </button>
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen title="Weekly Walkaround" onBack={back} testid="driver-weekly">
+      {!driver.assigned_vehicle_reg && <p className="bg-amber-500/15 text-amber-300 text-sm rounded-xl p-3 mb-4">No vehicle assigned — ask your manager to assign one.</p>}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <span className="font-mono font-bold text-lg">{sheet?.vehicle_reg || driver.assigned_vehicle_reg || "—"}</span>
+          <span className="text-xs text-slate-400">w/c {sheet?.week_start}</span>
+        </div>
+        <div className="flex items-center gap-1.5 mt-4">
+          {DAY_LABELS.map(([k, lbl]) => {
+            const filled = (sheet?.days?.[k]?.checklist || []).length > 0;
+            const hasDefect = (sheet?.days?.[k]?.checklist || []).some((c) => !c.ok);
+            return (
+              <div key={k} data-testid={`weekly-day-${k}`} className={`flex-1 text-center text-[11px] font-bold py-2 rounded-lg ${k === tKey ? "ring-2 ring-white/40 " : ""}${filled ? (hasDefect ? "bg-amber-500/25 text-amber-200" : "bg-emerald-500/25 text-emerald-200") : "bg-slate-800 text-slate-500"}`}>{lbl}</div>
+            );
+          })}
+        </div>
+      </div>
+      <button
+        data-testid="driver-start-weekly-today"
+        disabled={!driver.assigned_vehicle_reg}
+        onClick={() => { setChecklist(buildChecklist()); setChecking(true); }}
+        className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+      >
+        <ClipboardCheck size={18} /> {todayDone ? "Redo today's check" : "Do today's check"}
+      </button>
+      {todayDone && <p className="text-center text-sm text-emerald-400 mt-3">✓ Today's check is already recorded on this week's sheet.</p>}
     </Screen>
   );
 }
@@ -454,6 +573,7 @@ export default function DriverApp() {
   if (!driver) return <DriverLogin onLogin={(d) => { setDriver(d); setProfile(d); loadProfile(); }} />;
 
   if (screen === "walkaround") return <DriverWalkaround driver={driver} back={back} />;
+  if (screen === "weekly") return <DriverWeeklyWalkaround driver={driver} back={back} />;
   if (screen === "defect") return <DriverDefect driver={driver} back={back} />;
   if (screen === "compliance") return <DriverCompliance profile={profile || driver} back={back} />;
   if (screen === "vehicle") return <DriverVehicle back={back} />;
