@@ -2341,6 +2341,129 @@ async def download_report(kind: str, include_files: bool = Query(False), format:
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+def _norm_reg(s):
+    return "".join((s or "").split()).upper()
+
+
+@api_router.get("/reports/vehicle/{reg}")
+async def download_vehicle_history(reg: str, include_files: bool = Query(False), format: str = Query("pdf"),
+                                   user: User = Depends(get_current_user)):
+    nreg = _norm_reg(reg)
+    vehicles = await db.vehicles.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    vehicle = next((v for v in vehicles if _norm_reg(v.get("registration")) == nreg), None)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    vehicle["mot_status"] = compliance_status(days_until(vehicle.get("mot_due")))
+
+    def match(records):
+        return [r for r in records if _norm_reg(r.get("vehicle_reg")) == nreg]
+
+    pmi_scheds = await db.pmi_schedules.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for d in pmi_scheds:
+        d["status"] = compliance_status(days_until(d.get("next_due")))
+    pmi_recs = await db.pmi_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
+    service = await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for d in service:
+        d["status"] = compliance_status(days_until(d.get("next_service_due")))
+    wheel = await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    for d in wheel:
+        d["status"] = compliance_status(days_until(d.get("next_due")))
+    defects = await db.defects.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    repairs = await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    walkaround = await db.walkaround_checks.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    weekly = await db.weekly_walkarounds.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    recalls = await db.recalls.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    test_history = await db.test_history.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+
+    data = {
+        "pmi": match(pmi_scheds), "pmi_records": match(pmi_recs),
+        "test_history": match(test_history), "defects": match(defects),
+        "service": match(service), "repairs": match(repairs),
+        "wheel": match(wheel), "walkaround": match(walkaround),
+        "weekly_walkaround": match(weekly), "recalls": match(recalls),
+    }
+    title, subtitle, sections = reports.vehicle_history_report(vehicle, data, user.region)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    if format == "json":
+        return {"title": title, "subtitle": subtitle, "operator": operator.get("company_name", ""),
+                "authority": authority, "generated": datetime.now(timezone.utc).isoformat(),
+                "has_files": True, "sections": sections}
+    pdf = await asyncio.to_thread(
+        build_report_pdf, title, subtitle,
+        [("Operator", operator.get("company_name", "")), ("Vehicle", vehicle.get("registration", ""))],
+        sections, await _get_logo_bytes(user.user_id, operator), authority)
+    if include_files:
+        fids = []
+        for key in ("pmi_records", "defects", "service", "repairs", "wheel", "walkaround", "test_history", "recalls"):
+            for rec in data.get(key, []):
+                for a in (rec.get("attachments") or []):
+                    if a.get("file_id"):
+                        fids.append(a["file_id"])
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"vehicle-history-{nreg or 'vehicle'}{'-pack' if include_files else ''}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+_RETENTION_RULES = [
+    ("PMI safety inspections", "pmi_records", ("inspection_date",), 15),
+    ("Daily walkaround checks", "walkaround_checks", ("check_date",), 15),
+    ("Driver defect reports", "defects", ("defect_date", "created_at"), 15),
+    ("Tachograph analyses", "tacho_analyses", ("created_at",), 12),
+]
+
+
+def _keep_until(iso_date, months):
+    import calendar
+    from datetime import date as _date
+    try:
+        d = datetime.fromisoformat(str(iso_date)[:10]).date()
+    except Exception:
+        return None
+    m = d.month - 1 + months
+    y = d.year + m // 12
+    mo = m % 12 + 1
+    day = min(d.day, calendar.monthrange(y, mo)[1])
+    return _date(y, mo, day)
+
+
+@api_router.get("/records-retention")
+async def records_retention(user: User = Depends(get_current_user)):
+    today = datetime.now(timezone.utc).date()
+    categories = []
+    total_eligible = total_approaching = 0
+    for label, coll, fields, months in _RETENTION_RULES:
+        recs = await db[coll].find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
+        eligible, approaching, items = 0, 0, []
+        for r in recs:
+            raw = next((r.get(f) for f in fields if r.get(f)), None)
+            keep = _keep_until(raw, months) if raw else None
+            if not keep:
+                continue
+            days_left = (keep - today).days
+            if days_left < 0:
+                eligible += 1
+                state = "eligible"
+            elif days_left <= 60:
+                approaching += 1
+                state = "approaching"
+            else:
+                continue
+            items.append({
+                "vehicle_reg": r.get("vehicle_reg") or r.get("driver_name") or "—",
+                "record_date": str(raw)[:10], "keep_until": keep.isoformat(),
+                "days_left": days_left, "state": state,
+            })
+        items.sort(key=lambda x: x["days_left"])
+        total_eligible += eligible
+        total_approaching += approaching
+        categories.append({
+            "label": label, "retention_months": months, "total": len(recs),
+            "eligible": eligible, "approaching": approaching, "items": items[:50],
+        })
+    return {"total_eligible": total_eligible, "total_approaching": total_approaching, "categories": categories}
+
+
 @api_router.post("/fuel")
 async def create_fuel(data: FuelInput, user: User = Depends(get_current_user)):
     r = FuelRecord(**data.model_dump(), user_id=user.user_id)

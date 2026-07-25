@@ -9,7 +9,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Truck, Trash2, Pencil, FileDown, Ban } from "lucide-react";
+import { Plus, Truck, Trash2, Pencil, FileDown, Ban, History } from "lucide-react";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
@@ -126,6 +127,19 @@ function VehiclesPanel() {
                     {v.vor
                       ? <button data-testid="clear-vor-button" onClick={() => clearVor(v)} title="Return to service" className="text-red-500 hover:text-emerald-600 p-1.5"><Ban size={16} /></button>
                       : <button data-testid="vor-button" onClick={() => openVor(v)} title="Mark off road (VOR)" className="text-slate-400 hover:text-red-600 p-1.5"><Ban size={16} /></button>}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button data-testid="vehicle-history-button" title="Vehicle history pack (PDF)" className="text-slate-400 hover:text-slate-900 p-1.5"><History size={16} /></button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem data-testid="vehicle-history-summary" onClick={() => downloadPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}`, `vehicle-history-${(v.registration || "vehicle").replace(/ /g, "")}.pdf`)}>
+                          History pack (summary)
+                        </DropdownMenuItem>
+                        <DropdownMenuItem data-testid="vehicle-history-files" onClick={() => downloadPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}?include_files=true`, `vehicle-history-${(v.registration || "vehicle").replace(/ /g, "")}-pack.pdf`)}>
+                          History pack + evidence
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <button data-testid="edit-vehicle-button" onClick={() => openEdit(v)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={16} /></button>
                     <button data-testid="delete-vehicle-button" onClick={() => remove(v.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
                   </td>

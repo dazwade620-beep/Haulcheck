@@ -372,3 +372,53 @@ def audit_pack(data, region):
     sections += recalls_report(data.get("recalls", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
     return "Fleet Audit Report", f"Full operator compliance snapshot · {gen}", sections
+
+
+def test_history_report(records, region):
+    rows = []
+    for r in sorted(records, key=lambda x: (x.get("event_date") or ""), reverse=True):
+        rows.append({
+            "cells": [
+                r.get("event_date") or "—", r.get("vehicle_reg") or "—",
+                ("Annual test" if r.get("event_type") == "annual_test" else "Prohibition / PG9"),
+                (r.get("result") or "pass").upper(), r.get("reference") or "—",
+                (r.get("notes") or "—")[:60],
+            ],
+            "status": ("expired" if r.get("result") in ("fail", "pg9") else "valid"),
+        })
+    sections = [{
+        "heading": "Annual Test & Prohibition (PG9) History",
+        "columns": ["Date", "Vehicle", "Type", "Result", "Reference", "Notes"],
+        "rows": rows,
+    }]
+    return "Annual Test & Prohibitions", f"{len(rows)} record(s)", sections
+
+
+def vehicle_history_report(vehicle, data, region):
+    """One-click full history pack for a single vehicle."""
+    t = _terms(region)
+    reg = vehicle.get("registration", "")
+    sections = [{
+        "type": "kv", "heading": "Vehicle", "pairs": [
+            ("Registration", reg),
+            ("Make / Model", " ".join([x for x in [vehicle.get("make"), vehicle.get("model")] if x]) or "—"),
+            ("Type", vehicle.get("type") or "—"),
+            (t["vehicle_test"], vehicle.get("mot_due") or "—"),
+            ("Service due", vehicle.get("service_due") or "—"),
+            (t["road_tax"], vehicle.get("tax_due") or "—"),
+            ("Tacho calibration due", vehicle.get("tacho_calibration_due") or "—"),
+            ("Speed limiter due", vehicle.get("speed_limiter_due") or "—"),
+            ("Status", "OFF ROAD (VOR)" if vehicle.get("vor") else "In service"),
+        ],
+    }]
+    sections += pmi_report(data.get("pmi", []), data.get("pmi_records", []), region)[2]
+    sections += test_history_report(data.get("test_history", []), region)[2]
+    sections += defects_report(data.get("defects", []), region)[2]
+    sections += service_report(data.get("service", []), region)[2]
+    sections += repairs_report(data.get("repairs", []), region)[2]
+    sections += wheel_report(data.get("wheel", []), region)[2]
+    sections += walkaround_report(data.get("walkaround", []), region)[2]
+    sections += weekly_walkaround_report(data.get("weekly_walkaround", []), region)[2]
+    sections += recalls_report(data.get("recalls", []), region)[2]
+    gen = datetime.now(timezone.utc).strftime("%d %b %Y")
+    return f"Vehicle History Pack — {reg}", f"Full record history · {gen}", sections
