@@ -615,6 +615,31 @@ class TrainingInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class LicenceCheckRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"lc_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    driver_id: str = ""
+    driver_name: str = ""
+    check_date: Optional[str] = None
+    check_code: str = ""
+    points: int = 0
+    result: str = "clean"  # clean | points | disqualified | other
+    next_check_due: Optional[str] = None
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class LicenceCheckInput(BaseModel):
+    driver_id: str = ""
+    driver_name: str = ""
+    check_date: Optional[str] = None
+    check_code: str = ""
+    points: int = 0
+    result: str = "clean"
+    next_check_due: Optional[str] = None
+    notes: str = ""
+
+
 class WheelAudit(BaseModel):
     id: str = Field(default_factory=lambda: f"wsa_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -1717,6 +1742,32 @@ async def delete_training(tid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+@api_router.get("/licence-checks")
+async def list_licence_checks(driver_id: Optional[str] = Query(None), user: User = Depends(get_current_user)):
+    q = {"user_id": user.user_id}
+    if driver_id:
+        q["driver_id"] = driver_id
+    return await db.licence_checks.find(q, {"_id": 0}).sort("check_date", -1).to_list(1000)
+
+
+@api_router.post("/licence-checks")
+async def create_licence_check(data: LicenceCheckInput, user: User = Depends(get_current_user)):
+    lc = LicenceCheckRecord(**data.model_dump(), user_id=user.user_id)
+    await db.licence_checks.insert_one(lc.model_dump())
+    # Keep the driver's headline licence-check fields in sync with this latest check.
+    if data.driver_id:
+        await db.drivers.update_one({"id": data.driver_id, "user_id": user.user_id}, {"$set": {
+            "licence_check_date": data.check_date, "licence_check_code": data.check_code,
+            "penalty_points": data.points, "licence_check_due": data.next_check_due}})
+    return lc.model_dump()
+
+
+@api_router.delete("/licence-checks/{lid}")
+async def delete_licence_check(lid: str, user: User = Depends(get_current_user)):
+    await db.licence_checks.delete_one({"id": lid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Documents ----------
 @api_router.get("/documents")
 async def list_documents(user: User = Depends(get_current_user)):
@@ -2206,6 +2257,12 @@ async def _report_data(user_id, kinds, from_date=None, to_date=None):
     if "tacho" in kinds:
         tn = await db.tacho_analyses.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         out["tacho"] = [d for d in tn if in_range(d, "created_at")]
+    if "repairs" in kinds:
+        rp = await db.repairs.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["repairs"] = [d for d in rp if in_range(d, "repair_date")]
+    if "recalls" in kinds:
+        rc = await db.recalls.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["recalls"] = [d for d in rc if in_range(d, "issued_date", "created_at")]
     if "pmi" in kinds:
         ps = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         for d in ps:
@@ -2227,7 +2284,9 @@ _REPORT_BUILDERS = {
     "weekly_walkaround": (["weekly_walkaround"], lambda d, r: reports.weekly_walkaround_report(d["weekly_walkaround"], r)),
     "pmi": (["pmi"], lambda d, r: reports.pmi_report(d["pmi"], d["pmi_records"], r)),
     "tacho": (["tacho"], lambda d, r: reports.tacho_report(d["tacho"], r)),
-    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "wheel", "walkaround", "weekly_walkaround", "tacho", "pmi"],
+    "repairs": (["repairs"], lambda d, r: reports.repairs_report(d["repairs"], r)),
+    "recalls": (["recalls"], lambda d, r: reports.recalls_report(d["recalls"], r)),
+    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "repairs", "wheel", "walkaround", "weekly_walkaround", "tacho", "recalls", "pmi"],
               lambda d, r: reports.audit_pack(d, r)),
 }
 

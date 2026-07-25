@@ -130,6 +130,48 @@ def service_report(records, region):
     return "Vehicles Service Records", f"{len(rows)} service record(s)", sections
 
 
+def repairs_report(records, region):
+    t = _terms(region)
+    cur = t["currency"]
+    rows = []
+    for r in sorted(records, key=lambda x: (x.get("repair_date") or ""), reverse=True):
+        rows.append({
+            "cells": [
+                r.get("repair_date") or "—", r.get("vehicle_reg") or "—",
+                r.get("category") or "—", (r.get("description") or "—")[:80],
+                r.get("provider") or "—", f"{cur}{r.get('cost') or 0}",
+            ],
+            "status": "valid",
+        })
+    sections = [{
+        "heading": "Repairs / Major Work",
+        "columns": ["Date", "Vehicle", "Category", "Description", "Supplier", "Cost"],
+        "rows": rows,
+    }]
+    return "Repairs / Major Work", f"{len(rows)} record(s)", sections
+
+
+def recalls_report(records, region):
+    rows = []
+    for r in sorted(records, key=lambda x: (x.get("issued_date") or ""), reverse=True):
+        actioned = r.get("status") == "actioned"
+        rows.append({
+            "cells": [
+                r.get("issued_date") or "—", r.get("vehicle_reg") or "—",
+                r.get("reference") or "—", (r.get("title") or "—")[:80],
+                "Sorted" if actioned else "Outstanding",
+                r.get("actioned_date") or "—",
+            ],
+            "status": "valid" if actioned else "expired",
+        })
+    sections = [{
+        "heading": "Vehicle Safety Recalls",
+        "columns": ["Issued", "Vehicle", "Reference", "Recall", "Status", "Sorted date"],
+        "rows": rows,
+    }]
+    return "Vehicle Safety Recalls", f"{len(rows)} recall(s)", sections
+
+
 def wheel_report(audits, region):
     rows = []
     for w in sorted(audits, key=lambda x: (x.get("audit_date") or ""), reverse=True):
@@ -308,10 +350,12 @@ def audit_pack(data, region):
             ("PMI records", counts.get("pmi_records", 0)),
             ("Open defects", sum(1 for d in data.get("defects", []) if not (d.get("rectified_date") or d.get("status") == "rectified"))),
             ("Service records", counts.get("service", 0)),
+            ("Repairs / major work", counts.get("repairs", 0)),
             ("Wheel audits", counts.get("wheel", 0)),
             ("Daily checks", counts.get("walkaround", 0)),
             ("Weekly checks", counts.get("weekly_walkaround", 0)),
             ("Tacho analyses", counts.get("tacho", 0)),
+            ("Safety recalls", counts.get("recalls", 0)),
         ],
     }]
     sections += vehicles_report(data.get("vehicles", []), region)[2]
@@ -320,9 +364,11 @@ def audit_pack(data, region):
     sections += pmi_report(data.get("pmi", []), data.get("pmi_records", []), region)[2]
     sections += defects_report(data.get("defects", []), region)[2]
     sections += service_report(data.get("service", []), region)[2]
+    sections += repairs_report(data.get("repairs", []), region)[2]
     sections += wheel_report(data.get("wheel", []), region)[2]
     sections += walkaround_report(data.get("walkaround", []), region)[2]
     sections += weekly_walkaround_report(data.get("weekly_walkaround", []), region)[2]
     sections += tacho_report(data.get("tacho", []), region)[2]
+    sections += recalls_report(data.get("recalls", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
     return "Fleet Audit Report", f"Full operator compliance snapshot · {gen}", sections

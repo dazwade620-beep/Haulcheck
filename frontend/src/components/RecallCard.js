@@ -85,13 +85,17 @@ export function RecallCard() {
             {items.length === 0 && <p className="text-sm text-slate-400 text-center py-6">No recalls logged yet.</p>}
             {items.map((r) => (
               <div key={r.id} data-testid="recall-row" className="flex items-center gap-3 border border-slate-100 rounded-md px-3 py-2.5">
-                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shrink-0 ${r.status === "actioned" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>{r.status === "actioned" ? "Done" : "Open"}</span>
+                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shrink-0 ${r.status === "actioned" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>{r.status === "actioned" ? "Sorted" : "Outstanding"}</span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-900 truncate">{r.title}</p>
-                  <p className="text-xs text-slate-400 truncate">{[r.vehicle_reg, r.reference, r.issued_date].filter(Boolean).join(" · ") || "—"}</p>
+                  <p className="text-xs text-slate-400 truncate">
+                    {[r.vehicle_reg, r.reference, r.issued_date].filter(Boolean).join(" · ") || "—"}
+                    {r.status === "actioned" && r.actioned_date ? ` · sorted ${r.actioned_date}` : ""}
+                  </p>
                 </div>
-                <button data-testid="recall-toggle" onClick={() => toggle(r)} title={r.status === "actioned" ? "Mark outstanding" : "Mark actioned"} className="text-slate-400 hover:text-slate-900 p-1">
-                  {r.status === "actioned" ? <RotateCcw size={15} /> : <Check size={15} />}
+                <button data-testid="recall-toggle" onClick={() => toggle(r)}
+                  className={`text-xs font-semibold rounded-md px-2.5 py-1.5 shrink-0 inline-flex items-center gap-1 transition-colors ${r.status === "actioned" ? "text-slate-500 hover:bg-slate-100" : "bg-green-600 text-white hover:bg-green-700"}`}>
+                  {r.status === "actioned" ? <><RotateCcw size={13} /> Reopen</> : <><Check size={13} /> Mark sorted</>}
                 </button>
                 <button data-testid="recall-delete" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
               </div>
