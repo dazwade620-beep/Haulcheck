@@ -18,7 +18,27 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
-## Improvements batch (2026-06 fork — audit/weekly/QR/refactor)
+## Feature batch (2026-06 fork — viewer role, mid-week weekly, VOR, repairs)
+- **Read-only Viewer (Transport Manager) role**: invited via Team page (role selector). Viewer logs in, SEES the
+  inviter's whole account (get_current_user maps user_id -> account_owner_id), but ALL writes are blocked server-side
+  by `viewer_write_guard` middleware (403; exempts /api/auth/* and /api/driver/*). Frontend shows a read-only banner
+  + 403 toast interceptor. accept_invite branches: viewer shares owner account (no seed template).
+- **Weekly walkaround mid-week start**: week_start no longer snaps to Monday; `weekly_columns()` rotates the 7
+  columns to begin on the chosen start date with dated headers; driver `_get_active_weekly` finds the sheet whose
+  7-day window includes today. UI + PDF show dated, rotated columns.
+- **VOR button (Fleet)**: POST /api/vehicles/{id}/vor (reason, off_date, expected_return) sets flag + creates 2
+  calendar events (off-road + expected-back); red VOR badge; /vor/clear returns to service. New fields vor_off_date/
+  vor_expected_return.
+- **Maintenance "Repairs / Major Work" folder**: RepairRecord + /api/repairs CRUD (category, description, provider,
+  cost, odometer, attachments); new Maintenance tab.
+- Tested: iteration_30.json — 15/15 backend pytest + frontend E2E (viewer 403 enforcement, mid-week rotation, VOR
+  calendar events, repairs CRUD) all pass. (Testing agent fixed a dropped `export default function Vehicles()` line.)
+
+## STILL PENDING from this request (next phase):
+- (1) RSA/DVSA recall check on Dashboard — default plan: region-aware quick-link to official checker + manual recall register.
+- (4) Office 3rd-party vehicle reg-check — needs DVLA VES API key (UK MOT+tax only; insurance NOT available by API; IE not available).
+- Legal must-haves agreed: brake test % on PMI; driver licence-check log.
+
 - (a) Fleet Audit Report now includes a **Weekly Walkaround Checks** section + count (reports.weekly_walkaround_report,
   audit_pack, _REPORT_BUILDERS 'weekly_walkaround').
 - (b) **Missed-day flags**: past weekdays with no check show red on the manager weekly-card and driver screen
