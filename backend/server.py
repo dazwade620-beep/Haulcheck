@@ -694,6 +694,29 @@ class RepairInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class RecallRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"rcl_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str = ""
+    reference: str = ""
+    title: str = ""
+    issued_date: Optional[str] = None
+    status: str = "outstanding"  # outstanding | actioned
+    actioned_date: Optional[str] = None
+    notes: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class RecallInput(BaseModel):
+    vehicle_reg: str = ""
+    reference: str = ""
+    title: str = ""
+    issued_date: Optional[str] = None
+    status: str = "outstanding"
+    actioned_date: Optional[str] = None
+    notes: str = ""
+
+
 class WalkaroundCheck(BaseModel):
     id: str = Field(default_factory=lambda: f"wac_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -3213,6 +3236,32 @@ async def update_repair(rid: str, data: RepairInput, user: User = Depends(get_cu
 @api_router.delete("/repairs/{rid}")
 async def delete_repair(rid: str, user: User = Depends(get_current_user)):
     await db.repairs.delete_one({"id": rid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/recalls")
+async def list_recalls(user: User = Depends(get_current_user)):
+    return await db.recalls.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.post("/recalls")
+async def create_recall(data: RecallInput, user: User = Depends(get_current_user)):
+    r = RecallRecord(**data.model_dump(), user_id=user.user_id)
+    await db.recalls.insert_one(r.model_dump())
+    return r.model_dump()
+
+
+@api_router.put("/recalls/{rid}")
+async def update_recall(rid: str, data: RecallInput, user: User = Depends(get_current_user)):
+    res = await db.recalls.update_one({"id": rid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Recall not found")
+    return {"ok": True}
+
+
+@api_router.delete("/recalls/{rid}")
+async def delete_recall(rid: str, user: User = Depends(get_current_user)):
+    await db.recalls.delete_one({"id": rid, "user_id": user.user_id})
     return {"ok": True}
 
 

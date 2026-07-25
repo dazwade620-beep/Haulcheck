@@ -18,7 +18,22 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
-## Feature batch (2026-06 fork — viewer role, mid-week weekly, VOR, repairs)
+## Feature batch 2 (2026-06 fork — recall check, office vehicle check; brake test confirmed)
+- **Dashboard "Vehicle Safety Recalls" card**: region-aware official checker link (UK DVSA / IE RSA) + manual recall
+  register (RecallRecord + /api/recalls CRUD) tracking outstanding vs actioned, outstanding count on the card.
+- **Office → "Vehicle Check" tab**: enter ANY reg + region toggle -> opens official government checkers in a new tab
+  (UK: MOT check + tax; IE: CVRT/CRW checker operator.cvrt.ie + motortax.ie). Copies reg to clipboard. Clear caveat
+  that insurance can't be checked by plate (askMID closed). No API key needed — deep-links only.
+- **Brake test on PMI**: CONFIRMED already fully implemented — PMI form has brake test type/laden/service/secondary/
+  parking %, PDF renders a Brake Performance section, and audit flags missing laden brake tests. Nothing to build.
+- **Driver licence-check**: existing tracking (last check date, next-due, DVLA check code, penalty points + reminder +
+  audit) is comprehensive. A multi-entry HISTORY log was NOT added (offered to user as optional follow-up).
+- Verified: recall CRUD via curl; both new UIs render (screenshot). Compiles clean.
+
+## STILL OPEN / decisions:
+- Office reg lookup insurance & IE = not available by API (deep-links used instead — DONE via quick-links).
+- Optional: driver licence-check multi-entry history log (currently single last-check entry).
+
 - **Read-only Viewer (Transport Manager) role**: invited via Team page (role selector). Viewer logs in, SEES the
   inviter's whole account (get_current_user maps user_id -> account_owner_id), but ALL writes are blocked server-side
   by `viewer_write_guard` middleware (403; exempts /api/auth/* and /api/driver/*). Frontend shows a read-only banner

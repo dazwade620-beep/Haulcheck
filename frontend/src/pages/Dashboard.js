@@ -6,6 +6,7 @@ import { Truck, Users, FolderCheck, FileWarning, AlertTriangle, Sparkles, Shield
 import { StatusBadge } from "@/components/StatusBadge";
 import { AuditReportDialog } from "@/components/AuditReportDialog";
 import { DefectAlerts } from "@/components/DefectAlerts";
+import { RecallCard } from "@/components/RecallCard";
 import { ComplianceTrend } from "@/components/ComplianceTrend";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
@@ -209,6 +210,8 @@ export default function Dashboard() {
       </div>
 
       <ComplianceTrend />
+
+      <RecallCard />
 
       <DefectAlerts />
 
