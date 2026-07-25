@@ -18,6 +18,24 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Feature batch 3 (2026-06 fork — licence-check log, vehicle history pack, records retention, PG9 pass-rate) — VERIFIED iter31 (backend 10/10, frontend 4/4)
+- **Driver Licence-Check History Log** (Drivers page): each driver card has a '+ Log check' link opening a dialog to record chronological
+  DVLA/NDLS licence checks (check date, next-due, share/check code, penalty points, result clean|points|disqualified|other, notes).
+  Shows a per-driver history list with delete. Backend GET/POST/DELETE /api/licence-checks (POST also syncs the driver headline
+  licence_check_date/_code/penalty_points/_due). Models LicenceCheckRecord/LicenceCheckInput already existed; frontend dialog wired this session.
+- **Vehicle one-click History Pack** (Fleet > Vehicles): per-row History dropdown → GET /api/reports/vehicle/{reg} builds a single branded
+  PDF for one vehicle (vehicle detail + PMI schedules/records + annual test/PG9 + defects + service + repairs + wheel + daily + weekly checks
+  + recalls). ?include_files=true merges all evidence attachments; ?format=json for on-screen. Reg matching is case/space-insensitive (_norm_reg).
+  reports.vehicle_history_report() + reports.test_history_report().
+- **Records-Retention indicator** (Dashboard, RetentionCard.js): GET /api/records-retention flags records past / within 60 days of their
+  DVSA/RSA minimum retention (PMI 15mo, daily walkaround 15mo, driver defects 15mo, tacho analyses 12mo). Card shows N past retention +
+  M approaching; 'View schedule' dialog lists items per category with keep-until dates.
+- **Annual-test / PG9 pass-rate summary** (Fleet > Test History tab): summary strip computes annual-test count, first-time pass rate %,
+  prohibitions (PG9) count and outstanding PG9 count from existing test_history records.
+- Also: added /fleet → /vehicles route redirect; aria-label on vehicle-history-button.
+- NOTE: Roller Brake Test (RBT) numeric % fields (service/secondary/parking + laden toggle + brake type) were ALREADY fully implemented
+  (Inspections.js + PMICompleteInput + pdf_export Brake Performance section) — the handoff 'forgotten RBT' note was incorrect; no work needed.
+
 ## Feature batch 2 (2026-06 fork — recall check, office vehicle check; brake test confirmed)
 - **Dashboard "Vehicle Safety Recalls" card**: region-aware official checker link (UK DVSA / IE RSA) + manual recall
   register (RecallRecord + /api/recalls CRUD) tracking outstanding vs actioned, outstanding count on the card.

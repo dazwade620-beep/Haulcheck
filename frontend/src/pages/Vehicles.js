@@ -129,7 +129,7 @@ function VehiclesPanel() {
                       : <button data-testid="vor-button" onClick={() => openVor(v)} title="Mark off road (VOR)" className="text-slate-400 hover:text-red-600 p-1.5"><Ban size={16} /></button>}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button data-testid="vehicle-history-button" title="Vehicle history pack (PDF)" className="text-slate-400 hover:text-slate-900 p-1.5"><History size={16} /></button>
+                        <button data-testid="vehicle-history-button" aria-label="Vehicle history pack" title="Vehicle history pack (PDF)" className="text-slate-400 hover:text-slate-900 p-1.5"><History size={16} /></button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem data-testid="vehicle-history-summary" onClick={() => downloadPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}`, `vehicle-history-${(v.registration || "vehicle").replace(/ /g, "")}.pdf`)}>
