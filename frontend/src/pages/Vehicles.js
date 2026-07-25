@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Truck, Trash2, Pencil, FileDown } from "lucide-react";
+import { Plus, Truck, Trash2, Pencil, FileDown, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
@@ -27,6 +27,8 @@ function VehiclesPanel() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [insurance, setInsurance] = useState([]);
+  const [vorFor, setVorFor] = useState(null);
+  const [vorForm, setVorForm] = useState({ reason: "", off_date: "", expected_return: "" });
 
   const load = async () => {
     const [v, i] = await Promise.all([api.get("/vehicles"), api.get("/insurance")]);
@@ -55,6 +57,22 @@ function VehiclesPanel() {
   };
 
   const remove = async (id) => { await api.delete(`/vehicles/${id}`); toast.success("Vehicle removed"); load(); };
+
+  const openVor = (v) => {
+    setVorForm({ reason: v.vor_reason || "", off_date: v.vor_off_date || new Date().toISOString().slice(0, 10), expected_return: v.vor_expected_return || "" });
+    setVorFor(v);
+  };
+  const saveVor = async () => {
+    try {
+      await api.post(`/vehicles/${vorFor.id}/vor`, vorForm);
+      toast.success("Vehicle marked VOR — added to calendar");
+      setVorFor(null); load();
+    } catch { toast.error("Could not mark VOR"); }
+  };
+  const clearVor = async (v) => {
+    try { await api.post(`/vehicles/${v.id}/vor/clear`); toast.success(`${v.registration} returned to service`); load(); }
+    catch { toast.error("Could not update"); }
+  };
 
   return (
     <div>
@@ -105,6 +123,9 @@ function VehiclesPanel() {
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.service_status} /><span className="text-xs text-slate-400">{v.service_due || "—"}</span></div></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.tax_status} /><span className="text-xs text-slate-400">{v.tax_due || "—"}</span></div></td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
+                    {v.vor
+                      ? <button data-testid="clear-vor-button" onClick={() => clearVor(v)} title="Return to service" className="text-red-500 hover:text-emerald-600 p-1.5"><Ban size={16} /></button>
+                      : <button data-testid="vor-button" onClick={() => openVor(v)} title="Mark off road (VOR)" className="text-slate-400 hover:text-red-600 p-1.5"><Ban size={16} /></button>}
                     <button data-testid="edit-vehicle-button" onClick={() => openEdit(v)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={16} /></button>
                     <button data-testid="delete-vehicle-button" onClick={() => remove(v.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
                   </td>
@@ -152,6 +173,22 @@ function VehiclesPanel() {
             </div>
             <DialogFooter><Button data-testid="save-vehicle-button" type="submit" className="bg-black hover:bg-slate-800">{editId ? "Save Changes" : "Add Vehicle"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!vorFor} onOpenChange={(o) => !o && setVorFor(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="font-heading">Mark {vorFor?.registration} off road (VOR)</DialogTitle>
+            <DialogDescription>This flags the vehicle and adds off-road / expected-return events to your calendar.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Field label="Reason"><Input data-testid="vor-reason" value={vorForm.reason} onChange={(e) => setVorForm({ ...vorForm, reason: e.target.value })} placeholder="e.g. awaiting brake parts, accident damage" /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Off-road date"><Input data-testid="vor-off-date" type="date" value={vorForm.off_date} onChange={(e) => setVorForm({ ...vorForm, off_date: e.target.value })} /></Field>
+              <Field label="Expected return"><Input data-testid="vor-return-date" type="date" value={vorForm.expected_return} onChange={(e) => setVorForm({ ...vorForm, expected_return: e.target.value })} /></Field>
+            </div>
+          </div>
+          <DialogFooter><Button data-testid="save-vor-button" onClick={saveVor} className="bg-red-600 hover:bg-red-700">Mark VOR &amp; add to calendar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

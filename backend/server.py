@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Query
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -73,6 +74,32 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 
+_VIEWER_EXEMPT_PATHS = {
+    "/api/auth/login", "/api/auth/register", "/api/auth/session", "/api/auth/logout",
+    "/api/auth/accept-invite", "/api/auth/forgot-password", "/api/auth/reset-password",
+}
+
+
+@app.middleware("http")
+async def viewer_write_guard(request: Request, call_next):
+    """Block all mutating requests from read-only 'viewer' users (server-side enforcement)."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api") or path in _VIEWER_EXEMPT_PATHS or path.startswith("/api/driver"):
+        return await call_next(request)
+    try:
+        cookie_token = request.cookies.get("session_token")
+        auth = request.headers.get("Authorization")
+        bearer = auth.split(" ", 1)[1] if auth and auth.startswith("Bearer ") else None
+        u = await _authenticate(cookie_token, bearer)
+        if u and u.role == "viewer":
+            return JSONResponse(status_code=403, content={"detail": "You have read-only access — changes aren't permitted."})
+    except Exception:
+        pass
+    return await call_next(request)
+
+
 # ---------- Helpers ----------
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
@@ -117,6 +144,7 @@ class LoginInput(BaseModel):
 class InviteInput(BaseModel):
     email: EmailStr
     base_url: str = ""
+    role: str = "manager"  # "manager" (own isolated account) or "viewer" (read-only into inviter's account)
 
 
 class ForgotPasswordInput(BaseModel):
@@ -142,6 +170,7 @@ class User(BaseModel):
     role: str = "manager"
     region: str = "UK"
     picture: Optional[str] = None
+    account_owner_id: Optional[str] = None
 
 
 class Attachment(BaseModel):
@@ -180,6 +209,8 @@ class Vehicle(BaseModel):
     speed_limiter_due: Optional[str] = None
     vor: bool = False
     vor_reason: str = ""
+    vor_off_date: Optional[str] = None
+    vor_expected_return: Optional[str] = None
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -197,6 +228,8 @@ class VehicleInput(BaseModel):
     speed_limiter_due: Optional[str] = None
     vor: bool = False
     vor_reason: str = ""
+    vor_off_date: Optional[str] = None
+    vor_expected_return: Optional[str] = None
     notes: str = ""
 
 
@@ -634,6 +667,33 @@ class ServiceInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class RepairRecord(BaseModel):
+    id: str = Field(default_factory=lambda: f"rep_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    repair_date: Optional[str] = None
+    category: str = "Major repair"
+    description: str = ""
+    provider: str = ""
+    cost: float = 0
+    odometer: float = 0
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class RepairInput(BaseModel):
+    vehicle_reg: str
+    repair_date: Optional[str] = None
+    category: str = "Major repair"
+    description: str = ""
+    provider: str = ""
+    cost: float = 0
+    odometer: float = 0
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class WalkaroundCheck(BaseModel):
     id: str = Field(default_factory=lambda: f"wac_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -671,9 +731,18 @@ WEEK_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
 def week_start_of(d: Optional[str] = None) -> str:
-    """Monday (ISO date) of the week containing d (or today if None)."""
+    """The chosen start date as-is (or today). Weekly sheets can start on ANY weekday."""
     dt = datetime.fromisoformat(d).date() if d else datetime.now(timezone.utc).date()
-    return (dt - timedelta(days=dt.weekday())).isoformat()
+    return dt.isoformat()
+
+
+def weekly_columns(week_start: str):
+    """Ordered (weekday_key, date_iso) for the 7 columns, beginning on the sheet's start date."""
+    try:
+        start = datetime.fromisoformat(week_start).date()
+    except Exception:
+        start = datetime.now(timezone.utc).date()
+    return [(WEEK_DAYS[(start + timedelta(days=i)).weekday()], (start + timedelta(days=i)).isoformat()) for i in range(7)]
 
 
 class WeeklyWalkaround(BaseModel):
@@ -842,6 +911,12 @@ async def get_current_user(request: Request) -> User:
     user = await _authenticate(cookie_token, bearer)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    # A read-only "viewer" (e.g. a Transport Manager) sees the inviting operator's data.
+    if user.role == "viewer" and user.account_owner_id:
+        owner = await db.users.find_one({"user_id": user.account_owner_id}, {"_id": 0})
+        if owner:
+            user.user_id = user.account_owner_id
+            user.region = owner.get("region", "UK")
     return user
 
 
@@ -888,19 +963,25 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="That email already has an account")
     token = secrets.token_urlsafe(32)
+    role = "viewer" if data.role == "viewer" else "manager"
     inv = {
-        "id": f"inv_{uuid.uuid4().hex[:10]}", "email": email, "token": token,
+        "id": f"inv_{uuid.uuid4().hex[:10]}", "email": email, "token": token, "role": role,
         "invited_by": user.user_id, "inviter_name": user.name, "status": "pending",
         "created_at": now_iso(), "expires_at": (datetime.now(timezone.utc) + timedelta(days=14)).isoformat(),
     }
     await db.invitations.insert_one(inv)
     link = f"{(data.base_url or '').rstrip('/')}/accept-invite?token={token}"
+    intro = (
+        f"{user.name} has given you <b>read-only access</b> to their HaulCheck compliance account, so you can review vehicles, drivers and records without making changes. Click below to set a password."
+        if role == "viewer" else
+        f"{user.name} has invited you to set up your own HaulCheck compliance account. Click below to choose a password and get started."
+    )
     html = (
         "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
         "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
         f"<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Compliance</p>"
         f"<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>You've been invited</h1>"
-        f"<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>{user.name} has invited you to set up your own HaulCheck compliance account. Click below to choose a password and get started.</p>"
+        f"<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>{intro}</p>"
         f"<p style='margin:24px 0;'><a href='{link}' style='background:#0f172a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;'>Accept invitation</a></p>"
         f"<p style='margin:8px 0 0;font-size:12px;color:#94a3b8;'>Or paste this link: {link}</p>"
         "<p style='margin:16px 0 0;font-size:12px;color:#94a3b8;'>This invitation expires in 14 days.</p>"
@@ -986,16 +1067,23 @@ async def accept_invite(data: AcceptInviteInput, response: Response):
     if len(data.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
-    await db.users.insert_one({
-        "user_id": user_id, "email": email, "name": data.name, "role": "manager",
-        "region": "UK", "picture": None, "password_hash": pwd_context.hash(data.password),
+    inv_role = "viewer" if inv.get("role") == "viewer" else "manager"
+    owner = await db.users.find_one({"user_id": inv["invited_by"]}, {"_id": 0}) or {}
+    user_doc = {
+        "user_id": user_id, "email": email, "name": data.name, "role": inv_role,
+        "region": owner.get("region", "UK") if inv_role == "viewer" else "UK",
+        "picture": None, "password_hash": pwd_context.hash(data.password),
         "invited_by": inv["invited_by"], "created_at": now_iso(), "last_login_at": now_iso(),
-    })
-    await _seed_template(user_id, inv["invited_by"], email)
+    }
+    if inv_role == "viewer":
+        user_doc["account_owner_id"] = inv["invited_by"]
+    await db.users.insert_one(user_doc)
+    if inv_role == "manager":
+        await _seed_template(user_id, inv["invited_by"], email)
     await db.invitations.update_one({"id": inv["id"]}, {"$set": {"status": "accepted", "accepted_at": now_iso(), "accepted_user_id": user_id}})
     fresh = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
     response.delete_cookie("session_token", path="/")
-    return {"token": create_jwt(user_id), "user": {"user_id": user_id, "email": email, "name": data.name, "role": "manager", "region": fresh.get("region", "UK")}}
+    return {"token": create_jwt(user_id), "user": {"user_id": user_id, "email": email, "name": data.name, "role": inv_role, "region": fresh.get("region", "UK")}}
 
 
 @api_router.put("/settings/region")
@@ -3102,6 +3190,32 @@ async def delete_service(sid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+@api_router.get("/repairs")
+async def list_repairs(user: User = Depends(get_current_user)):
+    return await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).sort("repair_date", -1).to_list(1000)
+
+
+@api_router.post("/repairs")
+async def create_repair(data: RepairInput, user: User = Depends(get_current_user)):
+    r = RepairRecord(**data.model_dump(), user_id=user.user_id)
+    await db.repairs.insert_one(r.model_dump())
+    return r.model_dump()
+
+
+@api_router.put("/repairs/{rid}")
+async def update_repair(rid: str, data: RepairInput, user: User = Depends(get_current_user)):
+    res = await db.repairs.update_one({"id": rid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Repair record not found")
+    return {"ok": True}
+
+
+@api_router.delete("/repairs/{rid}")
+async def delete_repair(rid: str, user: User = Depends(get_current_user)):
+    await db.repairs.delete_one({"id": rid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 # ---------- Daily Walkaround Checks ----------
 @api_router.get("/walkarounds")
 async def list_walkarounds(user: User = Depends(get_current_user)):
@@ -3203,20 +3317,32 @@ async def weekly_walkaround_sheet(wid: str, user: User = Depends(get_current_use
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+async def _get_active_weekly(user_id: str, vehicle_reg: str, driver_name: str = "") -> dict:
+    """The weekly sheet whose 7-day window includes today; else start a new one from today."""
+    today = datetime.now(timezone.utc).date()
+    sheets = await db.weekly_walkarounds.find({"user_id": user_id, "vehicle_reg": vehicle_reg}, {"_id": 0}).to_list(200)
+    for s in sheets:
+        try:
+            st = datetime.fromisoformat(s["week_start"]).date()
+        except Exception:
+            continue
+        if st <= today <= st + timedelta(days=6):
+            return s
+    return await _get_or_create_weekly(user_id, vehicle_reg, today.isoformat(), driver_name)
+
+
 @api_router.get("/driver/weekly-walkaround")
 async def driver_get_weekly(driver: dict = Depends(get_current_driver)):
     reg = driver.get("assigned_vehicle_reg", "")
-    ws = week_start_of(None)
-    return await _get_or_create_weekly(driver["user_id"], reg, ws, driver.get("name", ""))
+    return await _get_active_weekly(driver["user_id"], reg, driver.get("name", ""))
 
 
 @api_router.post("/driver/weekly-walkaround/day")
 async def driver_submit_weekly_day(data: WeeklyDayInput, driver: dict = Depends(get_current_driver)):
     reg = data.vehicle_reg or driver.get("assigned_vehicle_reg", "")
     today = datetime.now(timezone.utc).date()
-    ws = week_start_of(None)
     dk = WEEK_DAYS[today.weekday()]
-    rec = await _get_or_create_weekly(driver["user_id"], reg, ws, driver.get("name", ""))
+    rec = await _get_active_weekly(driver["user_id"], reg, driver.get("name", ""))
     days = rec.get("days") or {}
     failed = [c.get("item") for c in data.checklist if not c.get("ok", True)]
     days[dk] = {
@@ -3464,6 +3590,41 @@ class CalendarEventInput(BaseModel):
     title: str
     notes: str = ""
     status: str = "valid"
+
+
+class VorInput(BaseModel):
+    reason: str = ""
+    off_date: Optional[str] = None
+    expected_return: Optional[str] = None
+
+
+@api_router.post("/vehicles/{vid}/vor")
+async def set_vehicle_vor(vid: str, data: VorInput, user: User = Depends(get_current_user)):
+    veh = await db.vehicles.find_one({"id": vid, "user_id": user.user_id}, {"_id": 0})
+    if not veh:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    off = data.off_date or datetime.now(timezone.utc).date().isoformat()
+    await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
+        "vor": True, "vor_reason": data.reason, "vor_off_date": off, "vor_expected_return": data.expected_return}})
+    reg = veh.get("registration", "")
+    await db.calendar_events.delete_many({"user_id": user.user_id, "ref": f"vor:{vid}"})
+    evs = [{"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": off,
+            "title": f"VOR — {reg} off road", "notes": data.reason, "status": "expired",
+            "ref": f"vor:{vid}", "created_at": now_iso()}]
+    if data.expected_return:
+        evs.append({"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.expected_return,
+                    "title": f"VOR — {reg} expected back in service", "notes": data.reason, "status": "due_soon",
+                    "ref": f"vor:{vid}", "created_at": now_iso()})
+    await db.calendar_events.insert_many(evs)
+    return {"ok": True}
+
+
+@api_router.post("/vehicles/{vid}/vor/clear")
+async def clear_vehicle_vor(vid: str, user: User = Depends(get_current_user)):
+    await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
+        "vor": False, "vor_reason": "", "vor_off_date": None, "vor_expected_return": None}})
+    await db.calendar_events.delete_many({"user_id": user.user_id, "ref": f"vor:{vid}"})
+    return {"ok": True}
 
 
 @api_router.post("/calendar/events")

@@ -1,7 +1,7 @@
 """PDF export: compliance summary reports + merging uploaded files into one pack."""
 import io
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -428,10 +428,20 @@ def build_weekly_walkaround_pdf(operator, record, region, logo_bytes=None):
         ss.add(ParagraphStyle("WkNote", fontName="Helvetica-Oblique", fontSize=7.5, textColor=SLATE, leading=10))
         ss.add(ParagraphStyle("WkCell", fontName="Helvetica", fontSize=8, textColor=DARK, leading=10))
 
-    # Build per-day item→ok lookup
+    # Build per-day item→ok lookup (columns ordered from the sheet's start date)
     days = record.get("days") or {}
+    try:
+        _start = datetime.fromisoformat(record.get("week_start")).date()
+    except Exception:
+        _start = datetime.now(timezone.utc).date()
+    _daykeys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    _dlabels = {"mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"}
+    week_cols = []
+    for i in range(7):
+        d = _start + timedelta(days=i)
+        week_cols.append((_daykeys[d.weekday()], f"{_dlabels[_daykeys[d.weekday()]]} {d.strftime('%d/%m')}"))
     day_lookup = {}
-    for dk, _ in _WEEK_DAYS:
+    for dk, _ in week_cols:
         d = days.get(dk) or {}
         m = {}
         for c in (d.get("checklist") or []):
@@ -479,15 +489,15 @@ def build_weekly_walkaround_pdf(operator, record, region, logo_bytes=None):
     story.append(Paragraph("✓ or ✗ should be recorded for every item each day. If ✗, add details in Fault Reporting / Action Taken below.", ss["WkNote"]))
     story.append(Spacer(1, 5))
 
-    head = [Paragraph("Check item", ss["WkHead"])] + [Paragraph(lbl, ss["WkHead"]) for _, lbl in _WEEK_DAYS]
+    head = [Paragraph("Check item", ss["WkHead"])] + [Paragraph(lbl, ss["WkHead"]) for _, lbl in week_cols]
     data = [head]
     section_rows = []
     for sec_name, items in WALKAROUND_SECTIONS:
         section_rows.append(len(data))
-        data.append([Paragraph(sec_name, ss["WkSection"])] + ["" for _ in _WEEK_DAYS])
+        data.append([Paragraph(sec_name, ss["WkSection"])] + ["" for _ in week_cols])
         for item in items:
             row = [Paragraph(item, ss["WkItem"])]
-            for dk, _ in _WEEK_DAYS:
+            for dk, _ in week_cols:
                 info = day_lookup[dk]
                 if not info["submitted"] or item not in info["map"]:
                     row.append("")
@@ -517,7 +527,7 @@ def build_weekly_walkaround_pdf(operator, record, region, logo_bytes=None):
     # Fault reporting / action taken
     story.append(Paragraph("Fault Reporting / Action Taken", ss["Heading"]))
     defect_lines = []
-    for dk, lbl in _WEEK_DAYS:
+    for dk, lbl in week_cols:
         d = days.get(dk) or {}
         for c in (d.get("checklist") or []):
             if not c.get("ok", True):
