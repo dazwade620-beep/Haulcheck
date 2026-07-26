@@ -86,7 +86,7 @@ async def viewer_write_guard(request: Request, call_next):
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await call_next(request)
     path = request.url.path
-    if not path.startswith("/api") or path in _VIEWER_EXEMPT_PATHS or path.startswith("/api/driver"):
+    if not path.startswith("/api") or path in _VIEWER_EXEMPT_PATHS or path.startswith("/api/driver/"):
         return await call_next(request)
     try:
         cookie_token = request.cookies.get("session_token")
@@ -1742,6 +1742,22 @@ async def delete_training(tid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+async def _sync_driver_licence_headline(user_id: str, driver_id: str):
+    """Recompute a driver's headline licence-check fields from their latest remaining check."""
+    if not driver_id:
+        return
+    latest = await db.licence_checks.find(
+        {"user_id": user_id, "driver_id": driver_id}, {"_id": 0}
+    ).sort("check_date", -1).to_list(1)
+    if latest:
+        r = latest[0]
+        vals = {"licence_check_date": r.get("check_date"), "licence_check_code": r.get("check_code", ""),
+                "penalty_points": r.get("points", 0), "licence_check_due": r.get("next_check_due")}
+    else:
+        vals = {"licence_check_date": None, "licence_check_code": "", "penalty_points": 0, "licence_check_due": None}
+    await db.drivers.update_one({"id": driver_id, "user_id": user_id}, {"$set": vals})
+
+
 @api_router.get("/licence-checks")
 async def list_licence_checks(driver_id: Optional[str] = Query(None), user: User = Depends(get_current_user)):
     q = {"user_id": user.user_id}
@@ -1754,17 +1770,16 @@ async def list_licence_checks(driver_id: Optional[str] = Query(None), user: User
 async def create_licence_check(data: LicenceCheckInput, user: User = Depends(get_current_user)):
     lc = LicenceCheckRecord(**data.model_dump(), user_id=user.user_id)
     await db.licence_checks.insert_one(lc.model_dump())
-    # Keep the driver's headline licence-check fields in sync with this latest check.
-    if data.driver_id:
-        await db.drivers.update_one({"id": data.driver_id, "user_id": user.user_id}, {"$set": {
-            "licence_check_date": data.check_date, "licence_check_code": data.check_code,
-            "penalty_points": data.points, "licence_check_due": data.next_check_due}})
+    await _sync_driver_licence_headline(user.user_id, data.driver_id)
     return lc.model_dump()
 
 
 @api_router.delete("/licence-checks/{lid}")
 async def delete_licence_check(lid: str, user: User = Depends(get_current_user)):
+    rec = await db.licence_checks.find_one({"id": lid, "user_id": user.user_id}, {"_id": 0})
     await db.licence_checks.delete_one({"id": lid, "user_id": user.user_id})
+    if rec:
+        await _sync_driver_licence_headline(user.user_id, rec.get("driver_id"))
     return {"ok": True}
 
 
@@ -2385,21 +2400,18 @@ async def download_vehicle_history(reg: str, include_files: bool = Query(False),
     title, subtitle, sections = reports.vehicle_history_report(vehicle, data, user.region)
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
     authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    file_keys = ("pmi_records", "defects", "service", "repairs", "wheel", "walkaround", "test_history", "recalls")
+    fids = [a["file_id"] for key in file_keys for rec in data.get(key, [])
+            for a in (rec.get("attachments") or []) if a.get("file_id")]
     if format == "json":
         return {"title": title, "subtitle": subtitle, "operator": operator.get("company_name", ""),
                 "authority": authority, "generated": datetime.now(timezone.utc).isoformat(),
-                "has_files": True, "sections": sections}
+                "has_files": bool(fids), "sections": sections}
     pdf = await asyncio.to_thread(
         build_report_pdf, title, subtitle,
         [("Operator", operator.get("company_name", "")), ("Vehicle", vehicle.get("registration", ""))],
         sections, await _get_logo_bytes(user.user_id, operator), authority)
     if include_files:
-        fids = []
-        for key in ("pmi_records", "defects", "service", "repairs", "wheel", "walkaround", "test_history", "recalls"):
-            for rec in data.get(key, []):
-                for a in (rec.get("attachments") or []):
-                    if a.get("file_id"):
-                        fids.append(a["file_id"])
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
     fname = f"vehicle-history-{nreg or 'vehicle'}{'-pack' if include_files else ''}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})

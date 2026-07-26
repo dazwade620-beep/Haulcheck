@@ -18,6 +18,18 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Code review fixes (2026-06 fork — post feature-batch-3) — VERIFIED via curl
+- **HIGH (authorization)**: `viewer_write_guard` exempted `path.startswith("/api/driver")`, which also matched the manager
+  `/api/drivers` CRUD routes — letting read-only "viewer" users create/edit/delete drivers & issue driver access codes.
+  Fixed to `/api/driver/` (trailing slash) so only the driver-phone-app routes are exempt. Verified: viewer now 403 on
+  POST/DELETE /api/drivers, access-code, licence-checks; GET still 200.
+- **MEDIUM (data integrity)**: licence-check headline sync now recomputes the driver's headline fields from the LATEST
+  remaining check by check_date on both insert AND delete (`_sync_driver_licence_headline`), instead of blindly overwriting
+  with the submitted record and never recomputing on delete.
+- **Robustness**: reportlab `Paragraph` cells in build_report_pdf now XML-escape user text (`_esc`/`_xml_escape`) so `&`, `<`,
+  `>` in notes/reg/description no longer crash PDF generation (all /reports/* + vehicle history + test history).
+- **LOW**: Test-History first-time pass rate counts `advisory` as a pass; vehicle-history JSON `has_files` computed from real attachments.
+
 ## Feature batch 3 (2026-06 fork — licence-check log, vehicle history pack, records retention, PG9 pass-rate) — VERIFIED iter31 (backend 10/10, frontend 4/4)
 - **Driver Licence-Check History Log** (Drivers page): each driver card has a '+ Log check' link opening a dialog to record chronological
   DVLA/NDLS licence checks (check date, next-due, share/check code, penalty points, result clean|points|disqualified|other, notes).

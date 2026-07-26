@@ -15,6 +15,12 @@ from PIL import Image
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os as _os
+from xml.sax.saxutils import escape as _xml_escape
+
+
+def _esc(v):
+    """XML-escape user text so reportlab Paragraph parsing never breaks on & < >."""
+    return _xml_escape(str(v)) if v not in (None, "") else "—"
 
 # A Unicode TTF font that has ✓ (U+2713) and ✗ (U+2717) glyphs for the condition column.
 _SYMBOL_FONT = "Helvetica"
@@ -106,7 +112,7 @@ def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None, aut
             if not pairs:
                 story.append(Paragraph("No data recorded.", ss["Sub"]))
                 continue
-            rows = [[Paragraph(f"<b>{k}</b>", ss["Cell"]), Paragraph(str(v or "—"), ss["Cell"])] for k, v in pairs]
+            rows = [[Paragraph(f"<b>{_xml_escape(str(k))}</b>", ss["Cell"]), Paragraph(_esc(v), ss["Cell"])] for k, v in pairs]
             t = Table(rows, colWidths=[50 * mm, 128 * mm])
             t.setStyle(TableStyle([
                 ("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE), ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -124,7 +130,7 @@ def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None, aut
         data = [head]
         status_styles = []
         for i, r in enumerate(rows, start=1):
-            cells = [Paragraph(str(c if c not in (None, "") else "—"), ss["Cell"]) for c in r["cells"]]
+            cells = [Paragraph(_esc(c), ss["Cell"]) for c in r["cells"]]
             st = r.get("status")
             if st:
                 cells.append(Paragraph(f'<font color="#{STATUS_COLORS.get(st, SLATE).hexval()[2:]}"><b>{STATUS_LABEL.get(st, st)}</b></font>', ss["Cell"]))

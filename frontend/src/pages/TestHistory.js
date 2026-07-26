@@ -38,7 +38,7 @@ export function TestHistoryPanel({ embedded = false }) {
   const remove = async (id) => { await api.delete(`/test-history/${id}`); load(); };
 
   const annual = items.filter((i) => i.event_type === "annual_test");
-  const passes = annual.filter((i) => i.result === "pass").length;
+  const passes = annual.filter((i) => ["pass", "advisory"].includes(i.result)).length;
   const passRate = annual.length ? Math.round((passes / annual.length) * 100) : null;
   const prohibitions = items.filter((i) => i.event_type === "prohibition");
   const openProhib = prohibitions.filter((i) => ["pg9", "fail"].includes(i.result)).length;
