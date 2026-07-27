@@ -211,6 +211,9 @@ class Vehicle(BaseModel):
     vor_reason: str = ""
     vor_off_date: Optional[str] = None
     vor_expected_return: Optional[str] = None
+    sold: bool = False
+    sold_date: Optional[str] = None
+    sold_notes: str = ""
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -230,6 +233,9 @@ class VehicleInput(BaseModel):
     vor_reason: str = ""
     vor_off_date: Optional[str] = None
     vor_expected_return: Optional[str] = None
+    sold: bool = False
+    sold_date: Optional[str] = None
+    sold_notes: str = ""
     notes: str = ""
 
 
@@ -242,6 +248,9 @@ class Trailer(BaseModel):
     service_due: Optional[str] = None
     vor: bool = False
     vor_reason: str = ""
+    sold: bool = False
+    sold_date: Optional[str] = None
+    sold_notes: str = ""
     notes: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -253,6 +262,9 @@ class TrailerInput(BaseModel):
     service_due: Optional[str] = None
     vor: bool = False
     vor_reason: str = ""
+    sold: bool = False
+    sold_date: Optional[str] = None
+    sold_notes: str = ""
     notes: str = ""
 
 
@@ -2473,6 +2485,39 @@ async def records_retention(user: User = Depends(get_current_user)):
             "label": label, "retention_months": months, "total": len(recs),
             "eligible": eligible, "approaching": approaching, "items": items[:50],
         })
+    # Off-road / sold vehicle & trailer records — DVSA guidance: retain 18 months after disposal.
+    RETAIN_MONTHS = 18
+    inactive_total, inactive_eligible, inactive_approaching, inactive_items = 0, 0, 0, []
+    for coll, name_field in (("vehicles", "registration"), ("trailers", "trailer_number")):
+        for r in await db[coll].find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+            if not (r.get("sold") or r.get("vor")):
+                continue
+            inactive_total += 1
+            status = "Sold" if r.get("sold") else "VOR"
+            base = r.get("sold_date") or r.get("created_at") if r.get("sold") else (r.get("vor_off_date") or r.get("created_at"))
+            keep = _keep_until(base, RETAIN_MONTHS) if base else None
+            if not keep:
+                continue
+            days_left = (keep - today).days
+            if days_left < 0:
+                inactive_eligible += 1
+                state = "eligible"
+            elif days_left <= 60:
+                inactive_approaching += 1
+                state = "approaching"
+            else:
+                continue
+            inactive_items.append({
+                "vehicle_reg": f"{r.get(name_field)} · {status}", "record_date": str(base)[:10],
+                "keep_until": keep.isoformat(), "days_left": days_left, "state": state,
+            })
+    inactive_items.sort(key=lambda x: x["days_left"])
+    total_eligible += inactive_eligible
+    total_approaching += inactive_approaching
+    categories.append({
+        "label": "Off-road / sold vehicles", "retention_months": RETAIN_MONTHS, "total": inactive_total,
+        "eligible": inactive_eligible, "approaching": inactive_approaching, "items": inactive_items[:50],
+    })
     return {"total_eligible": total_eligible, "total_approaching": total_approaching, "categories": categories}
 
 
@@ -3841,6 +3886,11 @@ class VorInput(BaseModel):
     expected_return: Optional[str] = None
 
 
+class SoldInput(BaseModel):
+    sold_date: Optional[str] = None
+    notes: str = ""
+
+
 @api_router.post("/vehicles/{vid}/vor")
 async def set_vehicle_vor(vid: str, data: VorInput, user: User = Depends(get_current_user)):
     veh = await db.vehicles.find_one({"id": vid, "user_id": user.user_id}, {"_id": 0})
@@ -3867,6 +3917,37 @@ async def clear_vehicle_vor(vid: str, user: User = Depends(get_current_user)):
     await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
         "vor": False, "vor_reason": "", "vor_off_date": None, "vor_expected_return": None}})
     await db.calendar_events.delete_many({"user_id": user.user_id, "ref": f"vor:{vid}"})
+    return {"ok": True}
+
+
+@api_router.post("/vehicles/{vid}/sold")
+async def set_vehicle_sold(vid: str, data: SoldInput, user: User = Depends(get_current_user)):
+    veh = await db.vehicles.find_one({"id": vid, "user_id": user.user_id}, {"_id": 0})
+    if not veh:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    sold_date = data.sold_date or datetime.now(timezone.utc).date().isoformat()
+    await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
+        "sold": True, "sold_date": sold_date, "sold_notes": data.notes,
+        "vor": False, "vor_reason": "", "vor_off_date": None, "vor_expected_return": None}})
+    reg = veh.get("registration", "")
+    await db.calendar_events.delete_many({"user_id": user.user_id, "ref": {"$in": [f"vor:{vid}", f"sold:{vid}"]}})
+    keep = _keep_until(sold_date, 18)
+    evs = [{"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": sold_date,
+            "title": f"Sold / disposed — {reg}", "notes": data.notes, "status": "valid",
+            "ref": f"sold:{vid}", "created_at": now_iso()}]
+    if keep:
+        evs.append({"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": keep.isoformat(),
+                    "title": f"Records retention ends — {reg}", "notes": "Vehicle records may be archived/disposed after 18 months.",
+                    "status": "due_soon", "ref": f"sold:{vid}", "created_at": now_iso()})
+    await db.calendar_events.insert_many(evs)
+    return {"ok": True, "retain_until": keep.isoformat() if keep else None}
+
+
+@api_router.post("/vehicles/{vid}/sold/clear")
+async def clear_vehicle_sold(vid: str, user: User = Depends(get_current_user)):
+    await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
+        "sold": False, "sold_date": None, "sold_notes": ""}})
+    await db.calendar_events.delete_many({"user_id": user.user_id, "ref": f"sold:{vid}"})
     return {"ok": True}
 
 
@@ -3911,7 +3992,7 @@ async def gather_stats(user_id: str):
     alerts = []
     expired = due_soon = 0
     for v in vehicles:
-        if v.get("vor"):
+        if v.get("vor") or v.get("sold"):
             continue
         for label, key in [("MOT", "mot_due"), ("Service", "service_due"), ("Tax", "tax_due"), ("Tacho Calibration", "tacho_calibration_due"), ("Speed Limiter", "speed_limiter_due")]:
             d = days_until(v.get(key))
@@ -3945,8 +4026,8 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "document", "name": doc["title"], "item": doc.get("doc_type", "Document"), "status": "due_soon", "days": d})
 
-    vor_regs = {_norm_reg(v.get("registration")) for v in vehicles if v.get("vor")}
-    vor_regs |= {_norm_reg(tr.get("trailer_number")) for tr in trailers if tr.get("vor")}
+    vor_regs = {_norm_reg(v.get("registration")) for v in vehicles if v.get("vor") or v.get("sold")}
+    vor_regs |= {_norm_reg(tr.get("trailer_number")) for tr in trailers if tr.get("vor") or tr.get("sold")}
     for p in pmi_schedules:
         if _norm_reg(p.get("vehicle_reg")) in vor_regs:
             continue
@@ -3960,7 +4041,7 @@ async def gather_stats(user_id: str):
             alerts.append({"type": "pmi", "name": p["vehicle_reg"], "item": "PMI Inspection", "status": "due_soon", "days": d})
 
     for tr in trailers:
-        if tr.get("vor"):
+        if tr.get("vor") or tr.get("sold"):
             continue
         for label, key in [("Annual Test", "mot_due"), ("Service", "service_due")]:
             d = days_until(tr.get(key))
@@ -4120,7 +4201,7 @@ async def detect_gaps(user_id: str):
     test_regs = {t.get("vehicle_reg") for t in test_history}
     pmr_with_brake = {r.get("vehicle_reg") for r in pmi_records if r.get("brake_test_type") and r.get("brake_test_type") != "none"}
     for v in vehicles:
-        if v.get("vor"):
+        if v.get("vor") or v.get("sold"):
             continue
         reg = v.get("registration")
         if not v.get("mot_due"):
