@@ -18,6 +18,11 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## VOR/Sold compliance-score fix + Sold-Disposed status (2026-06 fork) — VERIFIED iter32 (backend 7/7, frontend 100%)
+- **BUG FIX (compliance score)**: a VOR (Vehicle Off Road) vehicle's overdue PMI and wheel-security items were still counted in `gather_stats` → wrongly lowering the risk score & showing alerts. Root cause: the PMI-schedule and wheel-audit loops had no VOR check (vehicle/trailer loops did). Fixed: both loops now skip regs in `vor_regs` (VOR + sold). Verified: overdue-PMI account scored 18 → 38 after VOR, expired 1 → 0, PMI alert removed. Flows through to Dashboard alerts + auto-alert bell (both derive from gather_stats) and AI briefing.
+- **FEATURE — Sold / Disposed status** (kept VOR for temporary off-road): new `sold`/`sold_date`/`sold_notes` on Vehicle & Trailer models. `POST /api/vehicles/{vid}/sold` (sets sold, clears VOR, adds a 'Sold' + 'Records retention ends (18mo)' calendar event) and `/sold/clear`. Sold vehicles/trailers are excluded from the compliance score (gather_stats + detect_gaps treat `vor or sold`) but stay in the Fleet list with an amber **SOLD** badge. Vehicles.js: Tag 'Mark sold' button → dialog (sold-date/sold-notes), Undo2 'Restore to active fleet'. Trailers.js: 'Sold / Disposed' checkbox + date/notes in the form + trailer-sold-badge.
+- **FEATURE — 18-month records retention** for sold/off-road vehicles: `GET /api/records-retention` gained an 'Off-road / sold vehicles' category (18-month DVSA retention). keep_until = sold_date (or vor_off_date) + 18 months; flagged 'eligible' (Archive) once past, 'approaching' within 60 days. Surfaced in the Dashboard Records Retention card. After 18 months it's flagged only (manual delete — no auto-removal).
+
 ## Code review fixes (2026-06 fork — post feature-batch-3) — VERIFIED via curl
 - **HIGH (authorization)**: `viewer_write_guard` exempted `path.startswith("/api/driver")`, which also matched the manager
   `/api/drivers` CRUD routes — letting read-only "viewer" users create/edit/delete drivers & issue driver access codes.
