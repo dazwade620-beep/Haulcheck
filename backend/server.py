@@ -3945,7 +3945,11 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "document", "name": doc["title"], "item": doc.get("doc_type", "Document"), "status": "due_soon", "days": d})
 
+    vor_regs = {_norm_reg(v.get("registration")) for v in vehicles if v.get("vor")}
+    vor_regs |= {_norm_reg(tr.get("trailer_number")) for tr in trailers if tr.get("vor")}
     for p in pmi_schedules:
+        if _norm_reg(p.get("vehicle_reg")) in vor_regs:
+            continue
         d = days_until(p.get("next_due"))
         st = compliance_status(d)
         if st == "expired":
@@ -4009,6 +4013,8 @@ async def gather_stats(user_id: str):
     major_defects = [d for d in open_defects if d.get("severity") in ("major", "safety_critical")]
     wheel = await db.wheel_audits.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     for w in wheel:
+        if _norm_reg(w.get("vehicle_reg")) in vor_regs:
+            continue
         d = days_until(w.get("next_due"))
         st = compliance_status(d)
         if st == "expired":
