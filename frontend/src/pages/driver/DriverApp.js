@@ -196,13 +196,13 @@ function DriverWalkaround({ driver, back }) {
   const setItem = (idx, patch) => setChecklist((cl) => cl.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
   const failCount = checklist.filter((c) => !c.ok).length;
 
-  const submit = async () => {
+  const submit = async (cl = checklist) => {
     setBusy(true);
-    const failed = checklist.filter((c) => !c.ok);
+    const failed = cl.filter((c) => !c.ok);
     const compiled = failed.map((c) => `${c.item}${c.note ? `: ${c.note}` : ""}`).join("; ");
     try {
       await driverApi.post("/driver/walkaround", {
-        vehicle_reg: driver.assigned_vehicle_reg, checklist, mileage,
+        vehicle_reg: driver.assigned_vehicle_reg, checklist: cl, mileage,
         defects_noted: [compiled, notes].filter(Boolean).join(" — "),
         result: failed.length ? "defects_found" : "nil_defect",
         check_date: new Date().toISOString().slice(0, 10),
@@ -212,6 +212,7 @@ function DriverWalkaround({ driver, back }) {
     } catch { toast.error("Could not save check"); }
     setBusy(false);
   };
+  const submitNil = () => submit(buildChecklist());
 
   let flat = -1;
   return (
@@ -221,6 +222,10 @@ function DriverWalkaround({ driver, back }) {
         <span className="font-mono font-bold">{driver.assigned_vehicle_reg || "—"}</span>
         <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${failCount ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"}`}>{failCount ? `${failCount} defect(s)` : "Nil defect"}</span>
       </div>
+      <button data-testid="driver-walk-nil" disabled={busy || !driver.assigned_vehicle_reg} onClick={submitNil} className="w-full mb-3 bg-emerald-600 text-white font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
+        <Check size={18} /> Nil defect — all OK, submit
+      </button>
+      <p className="text-center text-xs text-slate-500 mb-4">…or record item-by-item below if you spotted a defect.</p>
       <input data-testid="driver-walk-mileage" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="Mileage (optional)" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 mb-4 text-white placeholder:text-slate-500" />
       {CHECKLIST.map((sec) => (
         <div key={sec.section} className="mb-4">
@@ -247,7 +252,7 @@ function DriverWalkaround({ driver, back }) {
         </div>
       ))}
       <textarea data-testid="driver-walk-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes (optional)" rows={2} className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 text-white placeholder:text-slate-500 mb-4" />
-      <button data-testid="driver-submit-walkaround" disabled={busy || !driver.assigned_vehicle_reg} onClick={submit} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
+      <button data-testid="driver-submit-walkaround" disabled={busy || !driver.assigned_vehicle_reg} onClick={() => submit()} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
         {busy ? <Loader2 size={18} className="animate-spin" /> : "Submit check"}
       </button>
     </Screen>
@@ -295,18 +300,23 @@ function DriverWeeklyWalkaround({ driver, back }) {
     return col.date < t;
   }).length;
 
-  const submit = async () => {
+  const submit = async (cl = checklist) => {
     if (needSignature && !signature) { toast.error("Please add your signature for the week"); return; }
     setBusy(true);
     try {
       const { data } = await driverApi.post("/driver/weekly-walkaround/day", {
-        vehicle_reg: driver.assigned_vehicle_reg, checklist, mileage, signature,
+        vehicle_reg: driver.assigned_vehicle_reg, checklist: cl, mileage, signature,
       });
       setSheet(data);
-      toast.success(failCount ? `Today logged — ${failCount} defect(s)` : "Today's check logged");
+      const fc = cl.filter((c) => !c.ok).length;
+      toast.success(fc ? `Today logged — ${fc} defect(s)` : "Today's check logged");
       setChecking(false); setChecklist(buildChecklist()); setMileage(""); setSignature("");
     } catch { toast.error("Could not save check"); }
     setBusy(false);
+  };
+  const nilToday = () => {
+    if (needSignature) { setChecklist(buildChecklist()); setChecking(true); return; }
+    submit(buildChecklist());
   };
 
   if (loading) return <Screen title="Weekly Walkaround" onBack={back} testid="driver-weekly"><div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-500" /></div></Screen>;
@@ -319,7 +329,8 @@ function DriverWeeklyWalkaround({ driver, back }) {
           <span className="font-mono font-bold">{driver.assigned_vehicle_reg || "—"}</span>
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${failCount ? "bg-amber-500/20 text-amber-300" : "bg-emerald-500/20 text-emerald-300"}`}>{failCount ? `${failCount} defect(s)` : "Nil defect"}</span>
         </div>
-        <input data-testid="driver-weekly-mileage" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="Odometer today (optional)" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 mb-4 text-white placeholder:text-slate-500" />
+        <input data-testid="driver-weekly-mileage" value={mileage} onChange={(e) => setMileage(e.target.value)} placeholder="Odometer today (optional)" className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 mb-3 text-white placeholder:text-slate-500" />
+        <button data-testid="weekly-mark-all-ok" onClick={() => setChecklist(buildChecklist())} className="w-full mb-4 border border-emerald-600 text-emerald-300 font-semibold rounded-xl py-2.5 flex items-center justify-center gap-2 active:scale-[0.98]"><Check size={16} /> Mark all OK (nil defect)</button>
         {CHECKLIST.map((sec) => (
           <div key={sec.section} className="mb-4">
             <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">{sec.section}</p>
@@ -348,7 +359,7 @@ function DriverWeeklyWalkaround({ driver, back }) {
             <div className="bg-white rounded-lg overflow-hidden"><SignaturePad testid="driver-weekly-signature" value={signature} onChange={setSignature} /></div>
           </div>
         )}
-        <button data-testid="driver-submit-weekly" disabled={busy || !driver.assigned_vehicle_reg} onClick={submit} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
+        <button data-testid="driver-submit-weekly" disabled={busy || !driver.assigned_vehicle_reg} onClick={() => submit()} className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]">
           {busy ? <Loader2 size={18} className="animate-spin" /> : "Submit today's check"}
         </button>
       </Screen>
@@ -389,6 +400,14 @@ function DriverWeeklyWalkaround({ driver, back }) {
         className="w-full bg-white text-slate-950 font-bold rounded-xl py-3.5 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
       >
         <ClipboardCheck size={18} /> {todayDone ? "Redo today's check" : "Do today's check"}
+      </button>
+      <button
+        data-testid="driver-weekly-nil-today"
+        disabled={!driver.assigned_vehicle_reg}
+        onClick={nilToday}
+        className="w-full mt-3 border border-emerald-600 text-emerald-300 font-semibold rounded-xl py-3 flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98]"
+      >
+        <Check size={18} /> {todayDone ? "Redo as nil defect" : "Nil defect today (all OK)"}
       </button>
       {todayDone && <p className="text-center text-sm text-emerald-400 mt-3">✓ Today's check is already recorded on this week's sheet.</p>}
     </Screen>

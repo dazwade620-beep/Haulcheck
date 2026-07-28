@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2, CalendarRange, FileDown, Check, X, Minus } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
-import { CHECKLIST } from "@/pages/Walkaround";
+import { CHECKLIST, buildChecklist } from "@/pages/Walkaround";
 import { SignaturePad } from "@/components/SignaturePad";
 import { downloadPdf } from "@/lib/download";
 
@@ -189,6 +189,14 @@ function WeeklyEditor({ record, onClose, onSaved }) {
     });
   };
 
+  const setDayAllOk = (dayKey) => {
+    setRec((r) => {
+      const days = { ...(r.days || {}) };
+      days[dayKey] = { ...(days[dayKey] || {}), date: days[dayKey]?.date || r.week_start, checklist: buildChecklist(), result: "nil_defect" };
+      return { ...r, days };
+    });
+  };
+
   const save = async () => {
     setBusy(true);
     try {
@@ -221,7 +229,12 @@ function WeeklyEditor({ record, onClose, onSaved }) {
             <thead>
               <tr className="bg-slate-900 text-white">
                 <th className="text-left px-3 py-2 font-semibold sticky left-0 bg-slate-900">Check item</th>
-                {weekCols(rec.week_start).map((col) => <th key={col.key} className="px-2 py-2 font-semibold text-center w-14 text-[11px] leading-tight">{col.label}</th>)}
+                {weekCols(rec.week_start).map((col) => (
+                  <th key={col.key} className="px-2 py-2 font-semibold text-center w-14 text-[11px] leading-tight">
+                    {col.label}
+                    <button data-testid={`weekly-day-all-ok-${col.key}`} onClick={() => setDayAllOk(col.key)} title="Mark this day nil defect (all items OK)" className="block mx-auto mt-1 text-[9px] font-bold text-emerald-100 bg-emerald-600/40 hover:bg-emerald-600 rounded px-1.5 py-0.5">✓ all</button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

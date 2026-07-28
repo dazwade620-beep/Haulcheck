@@ -18,6 +18,12 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Nil-defect quick tick on walkarounds (2026-06 fork) — self-tested (driver daily verified E2E: nil_defect + 24 items all OK persisted)
+- **Driver daily walkaround** (DriverApp.js): prominent green "Nil defect — all OK, submit" one-tap button at the top submits a full all-OK checklist instantly (submit() refactored to accept an optional checklist arg; submitNil = submit(buildChecklist())). Manual item-by-item list remains below for defect cases.
+- **Driver weekly walkaround** (DriverApp.js): "Nil defect today (all OK)" button on the sheet screen (nilToday — submits directly, or opens the check with all-OK preset when a weekly signature is still needed) + a "Mark all OK (nil defect)" quick tick inside the checking view.
+- **Manager weekly grid** (WeeklyWalkaround.js WeeklyEditor): per-day "✓ all" button in each day column header (setDayAllOk) marks that whole day nil-defect (all items OK).
+- **Manager daily** (Walkaround.js): already had "Mark all OK" (walk-all-pass) — unchanged.
+
 ## VOR/Sold compliance-score fix + Sold-Disposed status (2026-06 fork) — VERIFIED iter32 (backend 7/7, frontend 100%)
 - **BUG FIX (compliance score)**: a VOR (Vehicle Off Road) vehicle's overdue PMI and wheel-security items were still counted in `gather_stats` → wrongly lowering the risk score & showing alerts. Root cause: the PMI-schedule and wheel-audit loops had no VOR check (vehicle/trailer loops did). Fixed: both loops now skip regs in `vor_regs` (VOR + sold). Verified: overdue-PMI account scored 18 → 38 after VOR, expired 1 → 0, PMI alert removed. Flows through to Dashboard alerts + auto-alert bell (both derive from gather_stats) and AI briefing.
 - **FEATURE — Sold / Disposed status** (kept VOR for temporary off-road): new `sold`/`sold_date`/`sold_notes` on Vehicle & Trailer models. `POST /api/vehicles/{vid}/sold` (sets sold, clears VOR, adds a 'Sold' + 'Records retention ends (18mo)' calendar event) and `/sold/clear`. Sold vehicles/trailers are excluded from the compliance score (gather_stats + detect_gaps treat `vor or sold`) but stay in the Fleet list with an amber **SOLD** badge. Vehicles.js: Tag 'Mark sold' button → dialog (sold-date/sold-notes), Undo2 'Restore to active fleet'. Trailers.js: 'Sold / Disposed' checkbox + date/notes in the form + trailer-sold-badge.
