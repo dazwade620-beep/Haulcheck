@@ -3796,6 +3796,22 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": ("Defects found" if wa.get("result") == "defects_found" else "Nil defect") + (f" · {wa.get('driver_name')}" if wa.get("driver_name") else ""),
                 "status": "due_soon" if (wa.get("result") == "defects_found" and not wa.get("rectified")) else "valid",
             })
+    for ww in await db.weekly_walkarounds.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        reg = ww.get("vehicle_reg")
+        col_dates = dict(weekly_columns(ww.get("week_start") or ""))
+        for dkey, day in (ww.get("days") or {}).items():
+            cl = day.get("checklist") or []
+            if not cl:
+                continue
+            ddate = day.get("date") or col_dates.get(dkey)
+            if not ddate:
+                continue
+            has_def = any(not c.get("ok") for c in cl)
+            events.append({
+                "date": ddate, "type": "weekly_walkaround", "title": f"Weekly Check — {reg}",
+                "subtitle": ("Defects found" if has_def else "Nil defect") + (f" · {ww.get('driver_name')}" if ww.get("driver_name") else ""),
+                "status": "due_soon" if has_def else "valid",
+            })
     for sv in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         if sv.get("service_date"):
             events.append({

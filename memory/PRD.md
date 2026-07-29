@@ -18,6 +18,10 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Weekly walkaround now shows on the Calendar (2026-06 fork) — verified (API + UI)
+- BUG: recorded Weekly Walkaround days did not appear on the Calendar (only daily checks + recurring PMI did). The `/api/calendar` aggregator had no `weekly_walkarounds` loop.
+- FIX (server.py calendar endpoint): for each weekly sheet, every day with a recorded checklist now emits a `weekly_walkaround` event on that day's date — "Weekly Check — <reg>" with Nil defect / Defects found + driver, status due_soon when defects. Frontend Calendar.js: registered `weekly_walkaround` in TYPE_META (label "Weekly Check", ClipboardCheck icon) and EVENT_LINK (/maintenance?tab=weekly).
+
 ## Nil-defect quick tick on walkarounds (2026-06 fork) — self-tested (driver daily verified E2E: nil_defect + 24 items all OK persisted)
 - **Driver daily walkaround** (DriverApp.js): prominent green "Nil defect — all OK, submit" one-tap button at the top submits a full all-OK checklist instantly (submit() refactored to accept an optional checklist arg; submitNil = submit(buildChecklist())). Manual item-by-item list remains below for defect cases.
 - **Driver weekly walkaround** (DriverApp.js): "Nil defect today (all OK)" button on the sheet screen (nilToday — submits directly, or opens the check with all-OK preset when a weekly signature is still needed) + a "Mark all OK (nil defect)" quick tick inside the checking view.
