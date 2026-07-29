@@ -26,6 +26,13 @@ const weekCols = (weekStart) => {
   });
 };
 
+// ISO date (yyyy-mm-dd) for a given weekday column within the sheet's week
+const isoForDay = (weekStart, dayKey) => {
+  const col = weekCols(weekStart).find((c) => c.key === dayKey);
+  const d = col ? col.date : new Date(`${weekStart}T00:00:00`);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 const total = (a, b) => {
   const s = parseInt(String(a).replace(/,/g, ""), 10);
   const f = parseInt(String(b).replace(/,/g, ""), 10);
@@ -174,7 +181,8 @@ function WeeklyEditor({ record, onClose, onSaved }) {
   const setCell = (dayKey, it) => {
     setRec((r) => {
       const days = { ...(r.days || {}) };
-      const day = { ...(days[dayKey] || { date: r.week_start, checklist: [] }) };
+      const day = { ...(days[dayKey] || { checklist: [] }) };
+      day.date = isoForDay(r.week_start, dayKey);
       const cl = [...(day.checklist || [])];
       const i = cl.findIndex((c) => c.item === it.item);
       const cur = i >= 0 ? cl[i].ok : null;
@@ -192,7 +200,7 @@ function WeeklyEditor({ record, onClose, onSaved }) {
   const setDayAllOk = (dayKey) => {
     setRec((r) => {
       const days = { ...(r.days || {}) };
-      days[dayKey] = { ...(days[dayKey] || {}), date: days[dayKey]?.date || r.week_start, checklist: buildChecklist(), result: "nil_defect" };
+      days[dayKey] = { ...(days[dayKey] || {}), date: isoForDay(r.week_start, dayKey), checklist: buildChecklist(), result: "nil_defect" };
       return { ...r, days };
     });
   };

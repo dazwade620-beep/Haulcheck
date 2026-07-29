@@ -3798,12 +3798,13 @@ async def calendar(user: User = Depends(get_current_user)):
             })
     for ww in await db.weekly_walkarounds.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         reg = ww.get("vehicle_reg")
-        col_dates = dict(weekly_columns(ww.get("week_start") or ""))
+        ws = ww.get("week_start")
+        col_dates = dict(weekly_columns(ws)) if ws else {}
         for dkey, day in (ww.get("days") or {}).items():
             cl = day.get("checklist") or []
             if not cl:
                 continue
-            ddate = day.get("date") or col_dates.get(dkey)
+            ddate = col_dates.get(dkey) or day.get("date")
             if not ddate:
                 continue
             has_def = any(not c.get("ok") for c in cl)
