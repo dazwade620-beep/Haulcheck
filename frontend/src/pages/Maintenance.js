@@ -7,8 +7,9 @@ import { WalkaroundPanel } from "@/pages/Walkaround";
 import { WeeklyWalkaroundPanel } from "@/pages/WeeklyWalkaround";
 import { ServicePanel } from "@/pages/Service";
 import { RepairsPanel } from "@/pages/Repairs";
+import { MaintenanceProvidersPanel } from "@/pages/MaintenanceProviders";
 
-const VALID = ["pmi", "walkaround", "weekly", "defects", "service", "repairs", "wheel"];
+const VALID = ["pmi", "walkaround", "weekly", "defects", "service", "repairs", "wheel", "providers"];
 
 export default function Maintenance() {
   const [params] = useSearchParams();
@@ -29,6 +30,7 @@ export default function Maintenance() {
           <TabsTrigger value="service" data-testid="tab-service">Vehicles Service</TabsTrigger>
           <TabsTrigger value="repairs" data-testid="tab-repairs">Repairs / Major Work</TabsTrigger>
           <TabsTrigger value="wheel" data-testid="tab-wheel">Wheel Security</TabsTrigger>
+          <TabsTrigger value="providers" data-testid="tab-providers">Providers</TabsTrigger>
         </TabsList>
         <TabsContent value="pmi"><InspectionsPanel embedded /></TabsContent>
         <TabsContent value="walkaround"><WalkaroundPanel embedded /></TabsContent>
@@ -37,6 +39,7 @@ export default function Maintenance() {
         <TabsContent value="service"><ServicePanel /></TabsContent>
         <TabsContent value="repairs"><RepairsPanel /></TabsContent>
         <TabsContent value="wheel"><WheelSecurityPanel embedded /></TabsContent>
+        <TabsContent value="providers"><MaintenanceProvidersPanel /></TabsContent>
       </Tabs>
     </div>
   );

@@ -731,6 +731,37 @@ class RepairInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class MaintenanceProvider(BaseModel):
+    id: str = Field(default_factory=lambda: f"mpr_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    name: str
+    provider_type: str = "Garage / Workshop"
+    contact_name: str = ""
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    services: str = ""
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class MaintenanceProviderInput(BaseModel):
+    name: str
+    provider_type: str = "Garage / Workshop"
+    contact_name: str = ""
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    services: str = ""
+    contract_start: Optional[str] = None
+    contract_end: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class RecallRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"rcl_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -3475,6 +3506,32 @@ async def update_repair(rid: str, data: RepairInput, user: User = Depends(get_cu
 @api_router.delete("/repairs/{rid}")
 async def delete_repair(rid: str, user: User = Depends(get_current_user)):
     await db.repairs.delete_one({"id": rid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/maintenance-providers")
+async def list_maintenance_providers(user: User = Depends(get_current_user)):
+    return await db.maintenance_providers.find({"user_id": user.user_id}, {"_id": 0}).sort("name", 1).to_list(1000)
+
+
+@api_router.post("/maintenance-providers")
+async def create_maintenance_provider(data: MaintenanceProviderInput, user: User = Depends(get_current_user)):
+    p = MaintenanceProvider(**data.model_dump(), user_id=user.user_id)
+    await db.maintenance_providers.insert_one(p.model_dump())
+    return p.model_dump()
+
+
+@api_router.put("/maintenance-providers/{pid}")
+async def update_maintenance_provider(pid: str, data: MaintenanceProviderInput, user: User = Depends(get_current_user)):
+    res = await db.maintenance_providers.update_one({"id": pid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return {"ok": True}
+
+
+@api_router.delete("/maintenance-providers/{pid}")
+async def delete_maintenance_provider(pid: str, user: User = Depends(get_current_user)):
+    await db.maintenance_providers.delete_one({"id": pid, "user_id": user.user_id})
     return {"ok": True}
 
 
