@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend E2E testing of new Maintenance 'Providers' tab and public/managed Contact page. All 11 critical scenarios PASSED: public /contact loads with 'Get in touch' + info@haulcheck.co.uk card, blank-form validation blocks submit with error toast ('Please add your name, email and a message'), valid submit shows contact-success + 'Message sent' toast, login page 'Contact us' link points to /contact, sidebar nav-contact exists after manager login and navigates to /contact, Providers tab reachable via /maintenance?tab=providers, provider create with signed-contract file upload succeeds (row shows '1 file(s)'), edit updates the name, delete removes the row, manager inbox lists prior messages and contact-delete-message removes a row.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Contact.js triggers a fetch to /api/contact-messages when /contact loads without a token, producing two 401s in the console. Harmless but noisy — gate the inbox fetch on presence of a token to keep the public page's console clean.",
+    "Dashboard shows Recharts 'width(-1) height(-1)' warnings — a chart container is temporarily collapsed on mount. Cosmetic, but worth adding minWidth/minHeight or aspect."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (11/11 core scenarios)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! — worked",
+  "seed_data_creation": "Submitted one public test contact message (deleted during inbox test). Created, edited, and deleted a 'TEST_Acme Truck Services' provider — no residual test data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Providers CRUD + FileUpload flows work end-to-end via /api/upload. The public Contact page produces harmless 401s from an inbox fetch when unauthenticated. Sidebar 'nav-contact' testid is generated from the item.id in Layout.js (line 84). Provider-type Select opens with 9 options."
+}

@@ -77,6 +77,7 @@ api_router = APIRouter(prefix="/api")
 _VIEWER_EXEMPT_PATHS = {
     "/api/auth/login", "/api/auth/register", "/api/auth/session", "/api/auth/logout",
     "/api/auth/accept-invite", "/api/auth/forgot-password", "/api/auth/reset-password",
+    "/api/contact",
 }
 
 
@@ -760,6 +761,23 @@ class MaintenanceProviderInput(BaseModel):
     contract_end: Optional[str] = None
     notes: str = ""
     attachments: List[Attachment] = []
+
+
+class ContactMessage(BaseModel):
+    id: str = Field(default_factory=lambda: f"msg_{uuid.uuid4().hex[:10]}")
+    name: str
+    email: str
+    subject: str = ""
+    message: str
+    handled: bool = False
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ContactInput(BaseModel):
+    name: str
+    email: str
+    subject: str = ""
+    message: str
 
 
 class RecallRecord(BaseModel):
@@ -3532,6 +3550,41 @@ async def update_maintenance_provider(pid: str, data: MaintenanceProviderInput, 
 @api_router.delete("/maintenance-providers/{pid}")
 async def delete_maintenance_provider(pid: str, user: User = Depends(get_current_user)):
     await db.maintenance_providers.delete_one({"id": pid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.post("/contact")
+async def submit_contact(data: ContactInput):
+    msg = ContactMessage(**data.model_dump())
+    await db.contact_messages.insert_one(msg.model_dump())
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        html = (
+            "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto'>"
+            "<h2 style='color:#0f172a'>New HaulCheck contact message</h2>"
+            f"<p><strong>From:</strong> {data.name} &lt;{data.email}&gt;</p>"
+            f"<p><strong>Subject:</strong> {data.subject or '—'}</p>"
+            f"<p style='white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px'>{data.message}</p>"
+            "</div>"
+        )
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [os.environ['SENDER_EMAIL']],
+            "reply_to": data.email, "subject": f"[Contact] {data.subject or 'New message'} — {data.name}", "html": html,
+        })
+    except Exception as e:
+        logging.error(f"Contact email failed: {e}")
+    return {"ok": True}
+
+
+@api_router.get("/contact-messages")
+async def list_contact_messages(user: User = Depends(get_current_user)):
+    return await db.contact_messages.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api_router.delete("/contact-messages/{cid}")
+async def delete_contact_message(cid: str, user: User = Depends(get_current_user)):
+    await db.contact_messages.delete_one({"id": cid})
     return {"ok": True}
 
 

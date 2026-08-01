@@ -18,6 +18,7 @@ import Team from "@/pages/Team";
 import AcceptInvite from "@/pages/AcceptInvite";
 import ResetPassword from "@/pages/ResetPassword";
 import DriverApp from "@/pages/driver/DriverApp";
+import Contact from "@/pages/Contact";
 import { Truck } from "lucide-react";
 
 function Protected({ children }) {
@@ -44,6 +45,7 @@ function AppRouter() {
       <Route path="/driver" element={<DriverApp />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/contact" element={<Contact />} />
       <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
       <Route path="/team" element={<Protected><Team /></Protected>} />
       <Route path="/operator" element={<Protected><Operator /></Protected>} />

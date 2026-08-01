@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ const NAV = [
   { to: "/office", label: "Office", icon: Briefcase, id: "office" },
   { to: "/reminders", label: "Reminders", icon: Bell, id: "reminders" },
   { to: "/team", label: "Team", icon: UserPlus, id: "team" },
+  { to: "/contact", label: "Contact", icon: Mail, id: "contact" },
 ];
 
 export default function Layout({ children }) {
