@@ -27,7 +27,7 @@ const TYPE_META = {
   wheel: { icon: Wrench, label: "Wheel Security" },
   service: { icon: Cog, label: "Service" },
   walkaround: { icon: ClipboardCheck, label: "Daily Check" },
-  weekly_walkaround: { icon: ClipboardCheck, label: "Weekly Check" },
+  weekly_walkaround: { icon: ClipboardCheck, label: "Daily Check Complete" },
   vehicle: { icon: Gauge, label: "Vehicle" },
   driver: { icon: ShieldCheck, label: "Driver" },
   holiday: { icon: Palmtree, label: "Holiday" },

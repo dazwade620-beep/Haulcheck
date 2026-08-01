@@ -3809,7 +3809,7 @@ async def calendar(user: User = Depends(get_current_user)):
                 continue
             has_def = any(not c.get("ok") for c in cl)
             events.append({
-                "date": ddate, "type": "weekly_walkaround", "title": f"Weekly Check — {reg}",
+                "date": ddate, "type": "weekly_walkaround", "title": f"Daily Check Complete — {reg}",
                 "subtitle": ("Defects found" if has_def else "Nil defect") + (f" · {ww.get('driver_name')}" if ww.get("driver_name") else ""),
                 "status": "due_soon" if has_def else "valid",
             })
