@@ -18,6 +18,11 @@ Road haulage compliance web app for transport/fleet managers (desktop) and drive
 - Server-side risk score (0–100) with Low/Moderate/High bands.
 
 
+## Maintenance Providers tab + Contact Us page (2026-06 fork) — VERIFIED iter33 (frontend 11/11, backend curl-verified)
+- **Maintenance › Providers tab** (MaintenanceProviders.js): CRUD for multiple maintenance providers/contractors — name, type (Garage/PMI inspector/Tyre/Tacho/Brake test/Recovery/Parts/MOT station/Other), contact name, phone, email, address, services, contract start/end, notes, and **signed-contract file uploads** (FileUpload → object storage). Backend: MaintenanceProvider/Input models + GET/POST/PUT/DELETE /api/maintenance-providers. Tab added to Maintenance.js (VALID + trigger + content).
+- **Contact Us page** (Contact.js, public route /contact): "Get in touch" hero with the agreed copy + info@haulcheck.co.uk card; form (name, email, message) → POST /api/contact (PUBLIC, added to _VIEWER_EXEMPT_PATHS). Submissions are BOTH emailed via Resend to SENDER_EMAIL (info@haulcheck.co.uk, reply-to = sender) AND saved to contact_messages. When a manager is logged in, the page also shows a received-messages inbox (GET/DELETE /api/contact-messages). Links added in the app sidebar (Layout.js 'Contact') and the login page ('Contact us').
+- Note (cosmetic, not fixed): the public /contact page can emit a harmless 401 in console if a stale token exists in localStorage; feature unaffected.
+
 ## Weekly walkaround now shows on the Calendar (2026-06 fork) — verified (API + UI)
 - BUG: recorded Weekly Walkaround days did not appear on the Calendar (only daily checks + recurring PMI did). The `/api/calendar` aggregator had no `weekly_walkarounds` loop.
 - FIX (server.py calendar endpoint): for each weekly sheet, every day with a recorded checklist now emits a `weekly_walkaround` event on that day's date — "Weekly Check — <reg>" with Nil defect / Defects found + driver, status due_soon when defects. Frontend Calendar.js: registered `weekly_walkaround` in TYPE_META (label "Weekly Check", ClipboardCheck icon) and EVENT_LINK (/maintenance?tab=weekly).
