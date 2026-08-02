@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree, Ban } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -31,6 +31,7 @@ const TYPE_META = {
   vehicle: { icon: Gauge, label: "Vehicle" },
   driver: { icon: ShieldCheck, label: "Driver" },
   holiday: { icon: Palmtree, label: "Holiday" },
+  vor: { icon: Ban, label: "Off Road (VOR)" },
   custom: { icon: Flag, label: "Event" },
 };
 
@@ -51,6 +52,7 @@ const EVENT_LINK = {
   tacho: "/tacho",
   vehicle: "/vehicles",
   driver: "/drivers",
+  vor: "/vehicles",
 };
 
 export default function Calendar() {

@@ -541,6 +541,14 @@ class OperatorInput(BaseModel):
     tm_cpc_number: str = ""
     tm_email: str = ""
     tm_phone: str = ""
+    vat_number: str = ""
+    eori_number: str = ""
+    bank_sort_code: str = ""
+    bank_account_number: str = ""
+    bank_swift: str = ""
+    bank_iban: str = ""
+    website: str = ""
+    email: str = ""
     logo_file_id: str = ""
     notes: str = ""
 
@@ -759,6 +767,65 @@ class MaintenanceProviderInput(BaseModel):
     services: str = ""
     contract_start: Optional[str] = None
     contract_end: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
+class JobCard(BaseModel):
+    id: str = Field(default_factory=lambda: f"job_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    job_number: str = ""
+    vehicle_reg: str
+    date_raised: Optional[str] = None
+    status: str = "open"
+    work_requested: str = ""
+    work_carried_out: str = ""
+    parts_used: str = ""
+    labour_hours: float = 0
+    technician: str = ""
+    cost: float = 0
+    odometer: float = 0
+    signed_off_by: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class JobCardInput(BaseModel):
+    vehicle_reg: str
+    date_raised: Optional[str] = None
+    status: str = "open"
+    work_requested: str = ""
+    work_carried_out: str = ""
+    parts_used: str = ""
+    labour_hours: float = 0
+    technician: str = ""
+    cost: float = 0
+    odometer: float = 0
+    signed_off_by: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
+class ComplianceDoc(BaseModel):
+    id: str = Field(default_factory=lambda: f"cmp_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    title: str
+    category: str = "Other"
+    reference: str = ""
+    expiry_date: Optional[str] = None
+    link_url: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ComplianceDocInput(BaseModel):
+    title: str
+    category: str = "Other"
+    reference: str = ""
+    expiry_date: Optional[str] = None
+    link_url: str = ""
     notes: str = ""
     attachments: List[Attachment] = []
 
@@ -3588,6 +3655,59 @@ async def delete_contact_message(cid: str, user: User = Depends(get_current_user
     return {"ok": True}
 
 
+@api_router.get("/job-cards")
+async def list_job_cards(user: User = Depends(get_current_user)):
+    return await db.job_cards.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+
+@api_router.post("/job-cards")
+async def create_job_card(data: JobCardInput, user: User = Depends(get_current_user)):
+    count = await db.job_cards.count_documents({"user_id": user.user_id})
+    jc = JobCard(**data.model_dump(), user_id=user.user_id, job_number=f"JC-{count + 1:04d}")
+    await db.job_cards.insert_one(jc.model_dump())
+    return jc.model_dump()
+
+
+@api_router.put("/job-cards/{jid}")
+async def update_job_card(jid: str, data: JobCardInput, user: User = Depends(get_current_user)):
+    res = await db.job_cards.update_one({"id": jid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    return {"ok": True}
+
+
+@api_router.delete("/job-cards/{jid}")
+async def delete_job_card(jid: str, user: User = Depends(get_current_user)):
+    await db.job_cards.delete_one({"id": jid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/compliance-docs")
+async def list_compliance_docs(user: User = Depends(get_current_user)):
+    return await db.compliance_docs.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+
+
+@api_router.post("/compliance-docs")
+async def create_compliance_doc(data: ComplianceDocInput, user: User = Depends(get_current_user)):
+    d = ComplianceDoc(**data.model_dump(), user_id=user.user_id)
+    await db.compliance_docs.insert_one(d.model_dump())
+    return d.model_dump()
+
+
+@api_router.put("/compliance-docs/{cid}")
+async def update_compliance_doc(cid: str, data: ComplianceDocInput, user: User = Depends(get_current_user)):
+    res = await db.compliance_docs.update_one({"id": cid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"ok": True}
+
+
+@api_router.delete("/compliance-docs/{cid}")
+async def delete_compliance_doc(cid: str, user: User = Depends(get_current_user)):
+    await db.compliance_docs.delete_one({"id": cid, "user_id": user.user_id})
+    return {"ok": True}
+
+
 @api_router.get("/recalls")
 async def list_recalls(user: User = Depends(get_current_user)):
     return await db.recalls.find({"user_id": user.user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
@@ -3882,6 +4002,8 @@ async def calendar(user: User = Depends(get_current_user)):
                 "subtitle": tc.get("source_type", ""), "status": "valid",
             })
     for ev in await db.calendar_events.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if str(ev.get("ref", "")).startswith("vor:"):
+            continue
         events.append({
             "id": ev.get("id"), "date": ev.get("date"), "type": "custom", "title": ev.get("title", "Event"),
             "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
@@ -3946,6 +4068,28 @@ async def calendar(user: User = Depends(get_current_user)):
                 events.append({
                     "date": v[key], "type": "vehicle", "title": f"{label} — {reg}",
                     "subtitle": sub, "status": compliance_status(days_until(v[key])),
+                })
+        if v.get("vor"):
+            _t = datetime.now(timezone.utc).date()
+            try:
+                vstart = datetime.fromisoformat((v.get("vor_off_date") or _t.isoformat())[:10]).date()
+            except Exception:
+                vstart = _t
+            vend = None
+            if v.get("vor_expected_return"):
+                try:
+                    vend = datetime.fromisoformat(v["vor_expected_return"][:10]).date()
+                except Exception:
+                    vend = None
+            if not vend:
+                vend = _t + timedelta(days=30)
+            if vend < vstart:
+                vstart, vend = vend, vstart
+            for i in range(min((vend - vstart).days, 366) + 1):
+                events.append({
+                    "date": (vstart + timedelta(days=i)).isoformat(), "type": "vor",
+                    "title": f"VOR — {reg} off road", "subtitle": v.get("vor_reason") or "Vehicle off road",
+                    "status": "expired",
                 })
     for dr in await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         name = dr.get("name")
@@ -4026,16 +4170,8 @@ async def set_vehicle_vor(vid: str, data: VorInput, user: User = Depends(get_cur
     off = data.off_date or datetime.now(timezone.utc).date().isoformat()
     await db.vehicles.update_one({"id": vid, "user_id": user.user_id}, {"$set": {
         "vor": True, "vor_reason": data.reason, "vor_off_date": off, "vor_expected_return": data.expected_return}})
-    reg = veh.get("registration", "")
+    # VOR renders dynamically on every day of the off-road period in the calendar; clear any old persisted markers.
     await db.calendar_events.delete_many({"user_id": user.user_id, "ref": f"vor:{vid}"})
-    evs = [{"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": off,
-            "title": f"VOR — {reg} off road", "notes": data.reason, "status": "expired",
-            "ref": f"vor:{vid}", "created_at": now_iso()}]
-    if data.expected_return:
-        evs.append({"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.expected_return,
-                    "title": f"VOR — {reg} expected back in service", "notes": data.reason, "status": "due_soon",
-                    "ref": f"vor:{vid}", "created_at": now_iso()})
-    await db.calendar_events.insert_many(evs)
     return {"ok": True}
 
 

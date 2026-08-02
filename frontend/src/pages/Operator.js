@@ -28,6 +28,8 @@ const empty = {
   company_name: "", company_number: "", operator_licence_number: "", licence_type: "Standard National",
   address: "", authorised_vehicles: 0, authorised_trailers: 0,
   tm_name: "", tm_cpc_number: "", tm_email: "", tm_phone: "", notes: "", logo_file_id: "",
+  vat_number: "", eori_number: "", bank_sort_code: "", bank_account_number: "", bank_swift: "", bank_iban: "",
+  website: "", email: "",
 };
 
 export default function Operator() {
@@ -98,6 +100,26 @@ export default function Operator() {
           </div>
           <Field label="Notes"><Textarea data-testid="op-notes" rows={4} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional operator notes, undertakings, conditions…" /></Field>
         </Card>
+
+        <div className="lg:col-span-2">
+          <Card icon={Landmark} title="Financial & Contact">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="VAT Number"><Input data-testid="op-vat" value={form.vat_number} onChange={(e) => setForm({ ...form, vat_number: e.target.value })} placeholder="GB123456789" /></Field>
+              <Field label="EORI Number"><Input data-testid="op-eori" value={form.eori_number} onChange={(e) => setForm({ ...form, eori_number: e.target.value })} placeholder="GB123456789000" /></Field>
+              <Field label="Website"><Input data-testid="op-website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="www.company.co.uk" /></Field>
+              <Field label="Company Email"><Input data-testid="op-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="info@company.co.uk" /></Field>
+            </div>
+            <div className="pt-2">
+              <p className="text-xs uppercase tracking-widest text-slate-400 font-semibold mb-3">Bank account details</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Sort Code"><Input data-testid="op-bank-sort" value={form.bank_sort_code} onChange={(e) => setForm({ ...form, bank_sort_code: e.target.value })} placeholder="12-34-56" /></Field>
+                <Field label="Account Number"><Input data-testid="op-bank-account" value={form.bank_account_number} onChange={(e) => setForm({ ...form, bank_account_number: e.target.value })} placeholder="12345678" /></Field>
+                <Field label="SWIFT / BIC"><Input data-testid="op-bank-swift" value={form.bank_swift} onChange={(e) => setForm({ ...form, bank_swift: e.target.value })} placeholder="ABCDGB2L" /></Field>
+                <Field label="IBAN"><Input data-testid="op-bank-iban" value={form.bank_iban} onChange={(e) => setForm({ ...form, bank_iban: e.target.value })} placeholder="GB29 NWBK 6016 1331 9268 19" /></Field>
+              </div>
+            </div>
+          </Card>
+        </div>
       </form>
     </div>
   );
