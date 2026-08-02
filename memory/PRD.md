@@ -1,5 +1,14 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork pt.3 — PG9 dashboard alert, job-card-from-alert, workshop board, cost chart, auto-close) — VERIFIED iter36 (backend 6/6, frontend 5/5)
+- **PG9 live Dashboard alert**: gather_stats now adds every OUTSTANDING prohibition (status != cleared) to the dashboard alerts feed (type='prohibition', status='expired', counts toward risk). Clears when marked cleared.
+- **Raise Job Card from alert**: POST /api/alerts/{id}/job-card creates a workshop job card from a defect/PMI alert (source='alert', source_ref='alert:{id}', deduped → 409 on repeat). DefectAlerts.js: wrench button (alert-raise-job-card) on each alert row with a vehicle.
+- **Workshop Board view** (JobCards.js): Table/Board toggle; board has Open / In progress / Completed columns with ◀ ▶ move buttons → PUT /api/job-cards/{id}/status (validates open|in_progress|completed).
+- **Maintenance Spend chart** (MaintenanceCosts.js on Dashboard): GET /api/maintenance/costs returns per-vehicle totals (job cards + service + repairs) + grand total; stacked recharts horizontal bar chart (top 12 vehicles). Known non-blocking: recharts logs a harmless width(-1) warning on first mount.
+- **Auto-close on rectify**: PUT /api/defects/{id}/rectify now flips the linked auto-raised job card (source_ref = defect id) to 'completed' and writes a 'Defect rectified …' note, keeping the workshop board in sync.
+- Deferred non-blocking: _next_job_number/count is not concurrency-safe; no unique index on (user_id, source_ref); server.py ~5276 lines (modular refactor recommended).
+
+
 ## Feature batch (2026-08 fork pt.2 — PG9 log, Job Card PDF, auto job cards, compliance-doc reminders, audit-pack spend) — VERIFIED iter35 (backend 11/11, frontend 100%)
 - **PG9 Roadside Prohibition Log** (Prohibitions.js `ProhibitionsPanel`, new Fleet tab): log DVSA/RSA roadside stops — vehicle, driver, date, location, authority (DVSA/RSA/Police/Other), encounter type, prohibition type (immediate/delayed/S-marked/none), category, reference, details, fixed penalty + amount + points, status (open/cleared) + cleared date, notes, attachments. Summary strip (encounters/PG9/outstanding/penalties) + branded PDF report. Backend Prohibition/ProhibitionInput models + GET/POST/PUT/DELETE /api/prohibitions. Wired into Vehicles.js (tab-prohibitions).
 - **Job Card PDF**: per-card branded PDF GET /api/job-cards/{id}/report (?include_files merges attachments) + a job-cards list report kind. JobCards.js: per-row Download button + header 'Report' button.
