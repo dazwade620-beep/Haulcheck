@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { PoundSterling } from "lucide-react";
+import { PoundSterling, Gauge, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
@@ -17,20 +18,29 @@ function CostTooltip({ active, payload, label, currency }) {
       <p className="text-slate-300">Service: <span className="font-bold text-white">{currency}{p.service.toFixed(2)}</span></p>
       <p className="text-slate-300">Repairs: <span className="font-bold text-white">{currency}{p.repairs.toFixed(2)}</span></p>
       <p className="text-slate-400 mt-1 border-t border-slate-700 pt-1">Total: <span className="font-bold text-white">{currency}{p.total.toFixed(2)}</span></p>
+      {p.cost_per_mile != null && <p className="text-slate-300 mt-0.5">{currency}{p.cost_per_mile.toFixed(3)}/mile · {p.miles.toLocaleString()} mi</p>}
     </div>
   );
 }
 
 export function MaintenanceCosts() {
   const [data, setData] = useState(null);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
-  useEffect(() => {
-    api.get("/maintenance/costs").then((r) => setData(r.data)).catch(() => setData({ rows: [], totals: {}, currency: "£" }));
-  }, []);
+  const load = () => {
+    const qs = new URLSearchParams();
+    if (from) qs.set("from_date", from);
+    if (to) qs.set("to_date", to);
+    const url = "/maintenance/costs" + (qs.toString() ? `?${qs}` : "");
+    api.get(url).then((r) => setData(r.data)).catch(() => setData({ rows: [], totals: {}, currency: "£" }));
+  };
+  useEffect(() => { load(); }, [from, to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (data === null) return null;
   const cur = data.currency || "£";
   const rows = (data.rows || []).slice(0, 12);
+  const perMile = (data.rows || []).filter((r) => r.cost_per_mile != null).sort((a, b) => b.cost_per_mile - a.cost_per_mile).slice(0, 6);
 
   return (
     <div data-testid="maintenance-costs-card" className="bg-white border border-slate-200 rounded-md p-6 mb-6 animate-in-up">
@@ -39,27 +49,57 @@ export function MaintenanceCosts() {
           <PoundSterling size={18} className="text-slate-900" />
           <h3 className="font-heading font-bold text-lg tracking-tight">Maintenance Spend by Vehicle</h3>
         </div>
-        <span data-testid="maintenance-total" className="text-sm font-semibold text-slate-700">Total {cur}{Number(data.totals?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Input data-testid="cost-from-date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 w-[140px] text-xs" aria-label="From date" />
+          <span className="text-slate-400 text-xs">to</span>
+          <Input data-testid="cost-to-date" type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-8 w-[140px] text-xs" aria-label="To date" />
+          {(from || to) && <button data-testid="cost-clear-dates" onClick={() => { setFrom(""); setTo(""); }} title="Clear dates" className="text-slate-400 hover:text-slate-900 p-1"><X size={15} /></button>}
+          <span data-testid="maintenance-total" className="text-sm font-semibold text-slate-700 ml-1">Total {cur}{Number(data.totals?.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
       </div>
-      <p className="text-sm text-slate-400 mb-4">Job cards, servicing and repairs combined — top vehicles by spend.</p>
+      <p className="text-sm text-slate-400 mb-4">Job cards, servicing and repairs combined{(from || to) ? " for the selected period" : " — top vehicles by spend"}.</p>
       {rows.length === 0 ? (
         <div data-testid="maintenance-costs-empty" className="py-12 text-center text-slate-400 text-sm">
-          No maintenance costs logged yet. Job card, service and repair costs appear here automatically.
+          No maintenance costs {(from || to) ? "in this period" : "logged yet"}. Job card, service and repair costs appear here automatically.
         </div>
       ) : (
-        <div style={{ width: "100%", height: Math.max(200, rows.length * 34 + 40) }} data-testid="maintenance-costs-chart">
-          <ResponsiveContainer>
-            <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }} barCategoryGap={8}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${cur}${v}`} />
-              <YAxis type="category" dataKey="vehicle_reg" width={92} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CostTooltip currency={cur} />} cursor={{ fill: "#f8fafc" }} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="job_cards" name="Job cards" stackId="a" fill={COLORS.job_cards} radius={[0, 0, 0, 0]} />
-              <Bar dataKey="service" name="Service" stackId="a" fill={COLORS.service} />
-              <Bar dataKey="repairs" name="Repairs" stackId="a" fill={COLORS.repairs} radius={[0, 3, 3, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className={perMile.length ? "lg:col-span-2" : "lg:col-span-3"}>
+            <div style={{ width: "100%", height: Math.max(200, rows.length * 34 + 40) }} data-testid="maintenance-costs-chart">
+              <ResponsiveContainer>
+                <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }} barCategoryGap={8}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} tickFormatter={(v) => `${cur}${v}`} />
+                  <YAxis type="category" dataKey="vehicle_reg" width={92} tick={{ fontSize: 11, fill: "#475569" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CostTooltip currency={cur} />} cursor={{ fill: "#f8fafc" }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="job_cards" name="Job cards" stackId="a" fill={COLORS.job_cards} />
+                  <Bar dataKey="service" name="Service" stackId="a" fill={COLORS.service} />
+                  <Bar dataKey="repairs" name="Repairs" stackId="a" fill={COLORS.repairs} radius={[0, 3, 3, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          {perMile.length > 0 && (
+            <div data-testid="cost-per-mile-panel" className="border border-slate-100 rounded-md p-4 bg-slate-50/60">
+              <div className="flex items-center gap-2 mb-3">
+                <Gauge size={16} className="text-slate-700" />
+                <h4 className="font-heading font-bold text-sm tracking-tight">Cost per mile</h4>
+              </div>
+              <p className="text-[11px] text-slate-400 mb-3 leading-snug">Total spend ÷ miles covered (from fuel odometer readings). Highest first.</p>
+              <div className="space-y-2">
+                {perMile.map((r) => (
+                  <div key={r.vehicle_reg} data-testid="cost-per-mile-row" className="flex items-center justify-between gap-2 bg-white border border-slate-100 rounded-md px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{r.vehicle_reg}</p>
+                      <p className="text-[11px] text-slate-400">{r.miles.toLocaleString()} mi</p>
+                    </div>
+                    <span className="font-heading font-black text-slate-900 tabular-nums whitespace-nowrap">{cur}{r.cost_per_mile.toFixed(2)}<span className="text-[10px] font-semibold text-slate-400">/mi</span></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

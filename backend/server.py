@@ -3844,23 +3844,54 @@ async def update_job_card_status(jid: str, payload: dict, user: User = Depends(g
 
 
 @api_router.get("/maintenance/costs")
-async def maintenance_costs(user: User = Depends(get_current_user)):
-    """Per-vehicle maintenance spend across job cards, service records and repairs."""
+async def maintenance_costs(from_date: str = Query(None), to_date: str = Query(None),
+                            user: User = Depends(get_current_user)):
+    """Per-vehicle maintenance spend (job cards + service + repairs) with cost-per-mile from fuel odometer data."""
+    def in_range(val):
+        v = (val or "")[:10]
+        if from_date and (not v or v < from_date):
+            return False
+        if to_date and (not v or v > to_date):
+            return False
+        return True
+
     per = {}
 
     def add(reg, amount, bucket):
         reg = (reg or "—").strip() or "—"
-        row = per.setdefault(reg, {"vehicle_reg": reg, "job_cards": 0.0, "service": 0.0, "repairs": 0.0, "total": 0.0})
+        row = per.setdefault(reg, {"vehicle_reg": reg, "job_cards": 0.0, "service": 0.0, "repairs": 0.0, "total": 0.0, "miles": 0, "cost_per_mile": None})
         row[bucket] += amount
         row["total"] += amount
 
     for j in await db.job_cards.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
-        add(j.get("vehicle_reg"), float(j.get("cost") or 0), "job_cards")
+        if in_range(j.get("date_raised") or j.get("created_at")):
+            add(j.get("vehicle_reg"), float(j.get("cost") or 0), "job_cards")
     for s in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
-        add(s.get("vehicle_reg"), float(s.get("cost") or 0), "service")
+        if in_range(s.get("service_date")):
+            add(s.get("vehicle_reg"), float(s.get("cost") or 0), "service")
     for r in await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
-        add(r.get("vehicle_reg"), float(r.get("cost") or 0), "repairs")
-    rows = sorted([{k: (round(v, 2) if isinstance(v, float) else v) for k, v in row.items()} for row in per.values()],
+        if in_range(r.get("repair_date")):
+            add(r.get("vehicle_reg"), float(r.get("cost") or 0), "repairs")
+
+    # Miles per vehicle = odometer span across fuel fills (within the same date range if given).
+    odo = {}
+    for f in await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(10000):
+        if not in_range(f.get("fill_date")):
+            continue
+        o = f.get("odometer") or 0
+        if not o:
+            continue
+        reg = (f.get("vehicle_reg") or "—").strip() or "—"
+        lo, hi = odo.get(reg, (o, o))
+        odo[reg] = (min(lo, o), max(hi, o))
+    for reg, (lo, hi) in odo.items():
+        miles = max(0, round(hi - lo))
+        if reg in per:
+            per[reg]["miles"] = miles
+            if miles > 0:
+                per[reg]["cost_per_mile"] = round(per[reg]["total"] / miles, 3)
+
+    rows = sorted([{k: (round(v, 2) if isinstance(v, float) and k != "cost_per_mile" else v) for k, v in row.items()} for row in per.values()],
                   key=lambda x: x["total"], reverse=True)
     totals = {
         "job_cards": round(sum(r["job_cards"] for r in rows), 2),
@@ -4778,7 +4809,8 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
 # ---------- Email reminders (Resend) ----------
 ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects", "service"]
 AREA_OF = {"vehicle": "fleet", "trailer": "fleet", "driver": "drivers", "tacho": "tacho",
-           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "compliance_doc": "documents", "defect": "defects", "wheel": "pmi", "service": "service"}
+           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "compliance_doc": "documents", "defect": "defects", "wheel": "pmi", "service": "service", "prohibition": "fleet"}
+PROHIBITION_CHASE_DAYS = 3
 AREA_PRESETS = {
     "Transport Manager": list(ALL_AREAS),
     "Driver": ["drivers", "tacho", "training"],
@@ -4927,6 +4959,17 @@ async def _reminder_alerts(user_id: str) -> list:
                 "type": "compliance_doc", "name": cd.get("category", "Compliance"),
                 "item": f"{cd.get('title', 'Document')} expiry", "status": "expired" if d < 0 else "due_soon", "days": d,
             })
+    chase_cutoff = (datetime.now(timezone.utc).date() - timedelta(days=PROHIBITION_CHASE_DAYS)).isoformat()
+    prohibitions = await db.prohibitions.find({"user_id": user_id, "status": {"$ne": "cleared"}}, {"_id": 0}).to_list(500)
+    for p in prohibitions:
+        enc = (p.get("encounter_date") or "")[:10]
+        if enc and enc > chase_cutoff:
+            continue  # still within grace period
+        pt = (p.get("prohibition_type") or "").replace("-", " ").title()
+        alerts.append({
+            "type": "prohibition", "name": p.get("vehicle_reg", "Vehicle"),
+            "item": f"Outstanding roadside prohibition ({pt or 'PG9'}) — clear it", "status": "expired", "days": None,
+        })
     for a in alerts:
         a["area"] = AREA_OF.get(a["type"], "documents")
     return alerts

@@ -21,6 +21,9 @@ export function JobCardsPanel() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [view, setView] = useState("table");
+  const [filterVeh, setFilterVeh] = useState("all");
+  const [filterTech, setFilterTech] = useState("all");
+  const [dragId, setDragId] = useState(null);
 
   const load = async () => {
     const [j, v] = await Promise.all([api.get("/job-cards"), api.get("/vehicles")]);
@@ -52,6 +55,13 @@ export function JobCardsPanel() {
 
   const ORDER = ["open", "in_progress", "completed"];
 
+  const technicians = [...new Set(items.map((j) => j.technician).filter(Boolean))];
+  const filtered = items.filter((j) =>
+    (filterVeh === "all" || j.vehicle_reg === filterVeh) &&
+    (filterTech === "all" || j.technician === filterTech)
+  );
+  const onDrop = (col) => { if (dragId) { moveStatus(dragId, col); setDragId(null); } };
+
   return (
     <div data-testid="job-cards-page">
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
@@ -70,22 +80,49 @@ export function JobCardsPanel() {
         </div>
       </div>
 
+      {items.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4" data-testid="job-cards-filters">
+          <Select value={filterVeh} onValueChange={setFilterVeh}>
+            <SelectTrigger data-testid="jc-filter-vehicle" className="h-9 w-[180px] text-sm"><SelectValue placeholder="All vehicles" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All vehicles</SelectItem>
+              {vehicles.map((v) => <SelectItem key={v.id} value={v.registration}>{v.registration}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={filterTech} onValueChange={setFilterTech}>
+            <SelectTrigger data-testid="jc-filter-technician" className="h-9 w-[180px] text-sm"><SelectValue placeholder="All technicians" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All technicians</SelectItem>
+              {technicians.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {(filterVeh !== "all" || filterTech !== "all") && (
+            <button data-testid="jc-filter-clear" onClick={() => { setFilterVeh("all"); setFilterTech("all"); }} className="text-xs font-semibold text-slate-500 hover:text-slate-900 px-2">Clear</button>
+          )}
+          <span className="text-xs text-slate-400 ml-auto">{filtered.length} of {items.length}</span>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <Empty icon={ClipboardList} text="No job cards yet. Raise one to record workshop work against a vehicle." />
       ) : view === "board" ? (
         <div data-testid="job-cards-board" className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-in-up">
           {ORDER.map((col) => {
-            const colItems = items.filter((j) => (j.status || "open") === col);
+            const colItems = filtered.filter((j) => (j.status || "open") === col);
             const idx = ORDER.indexOf(col);
             return (
-              <div key={col} data-testid={`board-col-${col}`} className="bg-slate-50 border border-slate-200 rounded-md p-3">
+              <div key={col} data-testid={`board-col-${col}`}
+                onDragOver={(e) => e.preventDefault()} onDrop={() => onDrop(col)}
+                className="bg-slate-50 border border-slate-200 rounded-md p-3 transition-colors">
                 <div className="flex items-center justify-between mb-3 px-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600">{STATUS[col].label}</span>
                   <span className="text-[11px] font-semibold bg-white border border-slate-200 rounded-full px-2 py-0.5 text-slate-500">{colItems.length}</span>
                 </div>
                 <div className="space-y-2 min-h-[40px]">
                   {colItems.map((j) => (
-                    <div key={j.id} data-testid="board-card" className="bg-white border border-slate-200 rounded-md p-3 hover:shadow-sm transition-shadow">
+                    <div key={j.id} data-testid="board-card" draggable
+                      onDragStart={() => setDragId(j.id)} onDragEnd={() => setDragId(null)}
+                      className={`bg-white border border-slate-200 rounded-md p-3 hover:shadow-sm transition-shadow cursor-grab active:cursor-grabbing ${dragId === j.id ? "opacity-50" : ""}`}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-bold text-sm text-slate-900 inline-flex items-center gap-1.5">{j.job_number}
                           {j.source && j.source !== "manual" && <span title={`Auto-raised from ${j.source.replace("_", " ")}`} className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase bg-blue-100 text-blue-700 px-1 py-0.5 rounded-full"><Zap size={8} /> Auto</span>}
@@ -103,7 +140,7 @@ export function JobCardsPanel() {
                       </div>
                     </div>
                   ))}
-                  {colItems.length === 0 && <p className="text-[11px] text-slate-300 text-center py-4">Nothing here</p>}
+                  {colItems.length === 0 && <p className="text-[11px] text-slate-300 text-center py-4">Drop here</p>}
                 </div>
               </div>
             );
@@ -125,7 +162,7 @@ export function JobCardsPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {items.map((j) => (
+              {filtered.map((j) => (
                 <tr key={j.id} data-testid="job-card-row" className="hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-3 font-mono font-bold text-slate-900">
                     <span className="inline-flex items-center gap-1.5">{j.job_number}

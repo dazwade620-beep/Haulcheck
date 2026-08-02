@@ -1,0 +1,27 @@
+{
+  "summary": "Iter-37 batch (Job Card DnD board, cost date filter, cost-per-mile KPI, board filters, prohibition chase reminder) fully verified. Backend pytest 8/8 PASS covering: (a) /api/maintenance/costs with from_date/to_date + cost_per_mile (400/2000=0.2 ✅), (b) out-of-range returns rows=[] totals.total=0 ✅, (c) all-time regression with cost_per_mile still present ✅, (d) prohibition chase adds a reminder item only when encounter_date older than PROHIBITION_CHASE_DAYS=3, recent ones skipped, cleared ones never included ✅, (e) PG9 dashboard alert regression (open→prohibition/expired, clear removes it) ✅, (f) PUT /api/job-cards/{id}/status accepts open|in_progress|completed, rejects other with 400, 404 on unknown id ✅. Frontend Playwright end-to-end: Dashboard maintenance-costs-card renders with cost-from-date/cost-to-date/cost-clear-dates and cost-per-mile-panel + rows, total updates when filter applied (£450 across two seeded job cards ×2000mi span), empty state shows on out-of-range range. Job Cards page shows job-cards-filters (vehicle + technician selects + Clear + 'N of M' count), Board view has 3 columns (open/in_progress/completed), every card has draggable=true, board-move-right correctly moves a card open→in_progress AND the status persists after reload (verified via re-mount). Technician filter reduces to '2 of 4', Clear resets. All seeded records (job cards, fuel, prohibitions) deleted in teardown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter37_batch.py",
+    "/app/test_reports/pytest/iter37.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 5319 lines — still no router split (raised iter34/35/36). Recommend breaking maintenance/, prohibitions/, reminders/, job_cards/ into their own routers.",
+    "PUT /api/job-cards/{jid}/status still accepts a raw dict (no Pydantic model + Literal), so OpenAPI docs the endpoint as 'application/json' with no schema. Adding a StatusUpdate(BaseModel){ status: Literal[...] } would return 422 automatically and self-document.",
+    "maintenance_costs reads all job_cards/service/repairs/fuel into memory then filters — fine for MVP scale but should move to a $match+$group MongoDB aggregation once operators grow past ~5k rows per collection.",
+    "cost_per_mile uses odometer span across the same date-range — if a vehicle has only ONE fuel fill in the window, miles=0 and cost_per_mile stays null (correct). Note this differs from all-time behaviour where the wider span usually yields a non-null value; consumers should not assume cost_per_mile is always populated.",
+    "_reminder_alerts includes a chased prohibition per-prohibition (no dedup across multiple open PG9s on the same vehicle) — acceptable, but the daily-digest _alert_key needs to disambiguate them; currently type+name+item are identical for two open PG9s on the same reg, so only one will be counted."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter37_batch.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all 16 UI steps)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! — worked (JWT under localStorage 'token').",
+  "seed_data_creation": "Seeded 2 job cards (TEST iter37 UI / UI 2 on AB12 CDE, techs TEST Alice/TEST Bob), 2 diesel fuel fills (odo 10000@2026-07-01 & 12000@2026-07-20), and multiple prohibitions with reference TEST-*. All deleted in teardown (verified 200 on DELETE).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-37 batch is green. Confirmed behaviours: (1) GET /api/maintenance/costs?from_date=&to_date= filters job_cards.date_raised, service_records.service_date, repairs.repair_date AND scopes fuel odometer span to the same window; row shape = {vehicle_reg, job_cards, service, repairs, total, miles, cost_per_mile}, cost_per_mile is null when miles=0. (2) Job Cards board columns use data-testid board-col-open/in_progress/completed with onDragOver+onDrop; cards have data-testid=board-card and draggable=true; board-move-left/right buttons call PUT /api/job-cards/{id}/status (which persists and reloads correctly). (3) Filter bar data-testid=job-cards-filters is only rendered when items.length>0 — expect it after the first job card is created. (4) Prohibition chase: an open prohibition with encounter_date <= today-3d becomes a reminder-alert item type='prohibition' area='fleet' status='expired'; recent ones are silently skipped; cleared ones never appear. Native HTML5 DnD was NOT simulated in Playwright (documented as flaky by the request) — arrow-button path was tested instead and passes.",
+  "rca of the issue": "N/A — all target features + regression working."
+}
