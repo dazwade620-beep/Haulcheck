@@ -4966,9 +4966,11 @@ async def _reminder_alerts(user_id: str) -> list:
         if enc and enc > chase_cutoff:
             continue  # still within grace period
         pt = (p.get("prohibition_type") or "").replace("-", " ").title()
+        ref = p.get("reference") or (p.get("id") or "")[-6:]
         alerts.append({
             "type": "prohibition", "name": p.get("vehicle_reg", "Vehicle"),
-            "item": f"Outstanding roadside prohibition ({pt or 'PG9'}) — clear it", "status": "expired", "days": None,
+            "item": f"Outstanding roadside prohibition ({pt or 'PG9'}{(' · ' + ref) if ref else ''}) — clear it",
+            "status": "expired", "days": None,
         })
     for a in alerts:
         a["area"] = AREA_OF.get(a["type"], "documents")

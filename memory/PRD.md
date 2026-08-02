@@ -1,5 +1,14 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork pt.4 — DnD board, cost date filter, cost/mile KPI, board filters, prohibition chase) — VERIFIED iter37 (backend 8/8, frontend 100%)
+- **Job Card board drag & drop** (JobCards.js): board cards are HTML5-draggable between Open/In-progress/Completed columns (drop → PUT /api/job-cards/{id}/status); arrow buttons kept as fallback.
+- **Board & table filters**: filter bar (vehicle + technician selects + Clear + "N of M" count) applied to both board and table views.
+- **Maintenance cost date filter** (MaintenanceCosts.js + GET /api/maintenance/costs?from_date=&to_date=): filters job cards/service/repairs by their date, with a from/to picker + clear on the Dashboard chart.
+- **Cost-per-mile KPI**: /api/maintenance/costs now returns per-vehicle `miles` (odometer span from fuel fills in range) + `cost_per_mile` (total ÷ miles, null when miles=0); shown in a "Cost per mile" panel beside the spend chart.
+- **Prohibition chase reminder**: open prohibitions (status != cleared) whose encounter_date is older than PROHIBITION_CHASE_DAYS (3) are added to the email reminder digest (type 'prohibition', area 'fleet'); each distinguished by reference/id so multiple open PG9s on one reg don't collapse.
+- Deferred non-blocking: server.py ~5320 lines (router split recommended); PUT status uses raw dict; costs computed in-memory (fine at MVP scale).
+
+
 ## Feature batch (2026-08 fork pt.3 — PG9 dashboard alert, job-card-from-alert, workshop board, cost chart, auto-close) — VERIFIED iter36 (backend 6/6, frontend 5/5)
 - **PG9 live Dashboard alert**: gather_stats now adds every OUTSTANDING prohibition (status != cleared) to the dashboard alerts feed (type='prohibition', status='expired', counts toward risk). Clears when marked cleared.
 - **Raise Job Card from alert**: POST /api/alerts/{id}/job-card creates a workshop job card from a defect/PMI alert (source='alert', source_ref='alert:{id}', deduped → 409 on repeat). DefectAlerts.js: wrench button (alert-raise-job-card) on each alert row with a vehicle.
