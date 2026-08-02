@@ -1,5 +1,14 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork pt.6 — email verification, EU region, brake-test score fix, super-admin, staff role) — VERIFIED iter39 (backend 21/21, frontend 100%)
+- **Email verification on signup**: POST /api/auth/register no longer logs in — returns {needs_verification,email}, emails a one-click link + 6-digit code (Resend) via `email_verifications` (plaintext token + bcrypt code_hash, 24h expiry, 6-attempt cap on code, ~45s resend rate-limit). Login blocked pre-verify (403 "email_not_verified"). POST /api/auth/verify (token OR code) + /api/auth/resend-verification. Existing users + invited team members grandfathered (email_verified defaults True; only /register sets False). Frontend: verify screen (6-digit input + resend), /verify-email?token= link route. Register now enforces 8-char min password.
+- **EU region**: region is now UK|IE|EU. EU = € currency, "Roadworthiness Test" label, "EU (Tachograph & Roadworthiness)" authority, NO UK brake-test requirement. 3-way sidebar toggle (region-UK/IE/EU). reports._terms + all currency/authority strings updated.
+- **Brake-test score fix**: missing laden roller brake test is now a **HIGH-priority** gap and UK-only (was medium + fired for UK+EU). A UK fleet with no brake test can no longer score 100%. NOTE: the earlier 100% was PRODUCTION on a stale build — a redeploy applies this.
+- **Super-admin panel** (/admin): admin = email in backend .env ADMIN_EMAILS (traffic@dlz-international.com, manager@haulcheck.co.uk). GET /api/admin/users (list + stats: total/active/suspended/verified/unverified/by_region/owners), PUT /api/admin/users/{uid}/active (suspend/reactivate). Suspended = login 403 + every request 401 (immediate sign-out, _authenticate checks `active`). Admin can't suspend self/other admins. Nav link + page gated on user.is_admin (from /auth/me).
+- **Staff role**: new invite role "staff" — logs into inviter's account (account_owner_id=inviter, user_id remapped to owner) and CAN edit (not blocked by viewer_write_guard, unlike viewer). Team invite UI has 3 roles (Operator/Staff/Viewer).
+- Deferred non-blocking (review): server.py ~5560 lines (module split); detect_gaps re-queries 12 collections per call (no cache); admin_list_users unpaginated (5000 cap); no TTL index on email_verifications (mitigated by delete-per-email + lazy cleanup).
+
+
 ## Feature batch (2026-08 fork pt.5 — monthly trend, board labour totals, prohibition pack, vehicle cost card, high-cost flag) — VERIFIED iter38 (backend 9/9, frontend 100%)
 - **Monthly cost trend** (GET /api/maintenance/costs/monthly?months=12, MaintenanceCosts.js LineChart): month-by-month total maintenance spend for last 12 months on the Dashboard.
 - **Board labour totals** (JobCards.js): each board column header shows "N jobs · Xh" (sum of labour hours).

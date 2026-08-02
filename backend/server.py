@@ -1233,6 +1233,8 @@ async def _send_verification_email(email: str, name: str, token: str, code: str,
 @api_router.post("/auth/register")
 async def register(data: RegisterInput, response: Response):
     email = data.email.lower().strip()
+    if len(data.password or "") < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
