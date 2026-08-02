@@ -3908,7 +3908,7 @@ async def maintenance_costs(from_date: str = Query(None), to_date: str = Query(N
 
 
 @api_router.get("/maintenance/costs/monthly")
-async def maintenance_costs_monthly(months: int = Query(12), user: User = Depends(get_current_user)):
+async def maintenance_costs_monthly(months: int = Query(12, ge=1, le=36), user: User = Depends(get_current_user)):
     """Month-by-month maintenance spend (job cards + service + repairs) for the last N months."""
     months = max(1, min(36, months))
     today = datetime.now(timezone.utc).date()

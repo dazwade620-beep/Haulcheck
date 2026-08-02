@@ -1,5 +1,14 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork pt.5 — monthly trend, board labour totals, prohibition pack, vehicle cost card, high-cost flag) — VERIFIED iter38 (backend 9/9, frontend 100%)
+- **Monthly cost trend** (GET /api/maintenance/costs/monthly?months=12, MaintenanceCosts.js LineChart): month-by-month total maintenance spend for last 12 months on the Dashboard.
+- **Board labour totals** (JobCards.js): each board column header shows "N jobs · Xh" (sum of labour hours).
+- **Prohibition follow-up pack** (GET /api/prohibitions/pack): one PDF of every OPEN prohibition with per-prohibition detail + merged notice attachments; "Follow-up pack" button in Prohibitions (shown when openCount>0).
+- **Vehicle cost card** (Vehicles.js): Fleet table now has a "Maintenance" column showing lifetime spend + £/mile per vehicle (from /api/maintenance/costs keyed by registration).
+- **Flag expensive vehicles**: /api/maintenance/costs returns totals.avg_cost_per_mile + per-row high_cost (cost_per_mile > 1.5× fleet avg); red "High" badge on the Dashboard cost-per-mile panel and the Fleet row.
+- Deferred non-blocking (from review): server.py ~5395 lines (router split); avg_cost_per_mile is simple (not mileage-weighted) mean; high_cost 1.5× multiplier hard-coded; no cap on prohibition-pack attachment merge.
+
+
 ## Feature batch (2026-08 fork pt.4 — DnD board, cost date filter, cost/mile KPI, board filters, prohibition chase) — VERIFIED iter37 (backend 8/8, frontend 100%)
 - **Job Card board drag & drop** (JobCards.js): board cards are HTML5-draggable between Open/In-progress/Completed columns (drop → PUT /api/job-cards/{id}/status); arrow buttons kept as fallback.
 - **Board & table filters**: filter bar (vehicle + technician selects + Clear + "N of M" count) applied to both board and table views.
