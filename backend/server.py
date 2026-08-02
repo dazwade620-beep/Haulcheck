@@ -787,6 +787,8 @@ class JobCard(BaseModel):
     odometer: float = 0
     signed_off_by: str = ""
     notes: str = ""
+    source: str = "manual"  # manual | defect | pmi_fail
+    source_ref: str = ""
     attachments: List[Attachment] = []
     created_at: str = Field(default_factory=now_iso)
 
@@ -826,6 +828,49 @@ class ComplianceDocInput(BaseModel):
     reference: str = ""
     expiry_date: Optional[str] = None
     link_url: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
+class Prohibition(BaseModel):
+    id: str = Field(default_factory=lambda: f"pg9_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    vehicle_reg: str
+    driver_name: str = ""
+    encounter_date: Optional[str] = None
+    location: str = ""
+    authority: str = "DVSA"  # DVSA | RSA | Police | Other
+    encounter_type: str = "Roadside check"  # Roadside check | Fleet check | Targeted check | Follow-up
+    prohibition_type: str = "immediate"  # immediate | delayed | S-marked | none
+    category: str = "Mechanical"  # Mechanical | Overload | Drivers hours | Tacho | Load security | Other
+    reference: str = ""
+    details: str = ""
+    fixed_penalty: bool = False
+    penalty_amount: float = 0
+    points: int = 0
+    status: str = "open"  # open | cleared
+    cleared_date: Optional[str] = None
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class ProhibitionInput(BaseModel):
+    vehicle_reg: str
+    driver_name: str = ""
+    encounter_date: Optional[str] = None
+    location: str = ""
+    authority: str = "DVSA"
+    encounter_type: str = "Roadside check"
+    prohibition_type: str = "immediate"
+    category: str = "Mechanical"
+    reference: str = ""
+    details: str = ""
+    fixed_penalty: bool = False
+    penalty_amount: float = 0
+    points: int = 0
+    status: str = "open"
+    cleared_date: Optional[str] = None
     notes: str = ""
     attachments: List[Attachment] = []
 
@@ -1047,6 +1092,31 @@ async def create_alert(user_id, type_, severity, title, message, vehicle_reg="",
         except Exception as e:
             logging.error(f"Alert email failed: {e}")
     return alert
+
+
+async def _next_job_number(user_id: str) -> str:
+    count = await db.job_cards.count_documents({"user_id": user_id})
+    return f"JC-{count + 1:04d}"
+
+
+async def _auto_job_card(user_id, vehicle_reg, work_requested, source, source_ref=""):
+    """Raise a workshop job card from a defect / PMI fail so remedial work is tracked. Deduped by source_ref."""
+    try:
+        if source_ref:
+            existing = await db.job_cards.find_one({"user_id": user_id, "source_ref": source_ref}, {"_id": 1})
+            if existing:
+                return None
+        jc = JobCard(
+            user_id=user_id, job_number=await _next_job_number(user_id),
+            vehicle_reg=vehicle_reg or "—", date_raised=now_iso()[:10], status="open",
+            work_requested=work_requested or "Remedial work required",
+            source=source, source_ref=source_ref,
+        )
+        await db.job_cards.insert_one(jc.model_dump())
+        return jc
+    except Exception as e:
+        logging.error(f"Auto job card failed: {e}")
+        return None
 
 
 async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> Optional[User]:
@@ -1790,6 +1860,8 @@ async def driver_defect(payload: dict, driver: dict = Depends(get_current_driver
     await create_alert(driver["user_id"], "defect_report", d.severity or "major",
                        f"Defect reported — {d.vehicle_reg}", d.description or "Defect reported by driver",
                        vehicle_reg=d.vehicle_reg, driver_name=d.reported_by, link="/maintenance")
+    await _auto_job_card(driver["user_id"], d.vehicle_reg,
+                         f"Driver-reported defect: {(d.description or '')[:140]}", "defect", source_ref=d.id)
     return d.model_dump()
 
 
@@ -2413,6 +2485,12 @@ async def _report_data(user_id, kinds, from_date=None, to_date=None):
         out["pmi"] = ps
         pr = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
         out["pmi_records"] = [d for d in pr if in_range(d, "inspection_date")]
+    if "job_cards" in kinds:
+        jc = await db.job_cards.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+        out["job_cards"] = [d for d in jc if in_range(d, "date_raised", "created_at")]
+    if "prohibitions" in kinds:
+        pb = await db.prohibitions.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        out["prohibitions"] = [d for d in pb if in_range(d, "encounter_date", "created_at")]
     return out
 
 
@@ -2428,16 +2506,19 @@ _REPORT_BUILDERS = {
     "pmi": (["pmi"], lambda d, r: reports.pmi_report(d["pmi"], d["pmi_records"], r)),
     "tacho": (["tacho"], lambda d, r: reports.tacho_report(d["tacho"], r)),
     "repairs": (["repairs"], lambda d, r: reports.repairs_report(d["repairs"], r)),
+    "job_cards": (["job_cards"], lambda d, r: reports.job_cards_report(d["job_cards"], r)),
+    "prohibitions": (["prohibitions"], lambda d, r: reports.prohibitions_report(d["prohibitions"], r)),
     "recalls": (["recalls"], lambda d, r: reports.recalls_report(d["recalls"], r)),
-    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "repairs", "wheel", "walkaround", "weekly_walkaround", "tacho", "recalls", "pmi"],
+    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "repairs", "job_cards", "wheel", "walkaround", "weekly_walkaround", "tacho", "prohibitions", "recalls", "pmi"],
               lambda d, r: reports.audit_pack(d, r)),
 }
 
 
 _REPORT_FILE_KEYS = {
     "defects": ["defects"], "service": ["service"], "wheel": ["wheel"],
-    "walkaround": ["walkaround"], "pmi": ["pmi_records"],
-    "audit": ["defects", "service", "wheel", "walkaround", "pmi_records"],
+    "walkaround": ["walkaround"], "pmi": ["pmi_records"], "job_cards": ["job_cards"],
+    "prohibitions": ["prohibitions"],
+    "audit": ["defects", "service", "wheel", "walkaround", "pmi_records", "job_cards", "prohibitions"],
 }
 
 
@@ -3284,6 +3365,8 @@ async def create_defect(data: DefectInput, user: User = Depends(get_current_user
     d = DefectReport(**data.model_dump(), user_id=user.user_id)
     d.ai_summary = await summarise_defect(data.description, data.severity)
     await db.defects.insert_one(d.model_dump())
+    await _auto_job_card(user.user_id, d.vehicle_reg,
+                         f"Defect: {(d.description or '')[:140]}", "defect", source_ref=d.id)
     return d.model_dump()
 
 
@@ -3392,6 +3475,9 @@ async def complete_pmi(pid: str, data: PMICompleteInput, user: User = Depends(ge
                            f"PMI FAILED — {sched['vehicle_reg']}",
                            (", ".join(failed) if failed else (data.notes or "PMI inspection failed")),
                            vehicle_reg=sched["vehicle_reg"], driver_name=data.inspector, link="/maintenance")
+        await _auto_job_card(user.user_id, sched["vehicle_reg"],
+                             f"PMI failure — rectify: {', '.join(failed)[:140] if failed else (data.notes or 'failed items')}",
+                             "pmi_fail", source_ref=record["id"])
     return {"ok": True, "next_due": new_due, "record": record}
 
 
@@ -3432,6 +3518,9 @@ async def interim_pmi(data: PMIInterimInput, user: User = Depends(get_current_us
                            f"Interim inspection FAILED — {data.vehicle_reg}",
                            (", ".join(failed) if failed else (data.notes or "Interim inspection failed")),
                            vehicle_reg=data.vehicle_reg, driver_name=data.inspector, link="/maintenance")
+        await _auto_job_card(user.user_id, data.vehicle_reg,
+                             f"Interim inspection failure — rectify: {', '.join(failed)[:140] if failed else (data.notes or 'failed items')}",
+                             "pmi_fail", source_ref=record["id"])
     return {"ok": True, "record": record}
 
 
@@ -3662,8 +3751,7 @@ async def list_job_cards(user: User = Depends(get_current_user)):
 
 @api_router.post("/job-cards")
 async def create_job_card(data: JobCardInput, user: User = Depends(get_current_user)):
-    count = await db.job_cards.count_documents({"user_id": user.user_id})
-    jc = JobCard(**data.model_dump(), user_id=user.user_id, job_number=f"JC-{count + 1:04d}")
+    jc = JobCard(**data.model_dump(), user_id=user.user_id, job_number=await _next_job_number(user.user_id))
     await db.job_cards.insert_one(jc.model_dump())
     return jc.model_dump()
 
@@ -3679,6 +3767,73 @@ async def update_job_card(jid: str, data: JobCardInput, user: User = Depends(get
 @api_router.delete("/job-cards/{jid}")
 async def delete_job_card(jid: str, user: User = Depends(get_current_user)):
     await db.job_cards.delete_one({"id": jid, "user_id": user.user_id})
+    return {"ok": True}
+
+
+@api_router.get("/job-cards/{jid}/report")
+async def job_card_report(jid: str, include_files: bool = Query(False), user: User = Depends(get_current_user)):
+    jc = await db.job_cards.find_one({"id": jid, "user_id": user.user_id}, {"_id": 0})
+    if not jc:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    cur = "€" if user.region == "IE" else "£"
+    status_label = {"open": "Open", "in_progress": "In progress", "completed": "Completed"}.get(jc.get("status"), jc.get("status"))
+    sections = [{
+        "type": "kv", "heading": f"Job Card {jc.get('job_number', '')}", "pairs": [
+            ("Vehicle", jc.get("vehicle_reg") or "—"),
+            ("Date raised", jc.get("date_raised") or "—"),
+            ("Status", status_label),
+            ("Technician / mechanic", jc.get("technician") or "—"),
+            ("Labour hours", jc.get("labour_hours") or 0),
+            ("Cost", f"{cur}{float(jc.get('cost') or 0):.2f}"),
+            ("Odometer", jc.get("odometer") or "—"),
+            ("Signed off by", jc.get("signed_off_by") or "—"),
+            ("Raised from", (jc.get("source") or "manual").replace("_", " ").title()),
+        ],
+    }, {
+        "type": "kv", "heading": "Work", "pairs": [
+            ("Work requested", jc.get("work_requested") or "—"),
+            ("Work carried out", jc.get("work_carried_out") or "—"),
+            ("Parts used", jc.get("parts_used") or "—"),
+            ("Notes", jc.get("notes") or "—"),
+        ],
+    }]
+    pdf = await asyncio.to_thread(
+        build_report_pdf, f"Job Card {jc.get('job_number', '')}",
+        f"Workshop job card · {jc.get('vehicle_reg') or ''}",
+        [("Operator", operator.get("company_name", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
+    if include_files:
+        fids = [a.get("file_id") for a in (jc.get("attachments") or []) if a.get("file_id")]
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"{jc.get('job_number', 'job-card')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.get("/prohibitions")
+async def list_prohibitions(user: User = Depends(get_current_user)):
+    return await db.prohibitions.find({"user_id": user.user_id}, {"_id": 0}).sort("encounter_date", -1).to_list(2000)
+
+
+@api_router.post("/prohibitions")
+async def create_prohibition(data: ProhibitionInput, user: User = Depends(get_current_user)):
+    p = Prohibition(**data.model_dump(), user_id=user.user_id)
+    await db.prohibitions.insert_one(p.model_dump())
+    return p.model_dump()
+
+
+@api_router.put("/prohibitions/{pid}")
+async def update_prohibition(pid: str, data: ProhibitionInput, user: User = Depends(get_current_user)):
+    res = await db.prohibitions.update_one({"id": pid, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Prohibition not found")
+    return {"ok": True}
+
+
+@api_router.delete("/prohibitions/{pid}")
+async def delete_prohibition(pid: str, user: User = Depends(get_current_user)):
+    await db.prohibitions.delete_one({"id": pid, "user_id": user.user_id})
     return {"ok": True}
 
 
@@ -4557,7 +4712,7 @@ async def ai_risk_insight(user: User = Depends(get_current_user)):
 # ---------- Email reminders (Resend) ----------
 ALL_AREAS = ["fleet", "drivers", "tacho", "pmi", "insurance", "training", "documents", "defects", "service"]
 AREA_OF = {"vehicle": "fleet", "trailer": "fleet", "driver": "drivers", "tacho": "tacho",
-           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "defect": "defects", "wheel": "pmi", "service": "service"}
+           "pmi": "pmi", "insurance": "insurance", "training": "training", "document": "documents", "compliance_doc": "documents", "defect": "defects", "wheel": "pmi", "service": "service"}
 AREA_PRESETS = {
     "Transport Manager": list(ALL_AREAS),
     "Driver": ["drivers", "tacho", "training"],
@@ -4697,6 +4852,14 @@ async def _reminder_alerts(user_id: str) -> list:
             alerts.append({
                 "type": "service", "name": sv.get("vehicle_reg", "Vehicle"),
                 "item": f"{sv.get('service_type', 'Service')} due", "status": "expired" if d < 0 else "due_soon", "days": d,
+            })
+    comp_docs = await db.compliance_docs.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+    for cd in comp_docs:
+        d = days_until(cd.get("expiry_date"))
+        if d is not None and d <= 30:
+            alerts.append({
+                "type": "compliance_doc", "name": cd.get("category", "Compliance"),
+                "item": f"{cd.get('title', 'Document')} expiry", "status": "expired" if d < 0 else "due_soon", "days": d,
             })
     for a in alerts:
         a["area"] = AREA_OF.get(a["type"], "documents")

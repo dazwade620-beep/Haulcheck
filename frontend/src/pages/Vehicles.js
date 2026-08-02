@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
 import { FuelPanel } from "@/pages/Fuel";
+import { ProhibitionsPanel } from "@/pages/Prohibitions";
 import { downloadPdf } from "@/lib/download";
 
 const VEHICLE_TYPES = ["HGV (Rigid)", "HGV (Artic / Tractor Unit)", "LGV / Van", "Car", "Minibus / PSV", "Other"];
@@ -260,11 +261,13 @@ export default function Vehicles() {
           <TabsTrigger value="trailers" data-testid="tab-trailers">Trailers</TabsTrigger>
           <TabsTrigger value="fuel" data-testid="tab-fuel">Fuel &amp; Emissions</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-test-history">Test History</TabsTrigger>
+          <TabsTrigger value="prohibitions" data-testid="tab-prohibitions">Prohibitions</TabsTrigger>
         </TabsList>
         <TabsContent value="vehicles"><VehiclesPanel /></TabsContent>
         <TabsContent value="trailers"><TrailersPanel /></TabsContent>
         <TabsContent value="fuel"><FuelPanel /></TabsContent>
         <TabsContent value="history"><TestHistoryPanel embedded /></TabsContent>
+        <TabsContent value="prohibitions"><ProhibitionsPanel /></TabsContent>
       </Tabs>
     </div>
   );

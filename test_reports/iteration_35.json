@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration-35 batch (Prohibitions CRUD/PDF, Job Card PDF, auto job card from defect + PMI fail, Compliance-doc reminder digest, Audit-pack new sections, Viewer role protection) fully verified. Backend pytest: 11/11 passed. Frontend Playwright smoke: Prohibitions CRUD flow works end-to-end (create → summary appears with PG9 count, red 'Immediate (PG9)' badge, edit to Cleared, delete; report button visible only when >=1 record). Job Cards tab renders and empty-state is correct.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter35_batch.py",
+    "/app/test_reports/pytest/iter35.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py continues to grow (~5210 lines). Continue the modular-router recommendation from iter-34.",
+    "_next_job_number() uses count_documents({user_id}) — still not concurrency-safe. Two simultaneous POST /api/job-cards (or two defect creations racing on the same operator) could yield duplicate JC-XXXX numbers. Use an atomic sequence collection (findOneAndUpdate {$inc: {seq:1}}).",
+    "_auto_job_card dedup relies on source_ref uniqueness; the defect/pmi_record ids are UUID-suffixed so are effectively unique, but there's no unique index on (user_id, source_ref) in db.job_cards — two concurrent create_defect calls with the same source_ref (retry scenario) could still create two job cards. Consider a partial unique index: db.job_cards.create_index([('user_id',1),('source_ref',1)], unique=True, partialFilterExpression={'source_ref': {'$ne': ''}}).",
+    "reminders/send raises 400 if no recipients configured; this is fine but the UI 'Send now' path should surface that message clearly. Also POST /api/reminders/send returns 500 wrapping the raw exception message — consider not echoing internal error text to clients.",
+    "Prohibitions summary strip and report button both hide when items.length===0. Intentional but a bit of a discoverability issue — consider showing the Report button greyed-out with tooltip 'No records yet' so users know it exists.",
+    "Prohibition badge shows 'Immediate (PG9)' rather than the literal word 'Open' on the card — the test spec asks for an 'Open' badge; current code shows the status via colour + prohibition_type label. Cosmetic only."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter35_batch.py"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% smoke (Prohibitions full CRUD + Job Cards render)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! — worked",
+  "seed_data_creation": "All test data (prohibitions, job cards, defects, compliance docs, PMI schedules/records, invited viewer) is cleaned up by pytest session-scoped fixture and UI test deleted its own prohibition. The invited viewer user record remains in db.users (accept-invite endpoint has no reverse-cleanup API) — email pattern: test_viewer_<random>@example.com. Safe to ignore; not shown in inviter's account.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-35 (Prohibitions CRUD + PDF, Job Card PDF, auto job card from defect / PMI-scheduled fail / PMI-interim fail with source_ref dedup, Compliance doc appears in reminder digest, Audit pack Overview kv contains 'Job cards'/'Open job cards'/'Maintenance spend'/'Roadside prohibitions (PG9)' plus dedicated 'Workshop Job Cards' and 'Roadside Prohibitions (PG9)' sections, Viewer 403 on write, 200 on read/report) all working. Viewer accept-invite requires field name 'token' (not 'code') and 'name' in payload. Reminder test uses POST /api/reminders/send after seeding a recipient in /api/reminders/settings — Resend runs in test mode so external delivery is not asserted; response.results[*].item_count>=1 confirms the compliance doc was included.",
+  "rca of the issue": "N/A — no failing features."
+}

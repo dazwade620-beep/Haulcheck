@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { downloadPdf } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ClipboardList, Trash2, Pencil, Paperclip } from "lucide-react";
+import { ClipboardList, Trash2, Pencil, Paperclip, Download, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
@@ -48,7 +49,12 @@ export function JobCardsPanel() {
     <div data-testid="job-cards-page">
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <p className="text-sm text-slate-500">Raise and track workshop job cards — work requested, work carried out, parts, labour and sign-off.</p>
-        <Button data-testid="add-job-card-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2 shrink-0"><ClipboardList size={16} /> New Job Card</Button>
+        <div className="flex gap-2 shrink-0">
+          {items.length > 0 && (
+            <Button data-testid="job-cards-report-button" variant="outline" onClick={() => downloadPdf("/reports/job_cards", "job-cards.pdf")} className="rounded-md gap-2"><Download size={16} /> Report</Button>
+          )}
+          <Button data-testid="add-job-card-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2"><ClipboardList size={16} /> New Job Card</Button>
+        </div>
       </div>
 
       {items.length === 0 ? (
@@ -71,7 +77,11 @@ export function JobCardsPanel() {
             <tbody className="divide-y divide-slate-100">
               {items.map((j) => (
                 <tr key={j.id} data-testid="job-card-row" className="hover:bg-slate-50 transition-colors">
-                  <td className="px-5 py-3 font-mono font-bold text-slate-900">{j.job_number}</td>
+                  <td className="px-5 py-3 font-mono font-bold text-slate-900">
+                    <span className="inline-flex items-center gap-1.5">{j.job_number}
+                      {j.source && j.source !== "manual" && <span data-testid="job-card-auto-badge" title={`Auto-raised from ${j.source.replace("_", " ")}`} className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full"><Zap size={9} /> Auto</span>}
+                    </span>
+                  </td>
                   <td className="px-5 py-3 font-semibold text-slate-800">{j.vehicle_reg}</td>
                   <td className="px-5 py-3 text-slate-500 whitespace-nowrap">{j.date_raised || "—"}</td>
                   <td className="px-5 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${(STATUS[j.status] || STATUS.open).cls}`}>{(STATUS[j.status] || STATUS.open).label}</span></td>
@@ -79,6 +89,7 @@ export function JobCardsPanel() {
                   <td className="px-5 py-3 text-slate-600">{j.cost ? `£${Number(j.cost).toFixed(2)}` : "—"}</td>
                   <td className="px-5 py-3">{(j.attachments || []).length > 0 ? <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Paperclip size={12} /> {j.attachments.length}</span> : "—"}</td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <button data-testid="download-job-card-button" onClick={() => downloadPdf(`/job-cards/${j.id}/report`, `${j.job_number}.pdf`)} className="text-slate-400 hover:text-slate-900 p-1.5" title="Download PDF"><Download size={16} /></button>
                     <button data-testid="edit-job-card-button" onClick={() => openEdit(j)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={16} /></button>
                     <button data-testid="delete-job-card-button" onClick={() => remove(j.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
                   </td>

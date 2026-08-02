@@ -151,6 +151,54 @@ def repairs_report(records, region):
     return "Repairs / Major Work", f"{len(rows)} record(s)", sections
 
 
+def job_cards_report(records, region):
+    t = _terms(region)
+    cur = t["currency"]
+    STATUS = {"open": "Open", "in_progress": "In progress", "completed": "Completed"}
+    rows = []
+    total = 0.0
+    for j in sorted(records, key=lambda x: (x.get("date_raised") or x.get("created_at") or ""), reverse=True):
+        total += float(j.get("cost") or 0)
+        rows.append({
+            "cells": [
+                j.get("job_number") or "—", j.get("date_raised") or "—",
+                j.get("vehicle_reg") or "—", STATUS.get(j.get("status"), j.get("status") or "—"),
+                (j.get("work_requested") or "—")[:60], j.get("technician") or "—",
+                f"{cur}{float(j.get('cost') or 0):.2f}",
+            ],
+            "status": "valid" if j.get("status") == "completed" else ("due_soon" if j.get("status") == "in_progress" else "expired"),
+        })
+    sections = [{
+        "heading": "Workshop Job Cards",
+        "columns": ["Job #", "Raised", "Vehicle", "Status", "Work requested", "Technician", "Cost"],
+        "rows": rows,
+    }]
+    return "Workshop Job Cards", f"{len(rows)} job card(s) · spend {cur}{total:.2f}", sections
+
+
+def prohibitions_report(records, region):
+    cur = _terms(region)["currency"]
+    rows = []
+    for p in sorted(records, key=lambda x: (x.get("encounter_date") or ""), reverse=True):
+        pt = (p.get("prohibition_type") or "").replace("-", " ").title()
+        rows.append({
+            "cells": [
+                p.get("encounter_date") or "—", p.get("vehicle_reg") or "—",
+                p.get("authority") or "—", pt or "—",
+                p.get("category") or "—",
+                "Cleared" if p.get("status") == "cleared" else "Open",
+                f"{cur}{float(p.get('penalty_amount') or 0):.0f}" if p.get("fixed_penalty") else "—",
+            ],
+            "status": "valid" if p.get("status") == "cleared" else "expired",
+        })
+    sections = [{
+        "heading": "Roadside Prohibitions (PG9)",
+        "columns": ["Date", "Vehicle", "Authority", "Prohibition", "Category", "Status", "Fixed penalty"],
+        "rows": rows,
+    }]
+    return "Roadside Prohibitions (PG9)", f"{len(rows)} encounter(s) logged", sections
+
+
 def recalls_report(records, region):
     rows = []
     for r in sorted(records, key=lambda x: (x.get("issued_date") or ""), reverse=True):
@@ -340,7 +388,17 @@ def tacho_report(analyses, region):
 def audit_pack(data, region):
     """Full compliance audit pack combining every domain into one report."""
     t = _terms(region)
+    cur = t["currency"]
     counts = {k: len(v) for k, v in data.items()}
+    job_cards = data.get("job_cards", [])
+    open_jobs = sum(1 for j in job_cards if j.get("status") != "completed")
+    maint_spend = (
+        sum(float(j.get("cost") or 0) for j in job_cards)
+        + sum(float(s.get("cost") or 0) for s in data.get("service", []))
+        + sum(float(r.get("cost") or 0) for r in data.get("repairs", []))
+    )
+    prohibitions = data.get("prohibitions", [])
+    open_prohib = sum(1 for p in prohibitions if p.get("status") != "cleared")
     sections = [{
         "type": "kv", "heading": "Overview", "pairs": [
             ("Vehicles", counts.get("vehicles", 0)),
@@ -351,10 +409,15 @@ def audit_pack(data, region):
             ("Open defects", sum(1 for d in data.get("defects", []) if not (d.get("rectified_date") or d.get("status") == "rectified"))),
             ("Service records", counts.get("service", 0)),
             ("Repairs / major work", counts.get("repairs", 0)),
+            ("Job cards", counts.get("job_cards", 0)),
+            ("Open job cards", open_jobs),
+            ("Maintenance spend", f"{cur}{maint_spend:.2f}"),
             ("Wheel audits", counts.get("wheel", 0)),
             ("Daily checks", counts.get("walkaround", 0)),
             ("Weekly checks", counts.get("weekly_walkaround", 0)),
             ("Tacho analyses", counts.get("tacho", 0)),
+            ("Roadside prohibitions (PG9)", counts.get("prohibitions", 0)),
+            ("Open prohibitions", open_prohib),
             ("Safety recalls", counts.get("recalls", 0)),
         ],
     }]
@@ -365,10 +428,12 @@ def audit_pack(data, region):
     sections += defects_report(data.get("defects", []), region)[2]
     sections += service_report(data.get("service", []), region)[2]
     sections += repairs_report(data.get("repairs", []), region)[2]
+    sections += job_cards_report(job_cards, region)[2]
     sections += wheel_report(data.get("wheel", []), region)[2]
     sections += walkaround_report(data.get("walkaround", []), region)[2]
     sections += weekly_walkaround_report(data.get("weekly_walkaround", []), region)[2]
     sections += tacho_report(data.get("tacho", []), region)[2]
+    sections += prohibitions_report(prohibitions, region)[2]
     sections += recalls_report(data.get("recalls", []), region)[2]
     gen = datetime.now(timezone.utc).strftime("%d %b %Y")
     return "Fleet Audit Report", f"Full operator compliance snapshot · {gen}", sections
