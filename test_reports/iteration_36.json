@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration-36 batch (PG9 dashboard alert, Raise-job-card-from-alert with 409 dedup, Job Cards Board view with status move + PUT validation, Maintenance-spend-by-vehicle card, Defect rectify auto-completes linked job card) fully verified end-to-end. Backend pytest 6/6 passed. Frontend Playwright smoke passed: Dashboard renders maintenance-costs-card (empty state correctly shown), a prohibition created via API is reflected as a 'prohibition' entry in the Dashboard alerts feed, alert-raise-job-card wrench button is present on defect alert rows, Job Cards Board toggle shows the 3 columns (board-col-open/in_progress/completed) and board-move-right successfully moves cards (JC-0002 moved Open->In progress). All test data cleaned up. Regression: /api/job-cards, /api/compliance-docs, /api/prohibitions, /api/reports/audit all return 200 (PDF).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Recharts ResponsiveContainer inside MaintenanceCosts logs 'width(-1) height(-1)' warning at initial mount (repeats on every re-render). Empty state renders fine because it falls back to a placeholder, but when data is present the parent needs a fixed min-height so the chart draws on first paint instead of after a resize event. Non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter36_batch.py",
+    "/app/test_reports/pytest/iter36.xml"
+  ],
+  "action_items": [
+    "(Optional cosmetic) Give MaintenanceCosts chart wrapper an explicit min-height (e.g., h-64) so Recharts stops logging width/height(-1) warnings on first render."
+  ],
+  "critical_code_review_comments": [
+    "server.py ~5276 lines — modular router split still outstanding (called out iter34/35).",
+    "_next_job_number() still uses count_documents (non atomic) — race can produce duplicate JC-XXXX under concurrent POSTs / concurrent defect creations. Use an atomic sequence collection.",
+    "No unique index on (user_id, source_ref) in db.job_cards. _auto_job_card dedup relies on a read-then-insert which is racy — under concurrent /api/alerts/{aid}/job-card retries you can still create 2 job cards with source_ref='alert:{aid}'. Add a partial unique index.",
+    "PUT /api/job-cards/{id}/status accepts a raw dict; add a Pydantic model + Literal['open','in_progress','completed'] so OpenAPI documents it and 422 is returned automatically for missing keys.",
+    "GET /api/maintenance/costs iterates all job_cards/service/repairs in memory. Fine for now but for larger operators consider an aggregation pipeline ($group by vehicle_reg)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter36_batch.py"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% smoke (5/5 flows)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! — worked (JWT under localStorage 'token').",
+  "seed_data_creation": "All test data (prohibition, defects, job cards) created during backend + UI tests was deleted in teardown. Manager account was left in its existing state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter-36 batch is green. Key backend behaviours confirmed: (a) POST /api/prohibitions status='open' shows up in GET /api/dashboard alerts[] as {type:'prohibition', status:'expired'}, disappears when status='cleared'; (b) POST /api/alerts/{id}/job-card returns JobCard with source='alert', source_ref='alert:{id}'; second call returns 409; (c) PUT /api/job-cards/{id}/status accepts open/in_progress/completed only (400 on invalid); (d) POST /api/defects auto-creates a workshop job card source='defect' source_ref=<defect_id>; PUT /api/defects/{id}/rectify flips that job card to completed and writes 'Defect rectified …' into work_carried_out; (e) GET /api/maintenance/costs returns {rows, totals, currency}. Auth response key is 'token' (NOT 'access_token'). Regression endpoints and audit PDF all healthy.",
+  "rca of the issue": "N/A — no failing features."
+}

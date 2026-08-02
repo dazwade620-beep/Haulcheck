@@ -1749,6 +1749,20 @@ async def delete_alert(aid: str, user: User = Depends(get_current_user)):
     return {"ok": True}
 
 
+@api_router.post("/alerts/{aid}/job-card")
+async def raise_job_card_from_alert(aid: str, user: User = Depends(get_current_user)):
+    alert = await db.alerts.find_one({"id": aid, "user_id": user.user_id}, {"_id": 0})
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    work = alert.get("title") or "Remedial work required"
+    if alert.get("message"):
+        work = f"{work} — {alert['message']}"
+    jc = await _auto_job_card(user.user_id, alert.get("vehicle_reg") or "—", work[:200], "alert", source_ref=f"alert:{aid}")
+    if not jc:
+        raise HTTPException(status_code=409, detail="A job card has already been raised for this alert")
+    return jc.model_dump()
+
+
 # ---------- Driver mobile app (PIN/code auth) ----------
 def _driver_profile(driver: dict) -> dict:
     return {
@@ -3385,6 +3399,13 @@ async def rectify_defect(did: str, data: DefectRectifyInput, user: User = Depend
     res = await db.defects.update_one({"id": did, "user_id": user.user_id}, {"$set": upd})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Defect not found")
+    # Auto-close the linked workshop job card so the workshop list stays in sync.
+    await db.job_cards.update_many(
+        {"user_id": user.user_id, "source_ref": did, "status": {"$ne": "completed"}},
+        {"$set": {"status": "completed",
+                  "work_carried_out": f"Defect rectified {upd['rectified_date']}"
+                                      + (f" by {data.rectified_by}" if data.rectified_by else ""),
+                  "signed_off_by": data.rectified_by or ""}})
     return {"ok": True}
 
 
@@ -3809,6 +3830,45 @@ async def job_card_report(jid: str, include_files: bool = Query(False), user: Us
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
     fname = f"{jc.get('job_number', 'job-card')}-{datetime.now(timezone.utc).date().isoformat()}.pdf"
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api_router.put("/job-cards/{jid}/status")
+async def update_job_card_status(jid: str, payload: dict, user: User = Depends(get_current_user)):
+    status = payload.get("status")
+    if status not in ("open", "in_progress", "completed"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    res = await db.job_cards.update_one({"id": jid, "user_id": user.user_id}, {"$set": {"status": status}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    return {"ok": True, "status": status}
+
+
+@api_router.get("/maintenance/costs")
+async def maintenance_costs(user: User = Depends(get_current_user)):
+    """Per-vehicle maintenance spend across job cards, service records and repairs."""
+    per = {}
+
+    def add(reg, amount, bucket):
+        reg = (reg or "—").strip() or "—"
+        row = per.setdefault(reg, {"vehicle_reg": reg, "job_cards": 0.0, "service": 0.0, "repairs": 0.0, "total": 0.0})
+        row[bucket] += amount
+        row["total"] += amount
+
+    for j in await db.job_cards.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(j.get("vehicle_reg"), float(j.get("cost") or 0), "job_cards")
+    for s in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(s.get("vehicle_reg"), float(s.get("cost") or 0), "service")
+    for r in await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(r.get("vehicle_reg"), float(r.get("cost") or 0), "repairs")
+    rows = sorted([{k: (round(v, 2) if isinstance(v, float) else v) for k, v in row.items()} for row in per.values()],
+                  key=lambda x: x["total"], reverse=True)
+    totals = {
+        "job_cards": round(sum(r["job_cards"] for r in rows), 2),
+        "service": round(sum(r["service"] for r in rows), 2),
+        "repairs": round(sum(r["repairs"] for r in rows), 2),
+        "total": round(sum(r["total"] for r in rows), 2),
+    }
+    return {"rows": rows, "totals": totals, "currency": "€" if user.region == "IE" else "£"}
 
 
 @api_router.get("/prohibitions")
@@ -4523,6 +4583,12 @@ async def gather_stats(user_id: str):
             due_soon += 1
             alerts.append({"type": "wheel", "name": w.get("vehicle_reg"), "item": "Wheel Security Check", "status": "due_soon", "days": d})
     alerts.sort(key=lambda a: (a["status"] != "expired", a["days"] if a["days"] is not None else 9999))
+    prohibitions = await db.prohibitions.find({"user_id": user_id, "status": {"$ne": "cleared"}}, {"_id": 0}).to_list(500)
+    for p in prohibitions:
+        expired += 1
+        pt = (p.get("prohibition_type") or "").replace("-", " ").title()
+        alerts.insert(0, {"type": "prohibition", "name": p.get("vehicle_reg") or "Vehicle",
+                          "item": f"Outstanding roadside prohibition ({pt or 'PG9'})", "status": "expired", "days": None})
     return {
         "counts": {
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),

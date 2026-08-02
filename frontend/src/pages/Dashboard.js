@@ -9,6 +9,7 @@ import { DefectAlerts } from "@/components/DefectAlerts";
 import { RecallCard } from "@/components/RecallCard";
 import { RetentionCard } from "@/components/RetentionCard";
 import { ComplianceTrend } from "@/components/ComplianceTrend";
+import { MaintenanceCosts } from "@/components/MaintenanceCosts";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
@@ -211,6 +212,8 @@ export default function Dashboard() {
       </div>
 
       <ComplianceTrend />
+
+      <MaintenanceCosts />
 
       <RecallCard />
 

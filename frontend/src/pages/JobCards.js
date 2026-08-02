@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ClipboardList, Trash2, Pencil, Paperclip, Download, Zap } from "lucide-react";
+import { ClipboardList, Trash2, Pencil, Paperclip, Download, Zap, LayoutGrid, List, ChevronRight, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
@@ -20,6 +20,7 @@ export function JobCardsPanel() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
+  const [view, setView] = useState("table");
 
   const load = async () => {
     const [j, v] = await Promise.all([api.get("/job-cards"), api.get("/vehicles")]);
@@ -44,12 +45,24 @@ export function JobCardsPanel() {
     } catch { toast.error("Could not save job card"); }
   };
   const remove = async (id) => { await api.delete(`/job-cards/${id}`); toast.success("Job card deleted"); load(); };
+  const moveStatus = async (id, status) => {
+    setItems((prev) => prev.map((j) => (j.id === id ? { ...j, status } : j)));
+    try { await api.put(`/job-cards/${id}/status`, { status }); } catch { toast.error("Could not update status"); load(); }
+  };
+
+  const ORDER = ["open", "in_progress", "completed"];
 
   return (
     <div data-testid="job-cards-page">
       <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <p className="text-sm text-slate-500">Raise and track workshop job cards — work requested, work carried out, parts, labour and sign-off.</p>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex gap-2 shrink-0 items-center">
+          {items.length > 0 && (
+            <div className="inline-flex rounded-md border border-slate-200 overflow-hidden mr-1" data-testid="job-cards-view-toggle">
+              <button data-testid="job-cards-view-table" onClick={() => setView("table")} title="Table view" className={`p-2 ${view === "table" ? "bg-slate-900 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}><List size={15} /></button>
+              <button data-testid="job-cards-view-board" onClick={() => setView("board")} title="Board view" className={`p-2 ${view === "board" ? "bg-slate-900 text-white" : "bg-white text-slate-500 hover:bg-slate-50"}`}><LayoutGrid size={15} /></button>
+            </div>
+          )}
           {items.length > 0 && (
             <Button data-testid="job-cards-report-button" variant="outline" onClick={() => downloadPdf("/reports/job_cards", "job-cards.pdf")} className="rounded-md gap-2"><Download size={16} /> Report</Button>
           )}
@@ -59,6 +72,43 @@ export function JobCardsPanel() {
 
       {items.length === 0 ? (
         <Empty icon={ClipboardList} text="No job cards yet. Raise one to record workshop work against a vehicle." />
+      ) : view === "board" ? (
+        <div data-testid="job-cards-board" className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-in-up">
+          {ORDER.map((col) => {
+            const colItems = items.filter((j) => (j.status || "open") === col);
+            const idx = ORDER.indexOf(col);
+            return (
+              <div key={col} data-testid={`board-col-${col}`} className="bg-slate-50 border border-slate-200 rounded-md p-3">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600">{STATUS[col].label}</span>
+                  <span className="text-[11px] font-semibold bg-white border border-slate-200 rounded-full px-2 py-0.5 text-slate-500">{colItems.length}</span>
+                </div>
+                <div className="space-y-2 min-h-[40px]">
+                  {colItems.map((j) => (
+                    <div key={j.id} data-testid="board-card" className="bg-white border border-slate-200 rounded-md p-3 hover:shadow-sm transition-shadow">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-sm text-slate-900 inline-flex items-center gap-1.5">{j.job_number}
+                          {j.source && j.source !== "manual" && <span title={`Auto-raised from ${j.source.replace("_", " ")}`} className="inline-flex items-center gap-0.5 text-[8px] font-bold uppercase bg-blue-100 text-blue-700 px-1 py-0.5 rounded-full"><Zap size={8} /> Auto</span>}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700">{j.vehicle_reg}</span>
+                      </div>
+                      {j.work_requested && <p className="text-xs text-slate-500 mt-1.5 line-clamp-2">{j.work_requested}</p>}
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                        <span className="text-[11px] text-slate-400">{j.cost ? `£${Number(j.cost).toFixed(2)}` : ""}{j.technician ? ` · ${j.technician}` : ""}</span>
+                        <div className="flex items-center gap-0.5">
+                          {idx > 0 && <button data-testid="board-move-left" onClick={() => moveStatus(j.id, ORDER[idx - 1])} title={`Move to ${STATUS[ORDER[idx - 1]].label}`} className="text-slate-300 hover:text-slate-900 p-1"><ChevronLeft size={15} /></button>}
+                          {idx < 2 && <button data-testid="board-move-right" onClick={() => moveStatus(j.id, ORDER[idx + 1])} title={`Move to ${STATUS[ORDER[idx + 1]].label}`} className="text-slate-300 hover:text-slate-900 p-1"><ChevronRight size={15} /></button>}
+                          <button data-testid="board-edit" onClick={() => openEdit(j)} className="text-slate-300 hover:text-slate-900 p-1"><Pencil size={14} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {colItems.length === 0 && <p className="text-[11px] text-slate-300 text-center py-4">Nothing here</p>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-md overflow-hidden overflow-x-auto animate-in-up">
           <table className="w-full text-sm">

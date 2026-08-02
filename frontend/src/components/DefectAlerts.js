@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 import { useNavigate } from "react-router-dom";
-import { Bell, AlertTriangle, X, Check, ChevronRight } from "lucide-react";
+import { Bell, AlertTriangle, X, Check, ChevronRight, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 const SEV = {
@@ -23,6 +23,14 @@ export function DefectAlerts() {
   const markRead = async (id) => { await api.patch(`/alerts/${id}/read`); load(); };
   const remove = async (id) => { await api.delete(`/alerts/${id}`); load(); };
   const markAll = async () => { await api.post("/alerts/read-all"); toast.success("All alerts marked read"); load(); };
+  const raiseJobCard = async (id) => {
+    try {
+      const { data } = await api.post(`/alerts/${id}/job-card`);
+      toast.success(`Job card ${data.job_number} raised`);
+    } catch (e) {
+      toast.error(e.response?.status === 409 ? "A job card was already raised for this alert" : "Could not raise job card");
+    }
+  };
 
   if (alerts.length === 0) return null;
 
@@ -52,6 +60,7 @@ export function DefectAlerts() {
               <p className="text-[11px] text-slate-400 mt-1">{a.driver_name ? `${a.driver_name} · ` : ""}{new Date(a.created_at).toLocaleString()} <ChevronRight size={11} className="inline" /></p>
             </button>
             <div className="flex items-center gap-1 shrink-0">
+              {a.vehicle_reg && <button data-testid="alert-raise-job-card" onClick={() => raiseJobCard(a.id)} title="Raise job card" className="text-slate-300 hover:text-blue-600"><Wrench size={15} /></button>}
               {!a.read && <button data-testid="alert-mark-read" onClick={() => markRead(a.id)} title="Mark read" className="text-slate-300 hover:text-green-600"><Check size={15} /></button>}
               <button data-testid="alert-delete" onClick={() => remove(a.id)} title="Dismiss" className="text-slate-300 hover:text-red-600"><X size={15} /></button>
             </div>
