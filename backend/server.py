@@ -3893,13 +3893,87 @@ async def maintenance_costs(from_date: str = Query(None), to_date: str = Query(N
 
     rows = sorted([{k: (round(v, 2) if isinstance(v, float) and k != "cost_per_mile" else v) for k, v in row.items()} for row in per.values()],
                   key=lambda x: x["total"], reverse=True)
+    cpms = [r["cost_per_mile"] for r in rows if r.get("cost_per_mile")]
+    avg_cpm = round(sum(cpms) / len(cpms), 3) if cpms else None
+    for r in rows:
+        r["high_cost"] = bool(avg_cpm and r.get("cost_per_mile") and r["cost_per_mile"] > 1.5 * avg_cpm)
     totals = {
         "job_cards": round(sum(r["job_cards"] for r in rows), 2),
         "service": round(sum(r["service"] for r in rows), 2),
         "repairs": round(sum(r["repairs"] for r in rows), 2),
         "total": round(sum(r["total"] for r in rows), 2),
+        "avg_cost_per_mile": avg_cpm,
     }
     return {"rows": rows, "totals": totals, "currency": "€" if user.region == "IE" else "£"}
+
+
+@api_router.get("/maintenance/costs/monthly")
+async def maintenance_costs_monthly(months: int = Query(12), user: User = Depends(get_current_user)):
+    """Month-by-month maintenance spend (job cards + service + repairs) for the last N months."""
+    months = max(1, min(36, months))
+    today = datetime.now(timezone.utc).date()
+    keys = []
+    y, m = today.year, today.month
+    for _ in range(months):
+        keys.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            m = 12
+            y -= 1
+    keys = list(reversed(keys))
+    buckets = {k: {"month": k, "job_cards": 0.0, "service": 0.0, "repairs": 0.0, "total": 0.0} for k in keys}
+
+    def add(date_val, amount, bucket):
+        mk = (date_val or "")[:7]
+        if mk in buckets and amount:
+            buckets[mk][bucket] += amount
+            buckets[mk]["total"] += amount
+
+    for j in await db.job_cards.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(j.get("date_raised") or j.get("created_at"), float(j.get("cost") or 0), "job_cards")
+    for s in await db.service_records.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(s.get("service_date"), float(s.get("cost") or 0), "service")
+    for r in await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
+        add(r.get("repair_date"), float(r.get("cost") or 0), "repairs")
+    rows = [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in b.items()} for b in buckets.values()]
+    return {"rows": rows, "currency": "€" if user.region == "IE" else "£"}
+
+
+@api_router.get("/prohibitions/pack")
+async def prohibitions_pack(include_files: bool = Query(True), user: User = Depends(get_current_user)):
+    """Follow-up pack: every OPEN roadside prohibition with its notice attachments merged into one PDF."""
+    prohibitions = await db.prohibitions.find({"user_id": user.user_id, "status": {"$ne": "cleared"}}, {"_id": 0}).sort("encounter_date", 1).to_list(500)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    PT = {"immediate": "Immediate (PG9)", "delayed": "Delayed (PG9)", "S-marked": "S-marked (PG9S)", "none": "No prohibition / advisory"}
+    sections = [{"type": "kv", "heading": "Overview", "pairs": [
+        ("Operator", operator.get("company_name", "")),
+        ("Open prohibitions", len(prohibitions)),
+        ("Generated", datetime.now(timezone.utc).strftime("%d %b %Y %H:%M")),
+    ]}]
+    for p in prohibitions:
+        sections.append({"type": "kv", "heading": f"{p.get('vehicle_reg', '—')} · {p.get('encounter_date', '—')}", "pairs": [
+            ("Authority", p.get("authority") or "—"),
+            ("Encounter type", p.get("encounter_type") or "—"),
+            ("Prohibition", PT.get(p.get("prohibition_type"), p.get("prohibition_type") or "—")),
+            ("Category", p.get("category") or "—"),
+            ("Reference / notice", p.get("reference") or "—"),
+            ("Driver", p.get("driver_name") or "—"),
+            ("Location", p.get("location") or "—"),
+            ("Fixed penalty", (f"Yes — £{float(p.get('penalty_amount') or 0):.0f}" + (f", {p.get('points')} pts" if p.get("points") else "")) if p.get("fixed_penalty") else "No"),
+            ("Details", p.get("details") or "—"),
+            ("Notes", p.get("notes") or "—"),
+        ]})
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Roadside Prohibition Follow-up Pack",
+        f"{len(prohibitions)} open prohibition(s)", [("Operator", operator.get("company_name", ""))],
+        sections, await _get_logo_bytes(user.user_id, operator), authority)
+    if include_files:
+        fids = [a.get("file_id") for p in prohibitions for a in (p.get("attachments") or []) if a.get("file_id")]
+        if fids:
+            pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"prohibition-pack-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @api_router.get("/prohibitions")

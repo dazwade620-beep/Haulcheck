@@ -9,7 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Truck, Trash2, Pencil, FileDown, Ban, History, Tag, Undo2 } from "lucide-react";
+import { Plus, Truck, Trash2, Pencil, FileDown, Ban, History, Tag, Undo2, AlertTriangle } from "lucide-react";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { TrailersPanel } from "@/pages/Trailers";
@@ -33,10 +33,15 @@ function VehiclesPanel() {
   const [vorForm, setVorForm] = useState({ reason: "", off_date: "", expected_return: "" });
   const [soldFor, setSoldFor] = useState(null);
   const [soldForm, setSoldForm] = useState({ sold_date: "", notes: "" });
+  const [costs, setCosts] = useState({});
+  const [cur, setCur] = useState("£");
 
   const load = async () => {
-    const [v, i] = await Promise.all([api.get("/vehicles"), api.get("/insurance")]);
+    const [v, i, c] = await Promise.all([api.get("/vehicles"), api.get("/insurance"), api.get("/maintenance/costs")]);
     setItems(v.data); setInsurance(i.data);
+    const map = {};
+    (c.data.rows || []).forEach((r) => { map[r.vehicle_reg] = r; });
+    setCosts(map); setCur(c.data.currency || "£");
   };
   const insByType = (t) => insurance.find((p) => p.policy_type === t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,6 +131,7 @@ function VehiclesPanel() {
                 <th className="px-5 py-3 font-semibold">{terms.vehicleTest}</th>
                 <th className="px-5 py-3 font-semibold">Service</th>
                 <th className="px-5 py-3 font-semibold">{terms.roadTax}</th>
+                <th className="px-5 py-3 font-semibold">Maintenance</th>
                 <th className="px-5 py-3"></th>
               </tr>
             </thead>
@@ -143,6 +149,19 @@ function VehiclesPanel() {
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.mot_status} /><span className="text-xs text-slate-400">{v.mot_due || "—"}</span></div></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.service_status} /><span className="text-xs text-slate-400">{v.service_due || "—"}</span></div></td>
                   <td className="px-5 py-3"><div className="flex flex-col gap-1 items-start"><StatusBadge status={v.tax_status} /><span className="text-xs text-slate-400">{v.tax_due || "—"}</span></div></td>
+                  <td className="px-5 py-3" data-testid="vehicle-cost-cell">
+                    {costs[v.registration] ? (
+                      <div className="flex flex-col gap-0.5 items-start">
+                        <span className="font-semibold text-slate-800">{cur}{Number(costs[v.registration].total).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                        {costs[v.registration].cost_per_mile != null ? (
+                          <span className={`inline-flex items-center gap-1 text-xs ${costs[v.registration].high_cost ? "text-red-600 font-semibold" : "text-slate-400"}`}>
+                            {cur}{costs[v.registration].cost_per_mile.toFixed(2)}/mi
+                            {costs[v.registration].high_cost && <span data-testid="vehicle-high-cost-badge" title="Cost per mile well above fleet average"><AlertTriangle size={12} /></span>}
+                          </span>
+                        ) : <span className="text-xs text-slate-300">no mileage</span>}
+                      </div>
+                    ) : <span className="text-xs text-slate-300">—</span>}
+                  </td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
                     {v.sold
                       ? <button data-testid="restore-sold-button" onClick={() => clearSold(v)} title="Restore to active fleet" className="text-amber-600 hover:text-emerald-600 p-1.5"><Undo2 size={16} /></button>

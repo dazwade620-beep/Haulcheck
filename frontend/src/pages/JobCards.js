@@ -116,7 +116,10 @@ export function JobCardsPanel() {
                 className="bg-slate-50 border border-slate-200 rounded-md p-3 transition-colors">
                 <div className="flex items-center justify-between mb-3 px-1">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600">{STATUS[col].label}</span>
-                  <span className="text-[11px] font-semibold bg-white border border-slate-200 rounded-full px-2 py-0.5 text-slate-500">{colItems.length}</span>
+                  <span data-testid={`board-col-meta-${col}`} className="text-[11px] font-semibold bg-white border border-slate-200 rounded-full px-2 py-0.5 text-slate-500">
+                    {colItems.length} job{colItems.length === 1 ? "" : "s"}
+                    {colItems.reduce((s, j) => s + (Number(j.labour_hours) || 0), 0) > 0 && ` · ${colItems.reduce((s, j) => s + (Number(j.labour_hours) || 0), 0)}h`}
+                  </span>
                 </div>
                 <div className="space-y-2 min-h-[40px]">
                   {colItems.map((j) => (

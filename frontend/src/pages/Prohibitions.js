@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShieldAlert, Trash2, Pencil, Download, MapPin, Paperclip } from "lucide-react";
+import { ShieldAlert, Trash2, Pencil, Download, MapPin, Paperclip, FolderDown } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
@@ -85,6 +85,9 @@ export function ProhibitionsPanel() {
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <p className="text-sm text-slate-500">Log DVSA / RSA roadside stops, prohibitions (PG9) and follow-up clearance.</p>
         <div className="flex gap-2">
+          {openCount > 0 && (
+            <Button data-testid="prohibitions-pack-button" variant="outline" onClick={() => downloadPdf("/prohibitions/pack", "prohibition-follow-up-pack.pdf")} className="rounded-md gap-2"><FolderDown size={16} /> Follow-up pack</Button>
+          )}
           {items.length > 0 && (
             <Button data-testid="prohibitions-report-button" variant="outline" onClick={() => downloadPdf("/reports/prohibitions", "prohibitions.pdf")} className="rounded-md gap-2"><Download size={16} /> Report</Button>
           )}
