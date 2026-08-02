@@ -807,7 +807,7 @@ class JobCardInput(BaseModel):
     attachments: List[Attachment] = []
 
 
-class ComplianceDoc(BaseModel):
+class CompanyDoc(BaseModel):
     id: str = Field(default_factory=lambda: f"cmp_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
     title: str
@@ -3689,7 +3689,7 @@ async def list_compliance_docs(user: User = Depends(get_current_user)):
 
 @api_router.post("/compliance-docs")
 async def create_compliance_doc(data: ComplianceDocInput, user: User = Depends(get_current_user)):
-    d = ComplianceDoc(**data.model_dump(), user_id=user.user_id)
+    d = CompanyDoc(**data.model_dump(), user_id=user.user_id)
     await db.compliance_docs.insert_one(d.model_dump())
     return d.model_dump()
 

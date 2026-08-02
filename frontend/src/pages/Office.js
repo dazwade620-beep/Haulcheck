@@ -6,8 +6,9 @@ import { TrainingPanel } from "@/pages/Training";
 import { LinksPanel } from "@/pages/Links";
 import { TradeUnionsPanel } from "@/pages/TradeUnions";
 import { VehicleCheckPanel } from "@/pages/VehicleCheck";
+import { ComplianceDocsPanel } from "@/pages/ComplianceDocs";
 
-const VALID = ["insurance", "vehiclecheck", "documents", "training", "links", "unions"];
+const VALID = ["insurance", "vehiclecheck", "documents", "compliance", "training", "links", "unions"];
 
 export default function Office() {
   const [params] = useSearchParams();
@@ -24,6 +25,7 @@ export default function Office() {
           <TabsTrigger value="insurance" data-testid="tab-insurance">Insurance</TabsTrigger>
           <TabsTrigger value="vehiclecheck" data-testid="tab-vehiclecheck">Vehicle Check</TabsTrigger>
           <TabsTrigger value="documents" data-testid="tab-documents">Documents</TabsTrigger>
+          <TabsTrigger value="compliance" data-testid="tab-compliance">Compliance Docs</TabsTrigger>
           <TabsTrigger value="training" data-testid="tab-training">Training</TabsTrigger>
           <TabsTrigger value="links" data-testid="tab-links">Links</TabsTrigger>
           <TabsTrigger value="unions" data-testid="tab-unions">Trade Unions</TabsTrigger>
@@ -31,6 +33,7 @@ export default function Office() {
         <TabsContent value="insurance"><InsurancePanel embedded /></TabsContent>
         <TabsContent value="vehiclecheck"><VehicleCheckPanel /></TabsContent>
         <TabsContent value="documents"><DocumentsPanel embedded /></TabsContent>
+        <TabsContent value="compliance"><ComplianceDocsPanel /></TabsContent>
         <TabsContent value="training"><TrainingPanel embedded /></TabsContent>
         <TabsContent value="links"><LinksPanel /></TabsContent>
         <TabsContent value="unions"><TradeUnionsPanel /></TabsContent>

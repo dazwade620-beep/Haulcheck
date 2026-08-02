@@ -1,0 +1,33 @@
+{
+  "summary": "Full functional pass for iteration-34 batch: Job Cards CRUD, Compliance Docs CRUD (with https:// auto-prefix on links), Operator Financial & Contact + Bank persistence, Documents doc_type regression (ComplianceDoc still stores doc_type), Calendar VOR event span (event per day), and viewer-role write-guard on the new endpoints. Backend: 10/10 pytest cases passed. Frontend E2E via Playwright: 8/8 scenarios passed (login, job card create/edit/delete with JC-0001 auto number, compliance doc create/edit/delete with auto https://, operator save+reload persistence).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter34_batch.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [
+    "Minor (non-blocking): JobCard vehicle picker (data-testid=jc-vehicle) logs 'Encountered two children with the same key: AB12 CDE' — the vehicle list passed to the Select has a duplicate registration. Deduplicate the vehicles list (or ensure unique keys) in JobCards.js when building SelectItem entries.",
+    "Cosmetic: on /operator load two 401s appear in console (pre-existing pattern noted in iter-33). Not caused by this batch."
+  ],
+  "critical_code_review_comments": [
+    "server.py has grown to ~5047 lines — strongly recommend splitting by feature (job-cards, compliance-docs, operator, calendar, documents) into routers/modules. Long single-file backends are hard to maintain.",
+    "In /api/compliance-docs POST, the ComplianceDocInput -> CompanyDoc mapping is correct after the rename; consider adding a Pydantic validator to normalise link_url (add https:// server-side too) so any non-UI caller also gets the fix — right now only the JS layer normalises the URL.",
+    "Calendar VOR span caps at 366 days (min((vend-vstart).days, 366)+1). Consider explicit validation to reject expected_return older than off_date rather than silently swapping vstart/vend.",
+    "JobCard job_number is generated from count_documents({user_id}), which is not concurrency-safe (two simultaneous POSTs could produce the same JC-XXXX). Use an atomic sequence collection (findOneAndUpdate $inc) for reliable numbering."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter34_batch.py"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (8/8 core scenarios)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! — worked",
+  "seed_data_creation": "All test data (job cards, compliance docs, TEST vehicles, TEST viewer invitation, VOR state) is cleaned up by the pytest fixtures. Frontend UI test also created + deleted its own job card & compliance doc. Operator financial fields were set to real-looking demo values (VAT GB999888777, IBAN GB29NWBK60161331926819, sort 40-40-40, acct 87654321) — main agent may want to reset these if they should remain blank.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration-34 batch (Job Cards, Compliance Docs, Operator financials, VOR calendar span) is fully working end-to-end. Viewer role write-guard covers /api/job-cards and /api/compliance-docs (POST/PUT/DELETE -> 403). The Documents regression is safe — /api/documents still uses the old ComplianceDoc model and doc_type persists. Only outstanding non-blocking item is a duplicate-key React warning in the JobCards vehicle Select (dedupe the vehicles list). Operator page still has 2 harmless 401s in console (pre-existing).",
+  "rca of the issue": "N/A — no failing features."
+}
