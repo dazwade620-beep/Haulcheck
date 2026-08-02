@@ -1,21 +1,45 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Truck, ShieldCheck } from "lucide-react";
+import { Truck, ShieldCheck, MailCheck } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Login() {
-  const [mode, setMode] = useState("login");
+  const [mode, setMode] = useState("login"); // login | register | forgot | verify
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
+  const [sentTo, setSentTo] = useState("");
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
   const { loginWithToken } = useAuth();
   const navigate = useNavigate();
 
-  const [sentTo, setSentTo] = useState("");
+  // Handle the one-click verification link: /verify-email?token=...&email=...
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    const email = params.get("email");
+    if (window.location.pathname === "/verify-email" && token && email) {
+      setMode("verify");
+      setSentTo(email);
+      setVerifying(true);
+      api.post("/auth/verify", { email, token })
+        .then((res) => {
+          loginWithToken(res.data.token, res.data.user);
+          toast.success("Email verified — welcome to HaulCheck!");
+          navigate("/dashboard");
+        })
+        .catch(() => {
+          toast.error("That verification link is invalid or has expired. Enter the code from your email instead.");
+          setVerifying(false);
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -26,18 +50,53 @@ export default function Login() {
         setSentTo(form.email);
         return;
       }
-      const endpoint = mode === "login" ? "/auth/login" : "/auth/register";
-      const payload = mode === "login"
-        ? { email: form.email, password: form.password }
-        : { email: form.email, password: form.password, name: form.name };
-      const res = await api.post(endpoint, payload);
+      if (mode === "register") {
+        await api.post("/auth/register", { email: form.email, password: form.password, name: form.name, base_url: window.location.origin });
+        setSentTo(form.email);
+        setMode("verify");
+        toast.success("Account created — check your email to verify");
+        return;
+      }
+      // login
+      const res = await api.post("/auth/login", { email: form.email, password: form.password });
       loginWithToken(res.data.token, res.data.user);
       navigate("/dashboard");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Something went wrong");
+      const detail = err.response?.data?.detail;
+      if (mode === "login" && detail === "email_not_verified") {
+        setSentTo(form.email);
+        setMode("verify");
+        try { await api.post("/auth/resend-verification", { email: form.email, base_url: window.location.origin }); } catch { /* ignore */ }
+        toast.message("Please verify your email — we've sent you a fresh code");
+      } else {
+        toast.error(detail || "Something went wrong");
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  const verifyCode = async (e) => {
+    e.preventDefault();
+    if (code.trim().length !== 6) return toast.error("Enter the 6-digit code");
+    setBusy(true);
+    try {
+      const res = await api.post("/auth/verify", { email: sentTo, code: code.trim() });
+      loginWithToken(res.data.token, res.data.user);
+      toast.success("Email verified — welcome to HaulCheck!");
+      navigate("/dashboard");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Invalid or expired code");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resendCode = async () => {
+    try {
+      await api.post("/auth/resend-verification", { email: sentTo, base_url: window.location.origin });
+      toast.success("A new code is on its way");
+    } catch { toast.error("Could not resend the code"); }
   };
 
   const googleLogin = () => {
@@ -64,10 +123,10 @@ export default function Login() {
             Keep your O-licence<br />bulletproof.
           </h1>
           <p className="mt-5 text-slate-300 max-w-md text-base">
-            Track MOTs, driver CPC, tachograph hours, defect reports and operator documents — with AI risk scoring built for UK road haulage operators.
+            Track MOTs, driver CPC, tachograph hours, defect reports and operator documents — with AI risk scoring built for UK, Ireland &amp; EU road haulage operators.
           </p>
           <div className="mt-8 flex items-center gap-2 text-sm text-slate-400">
-            <ShieldCheck size={18} /> DVSA & RSA-aligned compliance tracking
+            <ShieldCheck size={18} /> DVSA, RSA &amp; EU-aligned compliance tracking
           </div>
         </div>
         <div className="relative text-xs text-slate-500 tracking-widest uppercase">Fleet Compliance Control Room</div>
@@ -80,6 +139,41 @@ export default function Login() {
             <Truck size={26} className="text-slate-900" />
             <span className="font-heading font-black text-lg tracking-tight">HAULCHECK</span>
           </div>
+
+          {mode === "verify" ? (
+            <div data-testid="verify-screen">
+              <div className="w-12 h-12 rounded-full bg-slate-900 text-white flex items-center justify-center mb-5">
+                <MailCheck size={22} />
+              </div>
+              <h2 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Verify your email</h2>
+              <p className="text-slate-500 mt-2 text-sm">
+                We've sent a verification link and a 6-digit code to <span className="font-semibold text-slate-700">{sentTo}</span>. Click the link in the email, or enter the code below.
+              </p>
+              {verifying ? (
+                <p className="mt-8 text-sm text-slate-500">Verifying your link…</p>
+              ) : (
+                <form onSubmit={verifyCode} className="space-y-4 mt-6">
+                  <div>
+                    <Label htmlFor="code">6-digit code</Label>
+                    <Input data-testid="verify-code-input" id="code" inputMode="numeric" maxLength={6} required value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="000000" className="mt-1.5 tracking-[0.5em] text-center text-lg font-semibold" />
+                  </div>
+                  <Button data-testid="verify-submit-button" type="submit" disabled={busy}
+                    className="w-full bg-black hover:bg-slate-800 text-white py-2.5 rounded-md font-semibold">
+                    {busy ? "Verifying…" : "Verify & continue"}
+                  </Button>
+                  <div className="flex items-center justify-between text-sm">
+                    <button type="button" data-testid="resend-code-button" onClick={resendCode}
+                      className="font-semibold text-slate-500 hover:text-slate-900">Resend code</button>
+                    <button type="button" data-testid="verify-back-button" onClick={() => { setMode("login"); setCode(""); }}
+                      className="font-semibold text-slate-500 hover:text-slate-900">← Back to sign in</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : (
+          <>
           <h2 className="font-heading text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
             {mode === "login" ? "Sign in" : mode === "register" ? "Create your account" : "Reset your password"}
           </h2>
@@ -183,6 +277,8 @@ export default function Login() {
             Questions?{" "}
             <a data-testid="contact-us-link" href="/contact" className="font-semibold text-slate-600 hover:text-slate-900 underline underline-offset-4">Contact us</a>
           </p>
+          </>
+          )}
         </div>
       </div>
     </div>

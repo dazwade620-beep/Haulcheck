@@ -21,6 +21,17 @@ export const REGIONS = {
     currency: "€",
     tagline: "RSA & DVSA-aligned compliance tracking",
   },
+  EU: {
+    code: "EU",
+    label: "Europe (EU)",
+    authority: "EU",
+    vehicleTest: "Roadworthiness Test",
+    trailerTest: "Roadworthiness Test",
+    operatorLicence: "Community Licence / Operator Licence",
+    roadTax: "Road Tax",
+    currency: "€",
+    tagline: "EU tachograph & roadworthiness compliance tracking",
+  },
 };
 
 export const getTerms = (region) => REGIONS[region] || REGIONS.UK;

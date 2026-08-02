@@ -9,12 +9,14 @@ export function RegionToggle({ className = "" }) {
   const opts = [
     { c: "UK", label: "UK · DVSA" },
     { c: "IE", label: "IE · RSA" },
+    { c: "EU", label: "EU · Tacho" },
   ];
+  const NAMES = { UK: "United Kingdom (DVSA)", IE: "Ireland (RSA)", EU: "Europe (EU tachograph & roadworthiness)" };
   const switchTo = async (c) => {
     if (c === current) return;
     try {
       await updateRegion(c);
-      toast.success(`Switched to ${c === "UK" ? "United Kingdom (DVSA)" : "Ireland (RSA)"}`);
+      toast.success(`Switched to ${NAMES[c] || c}`);
     } catch { toast.error("Could not switch region"); }
   };
   return (

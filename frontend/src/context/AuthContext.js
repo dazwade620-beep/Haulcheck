@@ -32,6 +32,8 @@ export const AuthProvider = ({ children }) => {
   const loginWithToken = useCallback((token, userData) => {
     localStorage.setItem("token", token);
     setUser(userData);
+    // Hydrate the full profile (is_admin, verified, etc.) after storing the token.
+    api.get("/auth/me").then((res) => setUser(res.data)).catch(() => {});
   }, []);
 
   const updateRegion = useCallback(async (region) => {

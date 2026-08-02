@@ -97,7 +97,7 @@ export default function Team() {
       <div className="mb-8">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Account</p>
         <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Team &amp; Users</h1>
-        <p className="text-slate-500 text-sm mt-1">Invite other operators to set up their own isolated compliance account, pre-seeded with your links &amp; reminder template.</p>
+        <p className="text-slate-500 text-sm mt-1">Invite operators to their own isolated account, add staff members who can edit your records, or give read-only viewers access.</p>
       </div>
 
       {/* At-a-glance summary */}
@@ -133,7 +133,7 @@ export default function Team() {
         <div className="bg-white border border-slate-200 rounded-md p-6 animate-in-up">
           <div className="flex items-center gap-2 mb-5">
             <UserPlus size={18} className="text-slate-900" />
-            <h3 className="font-heading font-bold text-lg tracking-tight">Invite an operator</h3>
+            <h3 className="font-heading font-bold text-lg tracking-tight">Invite a team member</h3>
           </div>
           <form onSubmit={invite} className="space-y-4">
             <div>
@@ -143,16 +143,21 @@ export default function Team() {
             </div>
             <div>
               <Label className="mb-1.5 block">Access level</Label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button type="button" data-testid="role-manager" onClick={() => setRole("manager")}
-                  className={`rounded-md border px-3 py-2.5 text-left transition-all ${role === "manager" ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-300"}`}>
+                  className={`rounded-md border px-2.5 py-2.5 text-left transition-all ${role === "manager" ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-300"}`}>
                   <p className="text-sm font-semibold text-slate-900">Operator</p>
                   <p className="text-[11px] text-slate-500 leading-snug mt-0.5">Own separate account</p>
                 </button>
+                <button type="button" data-testid="role-staff" onClick={() => setRole("staff")}
+                  className={`rounded-md border px-2.5 py-2.5 text-left transition-all ${role === "staff" ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-300"}`}>
+                  <p className="text-sm font-semibold text-slate-900">Staff (can edit)</p>
+                  <p className="text-[11px] text-slate-500 leading-snug mt-0.5">Works in your account</p>
+                </button>
                 <button type="button" data-testid="role-viewer" onClick={() => setRole("viewer")}
-                  className={`rounded-md border px-3 py-2.5 text-left transition-all ${role === "viewer" ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-300"}`}>
-                  <p className="text-sm font-semibold text-slate-900">Viewer (read-only)</p>
-                  <p className="text-[11px] text-slate-500 leading-snug mt-0.5">Sees your records, can't edit</p>
+                  className={`rounded-md border px-2.5 py-2.5 text-left transition-all ${role === "viewer" ? "border-slate-900 bg-slate-50 ring-1 ring-slate-900" : "border-slate-200 hover:border-slate-300"}`}>
+                  <p className="text-sm font-semibold text-slate-900">Viewer</p>
+                  <p className="text-[11px] text-slate-500 leading-snug mt-0.5">Read-only, can't edit</p>
                 </button>
               </div>
             </div>
@@ -162,7 +167,9 @@ export default function Team() {
             </Button>
             <p className="text-xs text-slate-400 leading-relaxed">
               {role === "viewer"
-                ? "A Viewer (e.g. your Transport Manager) can log in and see every page of your account, but cannot add, edit or delete anything."
+                ? "A Viewer (e.g. an auditor) can log in and see every page of your account, but cannot add, edit or delete anything."
+                : role === "staff"
+                ? "A Staff member works inside your account and can view and edit vehicles, drivers, defects and records — the same data as you, but they can't manage the team or billing."
                 : "An Operator gets their own completely separate account with a secure link to choose a password — they only see their own records."}
             </p>
           </form>
@@ -189,7 +196,7 @@ export default function Team() {
                     </p>
                     {inv.status === "accepted" && (
                       <span data-testid={`isolated-badge-${inv.id}`} className="inline-flex items-center gap-1 mt-1 text-[11px] font-medium text-slate-500">
-                        <ShieldCheck size={12} className={inv.role === "viewer" ? "text-sky-600" : "text-emerald-600"} /> {inv.role === "viewer" ? "Read-only viewer" : "Own isolated records"}
+                        <ShieldCheck size={12} className={inv.role === "viewer" ? "text-sky-600" : inv.role === "staff" ? "text-violet-600" : "text-emerald-600"} /> {inv.role === "viewer" ? "Read-only viewer" : inv.role === "staff" ? "Staff — can edit your account" : "Own isolated records"}
                       </span>
                     )}
                   </div>

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -60,11 +60,11 @@ export default function Layout({ children }) {
     <div className="px-4 pb-3" data-testid="region-switcher">
       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 font-semibold mb-2 flex items-center gap-1.5"><Globe size={12} /> Jurisdiction</p>
       <div className="flex gap-1 bg-slate-800 rounded-md p-1">
-        {[{ c: "UK", l: "UK · DVSA" }, { c: "IE", l: "IE · RSA" }].map((r) => (
+        {[{ c: "UK", l: "UK" }, { c: "IE", l: "IE" }, { c: "EU", l: "EU" }].map((r) => (
           <button
             key={r.c}
             data-testid={`region-${r.c}`}
-            onClick={async () => { try { await updateRegion(r.c); toast.success(`Switched to ${r.c === "UK" ? "United Kingdom (DVSA)" : "Ireland (RSA)"}`); } catch { toast.error("Could not switch region"); } }}
+            onClick={async () => { try { await updateRegion(r.c); toast.success(`Switched to ${r.c === "UK" ? "United Kingdom (DVSA)" : r.c === "IE" ? "Ireland (RSA)" : "Europe (EU)"}`); } catch { toast.error("Could not switch region"); } }}
             className={cn(
               "flex-1 py-1.5 text-xs font-semibold rounded transition-all",
               (user?.region || "UK") === r.c ? "bg-white text-slate-900" : "text-slate-400 hover:text-white"
@@ -99,6 +99,24 @@ export default function Layout({ children }) {
           )}
         </NavLink>
       ))}
+      {user?.is_admin && (
+        <NavLink
+          to="/admin"
+          data-testid="nav-admin"
+          onClick={() => setOpen(false)}
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all duration-200 border-l-2",
+              isActive
+                ? "bg-amber-500/20 text-amber-300 border-amber-400"
+                : "text-amber-300/70 border-transparent hover:text-amber-200 hover:bg-slate-800/60"
+            )
+          }
+        >
+          <ShieldCheck size={20} />
+          Admin
+        </NavLink>
+      )}
     </nav>
   );
 

@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 
 
 def _terms(region):
-    ie = (region or "UK").upper() in ("IE", "IRELAND", "RSA")
+    r = (region or "UK").upper()
+    ie = r in ("IE", "IRELAND", "RSA")
+    eu = r in ("EU", "EUROPE")
     return {
-        "vehicle_test": "CVRT Due" if ie else "MOT Due",
+        "vehicle_test": "CVRT Due" if ie else ("Roadworthiness Test Due" if eu else "MOT Due"),
         "road_tax": "Motor Tax Due" if ie else "Vehicle Tax Due",
-        "currency": "€" if ie else "£",
-        "authority": "RSA (Ireland)" if ie else "DVSA (UK)",
+        "currency": "€" if (ie or eu) else "£",
+        "authority": "RSA (Ireland)" if ie else ("EU (Tachograph & Roadworthiness)" if eu else "DVSA (UK)"),
     }
 
 

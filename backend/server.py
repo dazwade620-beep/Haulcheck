@@ -35,6 +35,12 @@ JWT_SECRET = os.environ['JWT_SECRET']
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()}
+
+
+def _is_admin_email(email) -> bool:
+    return bool(email) and str(email).lower() in ADMIN_EMAILS
+
 # ---------- Object storage ----------
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
 APP_NAME = "haulcheck"
@@ -77,6 +83,7 @@ api_router = APIRouter(prefix="/api")
 _VIEWER_EXEMPT_PATHS = {
     "/api/auth/login", "/api/auth/register", "/api/auth/session", "/api/auth/logout",
     "/api/auth/accept-invite", "/api/auth/forgot-password", "/api/auth/reset-password",
+    "/api/auth/verify", "/api/auth/resend-verification",
     "/api/contact",
 }
 
@@ -135,6 +142,18 @@ class RegisterInput(BaseModel):
     password: str
     name: str
     role: str = "manager"
+    base_url: str = ""
+
+
+class VerifyEmailInput(BaseModel):
+    email: EmailStr
+    code: str = ""
+    token: str = ""
+
+
+class ResendVerificationInput(BaseModel):
+    email: EmailStr
+    base_url: str = ""
 
 
 class LoginInput(BaseModel):
@@ -145,7 +164,7 @@ class LoginInput(BaseModel):
 class InviteInput(BaseModel):
     email: EmailStr
     base_url: str = ""
-    role: str = "manager"  # "manager" (own isolated account) or "viewer" (read-only into inviter's account)
+    role: str = "manager"  # "manager" (own isolated account), "viewer" (read-only), or "staff" (edit access into inviter's account)
 
 
 class ForgotPasswordInput(BaseModel):
@@ -172,6 +191,9 @@ class User(BaseModel):
     region: str = "UK"
     picture: Optional[str] = None
     account_owner_id: Optional[str] = None
+    email_verified: bool = True
+    is_admin: bool = False
+    active: bool = True
 
 
 class Attachment(BaseModel):
@@ -1157,13 +1179,55 @@ async def get_current_user(request: Request) -> User:
     user = await _authenticate(cookie_token, bearer)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    # A read-only "viewer" (e.g. a Transport Manager) sees the inviting operator's data.
-    if user.role == "viewer" and user.account_owner_id:
+    user.is_admin = _is_admin_email(user.email)
+    # A read-only "viewer" or an editing "staff" member works inside the inviting operator's account.
+    if user.role in ("viewer", "staff") and user.account_owner_id:
         owner = await db.users.find_one({"user_id": user.account_owner_id}, {"_id": 0})
         if owner:
             user.user_id = user.account_owner_id
             user.region = owner.get("region", "UK")
     return user
+
+
+async def _create_email_verification(user_id: str, email: str):
+    code = f"{secrets.randbelow(1000000):06d}"
+    token = secrets.token_urlsafe(32)
+    await db.email_verifications.delete_many({"email": email})
+    await db.email_verifications.insert_one({
+        "user_id": user_id, "email": email, "token": token,
+        "code_hash": pwd_context.hash(code), "attempts": 0,
+        "created_at": now_iso(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+    })
+    return token, code
+
+
+async def _send_verification_email(email: str, name: str, token: str, code: str, base_url: str):
+    link = f"{(base_url or '').rstrip('/')}/verify-email?token={token}&email={email}"
+    who = name or "there"
+    html = (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Compliance</p>"
+        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Verify your email</h1>"
+        f"<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>Hi {who}, welcome to HaulCheck. Confirm your email to activate your account — either tap the button or enter the 6-digit code on the verification screen.</p>"
+        f"<p style='margin:24px 0 8px;'><a href='{link}' style='background:#0f172a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;'>Verify my email</a></p>"
+        f"<p style='margin:20px 0 4px;font-size:13px;color:#64748b;'>Or enter this code:</p>"
+        f"<p style='margin:0;font-size:30px;font-weight:800;letter-spacing:8px;color:#0f172a;'>{code}</p>"
+        f"<p style='margin:18px 0 0;font-size:12px;color:#94a3b8;'>This code and link expire in 24 hours. If you didn't create a HaulCheck account, you can ignore this email.</p>"
+        "</td></tr></table></div>"
+    )
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [email],
+            "subject": "Verify your HaulCheck email", "html": html,
+        })
+        return True
+    except Exception as e:
+        logging.error(f"Verification email failed: {e}")
+        return False
 
 
 @api_router.post("/auth/register")
@@ -1177,15 +1241,61 @@ async def register(data: RegisterInput, response: Response):
         "user_id": user_id,
         "email": email,
         "name": data.name,
-        "role": data.role,
+        "role": "manager",
         "region": "UK",
         "picture": None,
         "password_hash": pwd_context.hash(data.password),
+        "email_verified": False,
+        "is_admin": _is_admin_email(email),
+        "active": True,
         "created_at": now_iso(),
     })
+    token, code = await _create_email_verification(user_id, email)
+    await _send_verification_email(email, data.name, token, code, data.base_url)
+    return {"needs_verification": True, "email": email}
+
+
+@api_router.post("/auth/verify")
+async def verify_email(data: VerifyEmailInput, response: Response):
+    email = data.email.lower().strip()
+    rec = await db.email_verifications.find_one({"email": email})
+    if not rec:
+        raise HTTPException(status_code=400, detail="No pending verification. Please register or resend the code.")
+    if rec["expires_at"] < now_iso():
+        raise HTTPException(status_code=400, detail="Verification expired. Please resend a new code.")
+    ok = False
+    if data.token and secrets.compare_digest(data.token, rec.get("token", "")):
+        ok = True
+    elif data.code:
+        if rec.get("attempts", 0) >= 6:
+            raise HTTPException(status_code=429, detail="Too many attempts. Please resend a new code.")
+        if pwd_context.verify(data.code.strip(), rec["code_hash"]):
+            ok = True
+        else:
+            await db.email_verifications.update_one({"_id": rec["_id"]}, {"$inc": {"attempts": 1}})
+    if not ok:
+        raise HTTPException(status_code=400, detail="Invalid or expired code.")
+    await db.users.update_one({"user_id": rec["user_id"]}, {"$set": {"email_verified": True}})
+    await db.email_verifications.delete_many({"email": email})
+    u = await db.users.find_one({"user_id": rec["user_id"]}, {"_id": 0}) or {}
+    await db.users.update_one({"user_id": rec["user_id"]}, {"$set": {"last_login_at": now_iso()}})
     response.delete_cookie("session_token", path="/")
-    token = create_jwt(user_id)
-    return {"token": token, "user": {"user_id": user_id, "email": email, "name": data.name, "role": data.role, "region": "UK"}}
+    return {"token": create_jwt(rec["user_id"]),
+            "user": {"user_id": rec["user_id"], "email": email, "name": u.get("name"),
+                     "role": u.get("role", "manager"), "region": u.get("region", "UK")}}
+
+
+@api_router.post("/auth/resend-verification")
+async def resend_verification(data: ResendVerificationInput):
+    email = data.email.lower().strip()
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    if user_doc and not user_doc.get("email_verified", True):
+        prev = await db.email_verifications.find_one({"email": email})
+        if prev and prev.get("created_at", "") > (datetime.now(timezone.utc) - timedelta(seconds=45)).isoformat():
+            return {"ok": True}  # rate-limited silently
+        token, code = await _create_email_verification(user_doc["user_id"], email)
+        await _send_verification_email(email, user_doc.get("name", ""), token, code, data.base_url)
+    return {"ok": True}
 
 
 async def _seed_template(new_user_id: str, inviter_id: str, new_email: str):
@@ -1209,7 +1319,7 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="That email already has an account")
     token = secrets.token_urlsafe(32)
-    role = "viewer" if data.role == "viewer" else "manager"
+    role = data.role if data.role in ("viewer", "staff") else "manager"
     inv = {
         "id": f"inv_{uuid.uuid4().hex[:10]}", "email": email, "token": token, "role": role,
         "invited_by": user.user_id, "inviter_name": user.name, "status": "pending",
@@ -1217,11 +1327,12 @@ async def create_invitation(data: InviteInput, user: User = Depends(get_current_
     }
     await db.invitations.insert_one(inv)
     link = f"{(data.base_url or '').rstrip('/')}/accept-invite?token={token}"
-    intro = (
-        f"{user.name} has given you <b>read-only access</b> to their HaulCheck compliance account, so you can review vehicles, drivers and records without making changes. Click below to set a password."
-        if role == "viewer" else
-        f"{user.name} has invited you to set up your own HaulCheck compliance account. Click below to choose a password and get started."
-    )
+    if role == "viewer":
+        intro = f"{user.name} has given you <b>read-only access</b> to their HaulCheck compliance account, so you can review vehicles, drivers and records without making changes. Click below to set a password."
+    elif role == "staff":
+        intro = f"{user.name} has added you as a <b>staff member</b> on their HaulCheck compliance account. You'll be able to view and edit vehicles, drivers, defects and records. Click below to set a password."
+    else:
+        intro = f"{user.name} has invited you to set up your own HaulCheck compliance account. Click below to choose a password and get started."
     html = (
         "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
         "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
@@ -1313,15 +1424,17 @@ async def accept_invite(data: AcceptInviteInput, response: Response):
     if len(data.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
-    inv_role = "viewer" if inv.get("role") == "viewer" else "manager"
+    inv_role = inv.get("role") if inv.get("role") in ("viewer", "staff") else "manager"
     owner = await db.users.find_one({"user_id": inv["invited_by"]}, {"_id": 0}) or {}
+    shares_account = inv_role in ("viewer", "staff")
     user_doc = {
         "user_id": user_id, "email": email, "name": data.name, "role": inv_role,
-        "region": owner.get("region", "UK") if inv_role == "viewer" else "UK",
+        "region": owner.get("region", "UK") if shares_account else "UK",
         "picture": None, "password_hash": pwd_context.hash(data.password),
         "invited_by": inv["invited_by"], "created_at": now_iso(), "last_login_at": now_iso(),
+        "email_verified": True, "active": True,
     }
-    if inv_role == "viewer":
+    if shares_account:
         user_doc["account_owner_id"] = inv["invited_by"]
     await db.users.insert_one(user_doc)
     if inv_role == "manager":
@@ -1335,10 +1448,62 @@ async def accept_invite(data: AcceptInviteInput, response: Response):
 @api_router.put("/settings/region")
 async def set_region(payload: dict, user: User = Depends(get_current_user)):
     region = payload.get("region", "UK")
-    if region not in ("UK", "IE"):
+    if region not in ("UK", "IE", "EU"):
         raise HTTPException(status_code=400, detail="Invalid region")
     await db.users.update_one({"user_id": user.user_id}, {"$set": {"region": region}})
     return {"ok": True, "region": region}
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if not _is_admin_email(user.email):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+@api_router.get("/admin/users")
+async def admin_list_users(q: str = Query(""), admin: User = Depends(require_admin)):
+    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(5000)
+    owner_names = {d["user_id"]: d.get("name") for d in docs}
+    users = []
+    for d in docs:
+        if q:
+            hay = f"{d.get('email','')} {d.get('name','')}".lower()
+            if q.lower() not in hay:
+                continue
+        users.append({
+            "user_id": d["user_id"], "email": d.get("email"), "name": d.get("name"),
+            "role": d.get("role", "manager"), "region": d.get("region", "UK"),
+            "active": d.get("active", True), "email_verified": d.get("email_verified", True),
+            "is_admin": _is_admin_email(d.get("email")), "created_at": d.get("created_at"),
+            "last_login_at": d.get("last_login_at"),
+            "account_owner": owner_names.get(d.get("account_owner_id")) if d.get("account_owner_id") else None,
+        })
+    stats = {
+        "total": len(docs),
+        "active": sum(1 for d in docs if d.get("active", True)),
+        "suspended": sum(1 for d in docs if d.get("active", True) is False),
+        "verified": sum(1 for d in docs if d.get("email_verified", True)),
+        "unverified": sum(1 for d in docs if d.get("email_verified", True) is False),
+        "by_region": {r: sum(1 for d in docs if d.get("region", "UK") == r) for r in ("UK", "IE", "EU")},
+        "owners": sum(1 for d in docs if not d.get("account_owner_id")),
+    }
+    return {"users": users, "stats": stats}
+
+
+@api_router.put("/admin/users/{uid}/active")
+async def admin_set_user_active(uid: str, payload: dict, admin: User = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": uid}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    active = bool(payload.get("active", True))
+    if not active and target.get("user_id") == admin.user_id:
+        raise HTTPException(status_code=400, detail="You cannot suspend your own admin account")
+    if not active and _is_admin_email(target.get("email")):
+        raise HTTPException(status_code=400, detail="You cannot suspend another administrator")
+    await db.users.update_one({"user_id": uid}, {"$set": {"active": active}})
+    if not active:
+        await db.user_sessions.delete_many({"user_id": uid})
+    return {"ok": True, "active": active}
 
 
 @api_router.get("/operator")
@@ -1364,7 +1529,9 @@ async def login(data: LoginInput, response: Response):
     if not pwd_context.verify(data.password, user_doc["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if user_doc.get("active", True) is False:
-        raise HTTPException(status_code=403, detail="Your account has been deactivated. Please contact the operator who invited you.")
+        raise HTTPException(status_code=403, detail="Your account has been suspended. Please contact your administrator.")
+    if user_doc.get("email_verified", True) is False:
+        raise HTTPException(status_code=403, detail="email_not_verified")
     await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"last_login_at": now_iso()}})
     response.delete_cookie("session_token", path="/")
     token = create_jwt(user_doc["user_id"])
@@ -2347,7 +2514,7 @@ async def fuel_report(
     if to_date:
         recs = [r for r in recs if (r.get("fill_date") or "") <= to_date]
 
-    cur = "€" if user.region == "IE" else "£"
+    cur = "€" if user.region in ("IE", "EU") else "£"
     per = {}
     for r in recs:
         reg = r.get("vehicle_reg")
@@ -2415,7 +2582,7 @@ async def fuel_report(
     ]
     period = f"{from_date or 'start'} → {to_date or 'today'}"
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     pdf = await asyncio.to_thread(
         build_report_pdf, "Fuel & AdBlue Usage Report", period,
         [("Operator", operator.get("company_name", "")), ("Vehicle", vehicle_reg or "All vehicles")],
@@ -2559,7 +2726,7 @@ async def download_report(kind: str, include_files: bool = Query(False), format:
     if from_date or to_date:
         subtitle = f"{subtitle} · Period {from_date or 'start'} to {to_date or 'now'}"
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     if format == "json":
         return {
             "title": title, "subtitle": subtitle,
@@ -2622,7 +2789,7 @@ async def download_vehicle_history(reg: str, include_files: bool = Query(False),
     }
     title, subtitle, sections = reports.vehicle_history_report(vehicle, data, user.region)
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     file_keys = ("pmi_records", "defects", "service", "repairs", "wheel", "walkaround", "test_history", "recalls")
     fids = [a["file_id"] for key in file_keys for rec in data.get(key, [])
             for a in (rec.get("attachments") or []) if a.get("file_id")]
@@ -3342,7 +3509,7 @@ async def tacho_analysis_report(aid: str, user: User = Depends(get_current_user)
         {"heading": "Infringements", "columns": ["When", "Type", "Rule", "Severity", "Detail", "Action"], "rows": rows},
     ]
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     pdf = await asyncio.to_thread(
         build_report_pdf, "Tachograph Analysis", a.get("driver_name") or "",
         [("Operator", operator.get("company_name", ""))], sections,
@@ -3604,7 +3771,7 @@ async def pmi_history_report(pid: str, include_files: bool = Query(False), user:
         sheets = [await asyncio.to_thread(build_pmi_sheet_pdf, operator, r, user.region, logo) for r in recs]
         pdf = await asyncio.to_thread(concat_pdfs, sheets)
     else:
-        authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+        authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
         title, subtitle, sections = reports.pmi_history_report(sched, recs, user.region)
         pdf = await asyncio.to_thread(
             build_report_pdf, title, subtitle,
@@ -3797,8 +3964,8 @@ async def job_card_report(jid: str, include_files: bool = Query(False), user: Us
     if not jc:
         raise HTTPException(status_code=404, detail="Job card not found")
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
-    cur = "€" if user.region == "IE" else "£"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
+    cur = "€" if user.region in ("IE", "EU") else "£"
     status_label = {"open": "Open", "in_progress": "In progress", "completed": "Completed"}.get(jc.get("status"), jc.get("status"))
     sections = [{
         "type": "kv", "heading": f"Job Card {jc.get('job_number', '')}", "pairs": [
@@ -3904,7 +4071,7 @@ async def maintenance_costs(from_date: str = Query(None), to_date: str = Query(N
         "total": round(sum(r["total"] for r in rows), 2),
         "avg_cost_per_mile": avg_cpm,
     }
-    return {"rows": rows, "totals": totals, "currency": "€" if user.region == "IE" else "£"}
+    return {"rows": rows, "totals": totals, "currency": "€" if user.region in ("IE", "EU") else "£"}
 
 
 @api_router.get("/maintenance/costs/monthly")
@@ -3936,7 +4103,7 @@ async def maintenance_costs_monthly(months: int = Query(12, ge=1, le=36), user: 
     for r in await db.repairs.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000):
         add(r.get("repair_date"), float(r.get("cost") or 0), "repairs")
     rows = [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in b.items()} for b in buckets.values()]
-    return {"rows": rows, "currency": "€" if user.region == "IE" else "£"}
+    return {"rows": rows, "currency": "€" if user.region in ("IE", "EU") else "£"}
 
 
 @api_router.get("/prohibitions/pack")
@@ -3944,7 +4111,7 @@ async def prohibitions_pack(include_files: bool = Query(True), user: User = Depe
     """Follow-up pack: every OPEN roadside prohibition with its notice attachments merged into one PDF."""
     prohibitions = await db.prohibitions.find({"user_id": user.user_id, "status": {"$ne": "cleared"}}, {"_id": 0}).sort("encounter_date", 1).to_list(500)
     operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     PT = {"immediate": "Immediate (PG9)", "delayed": "Delayed (PG9)", "S-marked": "S-marked (PG9S)", "none": "No prohibition / advisory"}
     sections = [{"type": "kv", "heading": "Overview", "pairs": [
         ("Operator", operator.get("company_name", "")),
@@ -4758,9 +4925,11 @@ async def detect_gaps(user_id: str):
     walkarounds = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     test_history = await db.test_history.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    is_ie = udoc.get("region") == "IE"
-    mot_label = "CVRT" if is_ie else "MOT"
-    test_label = "CVRT test" if is_ie else "annual test"
+    region = udoc.get("region", "UK")
+    is_ie = region == "IE"
+    is_uk = region == "UK"
+    mot_label = "CVRT" if is_ie else ("roadworthiness test" if region == "EU" else "MOT")
+    test_label = "CVRT test" if is_ie else ("roadworthiness test" if region == "EU" else "annual test")
 
     gaps = []
     operator = await db.operator.find_one({"user_id": user_id}, {"_id": 0}) or {}
@@ -4803,8 +4972,8 @@ async def detect_gaps(user_id: str):
             gaps.append({"area": "Fleet", "item": f"{reg}: no date of first use recorded", "priority": "low"})
         if reg not in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
-        if not is_ie and reg not in pmr_with_brake:
-            gaps.append({"area": "PMI", "item": f"{reg}: no laden roller brake test recorded (DVSA safety inspection)", "priority": "medium"})
+        if is_uk and reg not in pmr_with_brake:
+            gaps.append({"area": "PMI", "item": f"{reg}: no laden roller brake test recorded (DVSA safety inspection)", "priority": "high"})
         if reg not in wheel_regs:
             gaps.append({"area": "Maintenance", "item": f"{reg}: no wheel security audit recorded", "priority": "medium"})
         if reg not in walk_regs:
@@ -5218,7 +5387,7 @@ async def export_driver(driver_id: str, include_files: bool = Query(False), user
     pdf = await asyncio.to_thread(
         build_report_pdf, "Driver Compliance File", d.get("name", ""),
         [("Operator", operator.get("company_name", "")), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
-        await _get_logo_bytes(user.user_id, operator), "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)")
+        await _get_logo_bytes(user.user_id, operator), "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)")
     if include_files:
         fids = [a.get("file_id") for t in training for a in (t.get("attachments") or [])]
         pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
@@ -5338,7 +5507,7 @@ async def _build_account_pdf(user: User, include_files: bool):
         ]},
     ]
     subtitle = operator.get("company_name") or user.name
-    authority = "RSA (Ireland)" if user.region == "IE" else "DVSA (UK)"
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
     pdf = await asyncio.to_thread(
         build_report_pdf, "Fleet Compliance Report", subtitle,
         [("Authority", authority), ("O-Licence", operator.get("operator_licence_number", ""))], sections,
