@@ -22,7 +22,9 @@ export function JobCardsPanel() {
 
   const load = async () => {
     const [j, v] = await Promise.all([api.get("/job-cards"), api.get("/vehicles")]);
-    setItems(j.data); setVehicles(v.data);
+    const seen = new Set();
+    const uniqVehicles = v.data.filter((x) => x.registration && !seen.has(x.registration) && seen.add(x.registration));
+    setItems(j.data); setVehicles(uniqVehicles);
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

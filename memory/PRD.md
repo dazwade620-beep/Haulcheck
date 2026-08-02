@@ -1,5 +1,15 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork — Job Cards, Compliance Docs, Operator financials, VOR calendar span) — VERIFIED iter34 (backend 10/10, frontend 8/8)
+- **Maintenance › Job Cards tab** (JobCards.js `JobCardsPanel`): workshop job-card CRUD — vehicle, date raised, status (open/in_progress/completed), work requested, work carried out, parts used, technician, labour hours, cost, odometer, signed off by, notes + file uploads. Auto job number `JC-0001`. Backend JobCard/JobCardInput models + GET/POST/PUT/DELETE /api/job-cards. Wired into Maintenance.js (VALID + tab-job-cards). Vehicle picker deduplicated by registration.
+- **Office › Compliance Docs tab** (ComplianceDocs.js `ComplianceDocsPanel`): compliance document + web-link store — title, category (Operator Licence/Insurance/H&S/Environmental/Policies/Certificates/HR/Financial/Web Link/Other), reference, expiry/review date (colour-coded status pill), web link (auto https:// prefix), notes + file uploads. Card grid with category filter pills. Backend CompanyDoc/ComplianceDocInput models + GET/POST/PUT/DELETE /api/compliance-docs. Wired into Office.js (tab-compliance).
+- **Operator › Financial & Contact section** (Operator.js): VAT number, EORI number, website, company email + bank details (sort code, account number, SWIFT/BIC, IBAN). Persists via existing PUT /api/operator.
+- **VOR spans every calendar day**: GET /api/calendar emits a `vor` event for every day between vor_off_date and vor_expected_return (capped 366 days); Calendar.js already had `vor` TYPE_META.
+- **BUG FIX (critical regression)**: a duplicate `ComplianceDoc` Pydantic model was added for the new feature, silently overriding the existing Documents model (would drop doc_type/letter_data on document create/generate). Renamed the new model to `CompanyDoc`; existing Office Documents + AI letter generation verified intact.
+- **BUG FIX**: Operator page crashed — `Landmark` lucide icon used without import. Added to imports.
+- Viewer role: new /api/job-cards & /api/compliance-docs writes are blocked (403) by viewer_write_guard middleware (not in exempt paths); GET allowed.
+
+
 ## Original Problem Statement
 Road haulage compliance web app for transport/fleet managers (desktop) and drivers (mobile). Track vehicle inspections/defects & MOT/service dates, driver licences/CPC/tacho hours, operator licence & document expiry (insurance, audit, wheel security). Auth via email/password + Google. AI for defect summaries and compliance risk scoring.
 
