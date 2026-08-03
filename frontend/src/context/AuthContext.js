@@ -41,20 +41,48 @@ export const AuthProvider = ({ children }) => {
     setUser((prev) => (prev ? { ...prev, region } : prev));
   }, []);
 
+  const viewAs = useCallback(async (targetUser) => {
+    // Stash the admin's own token once, then switch to the short-lived read-only token.
+    if (!sessionStorage.getItem("adminToken")) {
+      const current = localStorage.getItem("token");
+      if (current) sessionStorage.setItem("adminToken", current);
+    }
+    const res = await api.post(`/admin/users/${targetUser.user_id}/impersonate`);
+    localStorage.setItem("token", res.data.token);
+    const me = await api.get("/auth/me");
+    setUser(me.data);
+    return res.data;
+  }, []);
+
+  const exitViewAs = useCallback(async () => {
+    const adminToken = sessionStorage.getItem("adminToken");
+    if (adminToken) {
+      localStorage.setItem("token", adminToken);
+      sessionStorage.removeItem("adminToken");
+    }
+    try {
+      const me = await api.get("/auth/me");
+      setUser(me.data);
+    } catch {
+      setUser(null);
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post("/auth/logout");
     } catch (e) {
       console.error("Logout request failed", e);
     }
+    sessionStorage.removeItem("adminToken");
     localStorage.removeItem("token");
     setUser(null);
     window.location.href = "/login";
   }, []);
 
   const value = useMemo(
-    () => ({ user, setUser, loading, loginWithToken, logout, checkAuth, updateRegion }),
-    [user, loading, loginWithToken, logout, checkAuth, updateRegion]
+    () => ({ user, setUser, loading, loginWithToken, logout, checkAuth, updateRegion, viewAs, exitViewAs }),
+    [user, loading, loginWithToken, logout, checkAuth, updateRegion, viewAs, exitViewAs]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -22,10 +22,16 @@ const NAV = [
 ];
 
 export default function Layout({ children }) {
-  const { user, logout, updateRegion } = useAuth();
+  const { user, logout, updateRegion, exitViewAs } = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [auditOpen, setAuditOpen] = useState(false);
+
+  const handleExitViewAs = async () => {
+    await exitViewAs();
+    navigate("/admin");
+  };
 
   const AuditButton = () => (
     <div className="px-3 pb-3">
@@ -183,6 +189,21 @@ export default function Layout({ children }) {
         )}
 
         <main className="flex-1 p-6 sm:p-8 md:p-10 max-w-[1680px] w-full mx-auto">
+          {user?.impersonating && (
+            <div data-testid="impersonation-banner" className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+              <span className="flex items-center gap-2">
+                <Eye size={15} className="shrink-0" />
+                <span><span className="font-semibold">Viewing as {user?.name || user?.email}.</span> Read-only — changes are disabled. You're signed in as admin {user?.impersonated_by_email}.</span>
+              </span>
+              <button
+                data-testid="exit-view-as-button"
+                onClick={handleExitViewAs}
+                className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-md bg-amber-900 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-800 transition-colors"
+              >
+                <X size={13} /> Exit view
+              </button>
+            </div>
+          )}
           {user?.role === "viewer" && (
             <div data-testid="viewer-banner" className="mb-6 flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-800">
               <Globe size={15} className="shrink-0" />

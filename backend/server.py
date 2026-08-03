@@ -104,6 +104,8 @@ async def viewer_write_guard(request: Request, call_next):
         auth = request.headers.get("Authorization")
         bearer = auth.split(" ", 1)[1] if auth and auth.startswith("Bearer ") else None
         u = await _authenticate(cookie_token, bearer)
+        if u and getattr(u, "impersonating", False):
+            return JSONResponse(status_code=403, content={"detail": "Read-only while viewing as another operator — changes aren't permitted."})
         if u and u.role == "viewer":
             return JSONResponse(status_code=403, content={"detail": "You have read-only access — changes aren't permitted."})
     except Exception:
@@ -198,6 +200,9 @@ class User(BaseModel):
     email_verified: bool = True
     is_admin: bool = False
     active: bool = True
+    impersonating: bool = False
+    impersonated_by: Optional[str] = None
+    impersonated_by_email: Optional[str] = None
 
 
 class Attachment(BaseModel):
@@ -1060,6 +1065,23 @@ def create_jwt(user_id: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
+def create_impersonation_jwt(target_user_id: str, admin_id: str, admin_email: str) -> str:
+    """Short-lived (2h) READ-ONLY token letting an admin see exactly what an operator sees."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "user_id": target_user_id,
+        "sub": target_user_id,
+        "iat": now,
+        "exp": now + timedelta(hours=2),
+        "jti": uuid.uuid4().hex,
+        "imp": True,
+        "impersonated_by": admin_id,
+        "impersonated_by_email": admin_email,
+        "scope": "read",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+
 _CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
 
@@ -1155,7 +1177,15 @@ async def _authenticate(cookie_token: Optional[str], bearer: Optional[str]) -> O
             if payload.get("role") != "driver":
                 user_doc = await db.users.find_one({"user_id": payload["user_id"]}, {"_id": 0})
                 if user_doc and user_doc.get("active", True):
-                    return User(**user_doc)
+                    u = User(**user_doc)
+                    if payload.get("imp") is True:
+                        # Only honour a well-formed read-only impersonation token.
+                        if not payload.get("impersonated_by") or payload.get("scope") != "read":
+                            return None
+                        u.impersonating = True
+                        u.impersonated_by = payload.get("impersonated_by")
+                        u.impersonated_by_email = payload.get("impersonated_by_email")
+                    return u
         except jwt.PyJWTError:
             pass
     # Fall back to Google session token (cookie, or a session token sent as bearer)
@@ -1183,9 +1213,10 @@ async def get_current_user(request: Request) -> User:
     user = await _authenticate(cookie_token, bearer)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    user.is_admin = _is_admin_email(user.email)
+    # An impersonation token never grants admin rights, even if the viewed operator is an admin.
+    user.is_admin = _is_admin_email(user.email) and not user.impersonating
     # A read-only "viewer" or an editing "staff" member works inside the inviting operator's account.
-    if user.role in ("viewer", "staff") and user.account_owner_id:
+    if not user.impersonating and user.role in ("viewer", "staff") and user.account_owner_id:
         owner = await db.users.find_one({"user_id": user.account_owner_id}, {"_id": 0})
         if owner:
             user.user_id = user.account_owner_id
@@ -1493,6 +1524,8 @@ async def set_region(payload: dict, user: User = Depends(get_current_user)):
 
 
 async def require_admin(user: User = Depends(get_current_user)) -> User:
+    if user.impersonating:
+        raise HTTPException(status_code=403, detail="Impersonation session cannot access admin tools")
     if not _is_admin_email(user.email):
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
@@ -1560,6 +1593,32 @@ async def admin_list_users(q: str = Query(""), admin: User = Depends(require_adm
         "owners": sum(1 for d in docs if not d.get("account_owner_id")),
         "active_7d": active7, "dormant_30d": dormant30,
     }
+    # Signup trend: daily counts for the last 30 days + this-week / this-month totals.
+    _today = datetime.now(timezone.utc).date()
+    _daily = {(_today - timedelta(days=i)).isoformat(): 0 for i in range(29, -1, -1)}
+    _week_start = _today - timedelta(days=_today.weekday())  # Monday of the current week
+    _month_start = _today.replace(day=1)
+    _this_week = _this_month = 0
+    for d in docs:
+        ca = d.get("created_at")
+        try:
+            cdt = datetime.fromisoformat(ca).date() if ca else None
+        except Exception:
+            cdt = None
+        if cdt is None:
+            continue
+        key = cdt.isoformat()
+        if key in _daily:
+            _daily[key] += 1
+        if cdt >= _week_start:
+            _this_week += 1
+        if cdt >= _month_start:
+            _this_month += 1
+    stats["signups"] = {
+        "daily": [{"date": k, "count": v} for k, v in _daily.items()],
+        "this_week": _this_week,
+        "this_month": _this_month,
+    }
     return {"users": users, "stats": stats}
 
 
@@ -1577,6 +1636,30 @@ async def admin_set_user_active(uid: str, payload: dict, admin: User = Depends(r
     if not active:
         await db.user_sessions.delete_many({"user_id": uid})
     return {"ok": True, "active": active}
+
+
+@api_router.post("/admin/users/{uid}/impersonate")
+async def admin_impersonate(uid: str, admin: User = Depends(require_admin)):
+    """Mint a short-lived, read-only 'View As' token for an operator (owner account)."""
+    target = await db.users.find_one({"user_id": uid}, {"_id": 0})
+    if not target or target.get("active", True) is False:
+        raise HTTPException(status_code=404, detail="Active operator not found")
+    # Only account owners / operators (role manager, not an invited sub-account) can be viewed.
+    if target.get("role", "manager") != "manager" or target.get("account_owner_id"):
+        raise HTTPException(status_code=403, detail="Only account owners can be viewed")
+    if _is_admin_email(target.get("email")):
+        raise HTTPException(status_code=403, detail="Administrators cannot be viewed")
+    token = create_impersonation_jwt(target["user_id"], admin.user_id, admin.email)
+    await db.admin_audit.insert_one({
+        "event": "impersonation_started",
+        "admin_id": admin.user_id, "admin_email": admin.email,
+        "target_id": target["user_id"], "target_email": target.get("email"),
+        "created_at": now_iso(),
+    })
+    return {
+        "token": token, "expires_in": 7200,
+        "target": {"user_id": target["user_id"], "email": target.get("email"), "name": target.get("name")},
+    }
 
 
 @api_router.get("/operator")

@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Users, ShieldCheck, Ban, RotateCcw, MailCheck, MailWarning, Search, Globe, Truck } from "lucide-react";
+import { Users, ShieldCheck, Ban, RotateCcw, MailCheck, MailWarning, Search, Globe, Truck, Eye, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
 
 const relTime = (iso) => {
@@ -39,10 +41,71 @@ function Stat({ label, value, tone = "text-slate-900", Icon }) {
   );
 }
 
+const fmtDay = (d) => {
+  try { return new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short" }); }
+  catch { return d; }
+};
+
+function SignupTooltip({ active, payload }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div className="bg-slate-900 text-white rounded-md px-3 py-2 text-xs shadow-lg">
+      <p className="font-semibold">{fmtDay(p.date)}</p>
+      <p className="text-slate-300">{p.count} new signup{p.count === 1 ? "" : "s"}</p>
+    </div>
+  );
+}
+
+function SignupTrend({ signups }) {
+  if (!signups) return null;
+  const daily = signups.daily || [];
+  const hasData = daily.some((d) => d.count > 0);
+  return (
+    <div data-testid="admin-signup-trend" className="bg-white border border-slate-200 rounded-md p-6 mb-6 animate-in-up">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <TrendingUp size={18} className="text-slate-900" />
+            <h3 className="font-heading font-bold text-lg tracking-tight">Signup Trend</h3>
+          </div>
+          <p className="text-sm text-slate-400 mt-0.5">New accounts registered over the last 30 days.</p>
+        </div>
+        <div className="flex gap-3">
+          <div data-testid="signups-this-week" className="bg-slate-50 border border-slate-200 rounded-md px-4 py-2 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">This week</p>
+            <p className="font-heading text-2xl font-black text-emerald-600 leading-tight">{signups.this_week ?? 0}</p>
+          </div>
+          <div data-testid="signups-this-month" className="bg-slate-50 border border-slate-200 rounded-md px-4 py-2 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">This month</p>
+            <p className="font-heading text-2xl font-black text-slate-900 leading-tight">{signups.this_month ?? 0}</p>
+          </div>
+        </div>
+      </div>
+      {hasData ? (
+        <div style={{ width: "100%", height: 180 }} data-testid="signup-chart">
+          <ResponsiveContainer>
+            <BarChart data={daily} margin={{ top: 8, right: 8, left: -24, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="date" tickFormatter={fmtDay} tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} minTickGap={28} />
+              <Tooltip content={<SignupTooltip />} cursor={{ fill: "#f8fafc" }} />
+              <Bar dataKey="count" fill="#0f172a" radius={[3, 3, 0, 0]} maxBarSize={22} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ) : (
+        <div data-testid="signup-chart-empty" className="py-10 text-center text-slate-400 text-sm">No new signups in the last 30 days yet.</div>
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
-  const { user } = useAuth();
+  const { user, viewAs } = useAuth();
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -65,6 +128,19 @@ export default function Admin() {
     }
   };
 
+  const handleViewAs = async (u) => {
+    setBusy(u.user_id);
+    try {
+      await viewAs(u);
+      toast.success(`Now viewing as ${u.name || u.email} (read-only)`);
+      navigate("/dashboard");
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not start view-as session");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const stats = data?.stats;
   const users = data?.users || [];
 
@@ -75,6 +151,8 @@ export default function Admin() {
         <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Registered Users</h1>
         <p className="text-slate-500 text-sm mt-1">Every account on HaulCheck. Suspend an account to sign them out immediately and block login until you re-enable it.</p>
       </div>
+
+      {stats && <SignupTrend signups={stats.signups} />}
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6" data-testid="admin-stats">
@@ -160,15 +238,23 @@ export default function Admin() {
                         : <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full"><ShieldCheck size={12} /> Active</span>}
                     </td>
                     <td className="px-5 py-3 text-right whitespace-nowrap">
-                      {u.active === false ? (
-                        <Button data-testid="admin-reactivate-button" variant="outline" size="sm" className="rounded-md gap-1.5 h-8 text-emerald-700 hover:bg-emerald-50"
-                          onClick={() => setActive(u, true)}><RotateCcw size={14} /> Reactivate</Button>
-                      ) : (
-                        <Button data-testid="admin-suspend-button" variant="outline" size="sm" disabled={protectedAcct}
-                          className="rounded-md gap-1.5 h-8 text-red-600 hover:bg-red-50 disabled:opacity-40"
-                          onClick={() => setActive(u, false)} title={protectedAcct ? "Admins can't be suspended" : "Suspend"}>
-                          <Ban size={14} /> Suspend</Button>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {u.role === "manager" && !u.account_owner && u.active !== false && !u.is_admin && !self && (
+                          <Button data-testid="admin-view-as-button" variant="outline" size="sm" disabled={busy === u.user_id}
+                            className="rounded-md gap-1.5 h-8 text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                            onClick={() => handleViewAs(u)} title="View exactly what this operator sees (read-only)">
+                            <Eye size={14} /> View as</Button>
+                        )}
+                        {u.active === false ? (
+                          <Button data-testid="admin-reactivate-button" variant="outline" size="sm" className="rounded-md gap-1.5 h-8 text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => setActive(u, true)}><RotateCcw size={14} /> Reactivate</Button>
+                        ) : (
+                          <Button data-testid="admin-suspend-button" variant="outline" size="sm" disabled={protectedAcct}
+                            className="rounded-md gap-1.5 h-8 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                            onClick={() => setActive(u, false)} title={protectedAcct ? "Admins can't be suspended" : "Suspend"}>
+                            <Ban size={14} /> Suspend</Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
