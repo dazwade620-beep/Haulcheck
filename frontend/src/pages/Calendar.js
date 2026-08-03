@@ -7,7 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap, ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree, Ban } from "lucide-react";
+import {
+  ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap,
+  ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree, Ban,
+  Bell, UserPlus, UserMinus, ClipboardList, Disc3,
+} from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   format, isSameMonth, isToday, addMonths, subMonths, parseISO, isSameDay,
@@ -21,16 +25,20 @@ const TYPE_META = {
   pmi_due: { icon: Wrench, label: "PMI Due" },
   pmi_done: { icon: CheckCircle2, label: "PMI Completed" },
   defect: { icon: FileWarning, label: "Defect" },
-  training: { icon: GraduationCap, label: "Training Expiry" },
+  training: { icon: GraduationCap, label: "Training" },
   insurance: { icon: ShieldCheck, label: "Insurance Renewal" },
   tacho: { icon: Gauge, label: "Tacho Download" },
   wheel: { icon: Wrench, label: "Wheel Security" },
   service: { icon: Cog, label: "Service" },
+  job_card: { icon: ClipboardList, label: "Job Card" },
   walkaround: { icon: ClipboardCheck, label: "Daily Check" },
   weekly_walkaround: { icon: ClipboardCheck, label: "Daily Check Complete" },
   vehicle: { icon: Gauge, label: "Vehicle" },
   driver: { icon: ShieldCheck, label: "Driver" },
+  driver_start: { icon: UserPlus, label: "Driver Started" },
+  driver_leave: { icon: UserMinus, label: "Driver Leaving" },
   holiday: { icon: Palmtree, label: "Holiday" },
+  reminder: { icon: Bell, label: "Reminder" },
   vor: { icon: Ban, label: "Off Road (VOR)" },
   custom: { icon: Flag, label: "Event" },
 };
@@ -44,6 +52,7 @@ const EVENT_LINK = {
   pmi_done: "/maintenance?tab=pmi",
   wheel: "/maintenance?tab=wheel",
   service: "/maintenance?tab=service",
+  job_card: "/maintenance?tab=job-cards",
   walkaround: "/maintenance?tab=walkaround",
   weekly_walkaround: "/maintenance?tab=weekly",
   defect: "/maintenance?tab=defects",
@@ -52,7 +61,47 @@ const EVENT_LINK = {
   tacho: "/tacho",
   vehicle: "/vehicles",
   driver: "/drivers",
+  driver_start: "/drivers",
+  driver_leave: "/drivers",
   vor: "/vehicles",
+};
+
+// The unified "Add Event" menu. kind=maint opens MaintenanceQuickAdd on that type; kind=evt opens the event dialog.
+const ADD_GROUPS = [
+  {
+    group: "Maintenance",
+    items: [
+      { key: "pmi", label: "PMI Inspection", icon: Wrench, kind: "maint" },
+      { key: "service", label: "Service", icon: Cog, kind: "maint" },
+      { key: "defect", label: "Defect", icon: FileWarning, kind: "maint" },
+      { key: "walkaround", label: "Daily Check", icon: ClipboardCheck, kind: "maint" },
+      { key: "wheel", label: "Wheel Security", icon: Disc3, kind: "maint" },
+      { key: "job_card", label: "Job Card", icon: ClipboardList, kind: "maint" },
+    ],
+  },
+  {
+    group: "People",
+    items: [
+      { key: "driver_start", label: "Driver started", icon: UserPlus, kind: "evt" },
+      { key: "driver_leave", label: "Driver leaving", icon: UserMinus, kind: "evt" },
+      { key: "training", label: "Training day", icon: GraduationCap, kind: "evt" },
+    ],
+  },
+  {
+    group: "Reminders & other",
+    items: [
+      { key: "reminder", label: "Reminder", icon: Bell, kind: "evt" },
+      { key: "tacho", label: "Tacho download", icon: Gauge, kind: "evt" },
+      { key: "holiday", label: "Holiday", icon: Palmtree, kind: "evt" },
+      { key: "event", label: "General event", icon: Flag, kind: "evt" },
+    ],
+  },
+];
+
+const MODE_TITLE = {
+  event: "Add general event", reminder: "Add reminder", tacho: "Log tacho download",
+  holiday: "Add holiday", driver_start: "Driver started", driver_leave: "Driver leaving",
+  training: "Add training day",
 };
 
 export default function Calendar() {
@@ -61,17 +110,22 @@ export default function Calendar() {
   const [events, setEvents] = useState([]);
   const [selected, setSelected] = useState(new Date());
   const [dayOpen, setDayOpen] = useState(false);
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [evtOpen, setEvtOpen] = useState(false);
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
   const [evtEditId, setEvtEditId] = useState(null);
+  const [evtMode, setEvtMode] = useState("event");
   const [assets, setAssets] = useState([]);
   const [vehicleRegs, setVehicleRegs] = useState([]);
+  const [drivers, setDrivers] = useState([]); // [{id,name}]
   const [driverNames, setDriverNames] = useState([]);
   const [maintOpen, setMaintOpen] = useState(false);
-  const [evtMode, setEvtMode] = useState("event"); // event | tacho | holiday
+  const [maintInitial, setMaintInitial] = useState("pmi");
   const [tachoForm, setTachoForm] = useState({ source_type: "Vehicle Unit", reference: "", last_download: "", frequency_days: 90 });
   const [holForm, setHolForm] = useState({ name: "", from_date: "", to_date: "", notes: "" });
-  const [defectForm, setDefectForm] = useState({ vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: "", odometer: "" });
+  const [remForm, setRemForm] = useState({ date: "", title: "", notes: "", email: false, days_before: 0 });
+  const [dlForm, setDlForm] = useState({ driver_id: "", date: "" });
+  const [trForm, setTrForm] = useState({ driver_name: "", course_name: "", category: "Driver CPC", completed_date: "", expiry_date: "", provider: "", hours: "" });
 
   const loadEvents = () => api.get("/calendar").then((r) => setEvents(r.data));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,69 +134,88 @@ export default function Calendar() {
     Promise.all([api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]).then(([v, t, dr]) => {
       const vr = v.data.map((x) => x.registration).filter(Boolean);
       setVehicleRegs([...vr, ...t.data.map((x) => x.trailer_number).filter(Boolean)]);
+      setDrivers(dr.data.map((x) => ({ id: x.id, name: x.name })).filter((x) => x.name));
       setDriverNames(dr.data.map((x) => x.name).filter(Boolean));
       setAssets([...vr, ...t.data.map((x) => x.trailer_number)].filter(Boolean));
     });
   }, []);
 
-  const openAddMaint = () => setMaintOpen(true);
+  const openChooser = () => setChooserOpen(true);
 
-  const openAddEvent = () => {
-    setEvtForm({ date: format(selected, "yyyy-MM-dd"), title: "", notes: "" });
-    setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: format(selected, "yyyy-MM-dd"), frequency_days: 90 });
-    setHolForm({ name: "", from_date: format(selected, "yyyy-MM-dd"), to_date: format(selected, "yyyy-MM-dd"), notes: "" });
-    setDefectForm({ vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: format(selected, "yyyy-MM-dd"), odometer: "" });
-    setEvtMode("event");
+  const startMode = (mode) => {
+    const d = format(selected, "yyyy-MM-dd");
     setEvtEditId(null);
+    setEvtMode(mode);
+    setEvtForm({ date: d, title: "", notes: "" });
+    setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: d, frequency_days: 90 });
+    setHolForm({ name: "", from_date: d, to_date: d, notes: "" });
+    setRemForm({ date: d, title: "", notes: "", email: false, days_before: 0 });
+    setDlForm({ driver_id: "", date: d });
+    setTrForm({ driver_name: "", course_name: "", category: "Driver CPC", completed_date: d, expiry_date: "", provider: "", hours: "" });
     setEvtOpen(true);
   };
+
+  const pickAdd = (item) => {
+    setChooserOpen(false);
+    if (item.kind === "maint") { setMaintInitial(item.key); setMaintOpen(true); return; }
+    startMode(item.key);
+  };
+
   const openEditEvent = (ev) => {
-    setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "" });
-    setEvtMode("event");
     setEvtEditId(ev.id);
+    if (ev.type === "reminder") {
+      setEvtMode("reminder");
+      setRemForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "", email: !!ev.remind_email, days_before: ev.remind_days_before || 0 });
+    } else {
+      setEvtMode("event");
+      setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "" });
+    }
     setEvtOpen(true);
   };
+
   const saveEvent = async (e) => {
     e.preventDefault();
-    if (evtMode === "tacho") {
-      if (!tachoForm.reference) { toast.error("Select a vehicle or driver"); return; }
-      try {
+    try {
+      if (evtMode === "tacho") {
+        if (!tachoForm.reference) { toast.error("Select a vehicle or driver"); return; }
         await api.post("/tacho", { ...tachoForm, frequency_days: Number(tachoForm.frequency_days) });
         toast.success("Tacho download logged — next due added to calendar");
-        setEvtOpen(false); loadEvents();
-      } catch { toast.error("Could not log tacho download"); }
-      return;
-    }
-    if (evtMode === "holiday") {
-      if (!holForm.name) { toast.error("Enter who the holiday is for"); return; }
-      if (!holForm.from_date || !holForm.to_date) { toast.error("Enter from and to dates"); return; }
-      try {
+      } else if (evtMode === "holiday") {
+        if (!holForm.name) { toast.error("Enter who the holiday is for"); return; }
+        if (!holForm.from_date || !holForm.to_date) { toast.error("Enter from and to dates"); return; }
         await api.post("/holidays", holForm);
         toast.success("Holiday added across the date range");
-        setEvtOpen(false); loadEvents();
-      } catch { toast.error("Could not save holiday"); }
-      return;
-    }
-    if (evtMode === "defect") {
-      if (!defectForm.vehicle_reg) { toast.error("Select a vehicle"); return; }
-      if (!defectForm.description) { toast.error("Enter a description"); return; }
-      try {
-        await api.post("/defects", { ...defectForm, defect_date: defectForm.defect_date || null, attachments: [] });
-        toast.success("Defect logged & added to calendar");
-        setEvtOpen(false); loadEvents();
-      } catch { toast.error("Could not log defect"); }
-      return;
-    }
-    try {
-      if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, evtForm); toast.success("Event updated"); }
-      else { await api.post("/calendar/events", evtForm); toast.success("Event added to calendar"); }
+      } else if (evtMode === "reminder") {
+        if (!remForm.title) { toast.error("Enter a reminder title"); return; }
+        const payload = { date: remForm.date, title: remForm.title, notes: remForm.notes, status: "due_soon", reminder: true, remind_email: remForm.email, remind_days_before: Number(remForm.days_before) || 0 };
+        if (evtEditId) await api.put(`/calendar/events/${evtEditId}`, payload);
+        else await api.post("/calendar/events", payload);
+        toast.success(remForm.email ? "Reminder saved — we'll email you" : "Reminder added to calendar");
+      } else if (evtMode === "driver_start" || evtMode === "driver_leave") {
+        if (!dlForm.driver_id) { toast.error("Select a driver"); return; }
+        const payload = evtMode === "driver_start" ? { start_date: dlForm.date } : { leave_date: dlForm.date };
+        await api.put(`/drivers/${dlForm.driver_id}/lifecycle`, payload);
+        toast.success(evtMode === "driver_start" ? "Driver start date saved to their record" : "Driver leaving date saved to their record");
+      } else if (evtMode === "training") {
+        if (!trForm.course_name) { toast.error("Enter the training / course name"); return; }
+        await api.post("/training", { ...trForm, hours: Number(trForm.hours) || 0, completed_date: trForm.completed_date || null, expiry_date: trForm.expiry_date || null, attachments: [] });
+        toast.success("Training record added to Office › Training");
+      } else {
+        if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, evtForm); toast.success("Event updated"); }
+        else { await api.post("/calendar/events", evtForm); toast.success("Event added to calendar"); }
+      }
       setEvtOpen(false);
       loadEvents();
-    } catch { toast.error("Could not save event"); }
+    } catch { toast.error("Could not save"); }
   };
+
   const deleteEvent = async (id) => {
-    try { await api.delete(`/calendar/events/${id}`); toast.success("Event removed"); loadEvents(); }
-    catch { toast.error("Could not remove event"); }
+    try { await api.delete(`/calendar/events/${id}`); toast.success("Removed"); loadEvents(); }
+    catch { toast.error("Could not remove"); }
+  };
+  const deleteHoliday = async (id) => {
+    try { await api.delete(`/holidays/${id}`); toast.success("Holiday removed"); loadEvents(); }
+    catch { toast.error("Could not remove holiday"); }
   };
 
   const days = useMemo(() => {
@@ -159,8 +232,9 @@ export default function Calendar() {
   const openDay = (day) => { setSelected(day); setDayOpen(true); };
 
   const renderEvent = (e, i) => {
-    const M = TYPE_META[e.type] || TYPE_META.defect;
-    const link = e.type !== "custom" ? EVENT_LINK[e.type] : null;
+    const M = TYPE_META[e.type] || TYPE_META.custom;
+    const editable = e.type === "custom" || e.type === "reminder";
+    const link = !editable ? EVENT_LINK[e.type] : null;
     return (
       <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-start gap-3 border border-slate-100 rounded-md p-3">
         <M.icon size={16} className="text-slate-500 mt-0.5 shrink-0" />
@@ -178,7 +252,7 @@ export default function Calendar() {
           )}
         </div>
         <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0", pillColor(e.status))}>{M.label}</span>
-        {e.type === "custom" && e.id && (
+        {editable && e.id && (
           <div className="flex items-center gap-1.5 shrink-0">
             <button data-testid="edit-event-button" onClick={() => openEditEvent(e)} className="text-slate-300 hover:text-slate-900"><Pencil size={14} /></button>
             <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
@@ -191,21 +265,28 @@ export default function Calendar() {
     );
   };
 
+  const isDriverMode = evtMode === "driver_start" || evtMode === "driver_leave";
+  const btnLabel = evtMode === "tacho" ? "Log Tacho Download"
+    : evtMode === "holiday" ? "Add Holiday"
+    : evtMode === "reminder" ? (evtEditId ? "Save Reminder" : "Add Reminder")
+    : isDriverMode ? "Save Date"
+    : evtMode === "training" ? "Add Training"
+    : evtEditId ? "Save Changes" : "Add Event";
+
   return (
     <div data-testid="calendar-page">
       <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500 font-semibold">Compliance</p>
           <h1 className="font-heading text-3xl sm:text-4xl font-black tracking-tight text-slate-900 mt-1">Calendar</h1>
-          <p className="text-slate-500 text-sm mt-1">PMI inspections & driver defect reports</p>
+          <p className="text-slate-500 text-sm mt-1">Everything with a date — inspections, drivers, training, reminders & more</p>
         </div>
         <div className="flex items-center gap-2">
           <Button data-testid="cal-prev" variant="outline" size="icon" className="border-slate-300" onClick={() => setCursor(subMonths(cursor, 1))}><ChevronLeft size={18} /></Button>
           <span data-testid="cal-month-label" className="font-heading font-bold text-lg tracking-tight w-40 text-center">{format(cursor, "MMMM yyyy")}</span>
           <Button data-testid="cal-next" variant="outline" size="icon" className="border-slate-300" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight size={18} /></Button>
           <Button data-testid="cal-today" variant="outline" className="border-slate-300 ml-2" onClick={() => { setCursor(new Date()); setSelected(new Date()); }}>Today</Button>
-          <Button data-testid="cal-add-maintenance" variant="outline" className="border-slate-300 rounded-md gap-2 ml-1" onClick={openAddMaint}><Wrench size={16} /> Maintenance</Button>
-          <Button data-testid="cal-add-event" className="bg-black hover:bg-slate-800 rounded-md gap-2 ml-1" onClick={openAddEvent}><Plus size={16} /> Add Event</Button>
+          <Button data-testid="cal-add-event" className="bg-black hover:bg-slate-800 rounded-md gap-2 ml-1" onClick={openChooser}><Plus size={16} /> Add Event</Button>
         </div>
       </div>
 
@@ -260,7 +341,7 @@ export default function Calendar() {
               <CalendarDays size={16} className="text-slate-900 shrink-0" />
               <h3 className="font-heading font-bold text-base tracking-tight truncate">{format(selected, "EEE d")}</h3>
             </div>
-            <Button data-testid="day-add-maintenance" size="sm" variant="outline" className="border-slate-300 rounded-md gap-1.5 h-8" onClick={openAddMaint}><Wrench size={14} /> Add</Button>
+            <Button data-testid="day-add-event" size="sm" variant="outline" className="border-slate-300 rounded-md gap-1.5 h-8" onClick={openChooser}><Plus size={14} /> Add</Button>
           </div>
           <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"}{selectedEvents.length > 0 && " · click a day to enlarge"}</p>
           {selectedEvents.length === 0 ? (
@@ -295,41 +376,52 @@ export default function Calendar() {
             </div>
           )}
           <DialogFooter>
-            <Button data-testid="day-dialog-add" variant="outline" className="border-slate-300 rounded-md gap-1.5" onClick={() => { setDayOpen(false); openAddMaint(); }}><Wrench size={14} /> Add maintenance for this day</Button>
+            <Button data-testid="day-dialog-add" variant="outline" className="border-slate-300 rounded-md gap-1.5" onClick={() => { setDayOpen(false); openChooser(); }}><Plus size={14} /> Add for this day</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Add-anything chooser */}
+      <Dialog open={chooserOpen} onOpenChange={setChooserOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Add to {format(selected, "EEE d MMM")}</DialogTitle>
+            <DialogDescription>Pick anything — it saves to the right place and shows on the calendar.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5" data-testid="add-event-chooser">
+            {ADD_GROUPS.map((g) => (
+              <div key={g.group}>
+                <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{g.group}</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {g.items.map((it) => (
+                    <button
+                      key={it.key}
+                      type="button"
+                      data-testid={`add-choice-${it.key}`}
+                      onClick={() => pickAdd(it)}
+                      className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:border-slate-900 hover:bg-slate-50 transition-colors"
+                    >
+                      <it.icon size={16} className="text-slate-500 shrink-0" />
+                      <span className="truncate">{it.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event / reminder / driver / training / tacho / holiday form */}
       <Dialog open={evtOpen} onOpenChange={setEvtOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-heading">{evtEditId ? "Edit Calendar Event" : "Add to Calendar"}</DialogTitle>
-            <DialogDescription className="sr-only">Add a custom event or log a tacho download</DialogDescription>
+            <DialogTitle className="font-heading">{evtEditId ? (evtMode === "reminder" ? "Edit reminder" : "Edit event") : (MODE_TITLE[evtMode] || "Add to calendar")}</DialogTitle>
+            <DialogDescription className="sr-only">Add or edit a calendar item</DialogDescription>
           </DialogHeader>
 
-          {!evtEditId && (
-            <div className="flex gap-2" data-testid="event-mode-picker">
-              <button type="button" data-testid="event-mode-event" onClick={() => setEvtMode("event")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "event" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
-                <Flag size={13} /> General event
-              </button>
-              <button type="button" data-testid="event-mode-tacho" onClick={() => setEvtMode("tacho")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "tacho" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
-                <Gauge size={13} /> Tacho download
-              </button>
-              <button type="button" data-testid="event-mode-holiday" onClick={() => setEvtMode("holiday")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "holiday" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
-                <Palmtree size={13} /> Holiday
-              </button>
-              <button type="button" data-testid="event-mode-defect" onClick={() => setEvtMode("defect")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${evtMode === "defect" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}>
-                <FileWarning size={13} /> Defect
-              </button>
-            </div>
-          )}
-
           <form onSubmit={saveEvent} className="space-y-4">
-            {evtMode === "event" ? (
+            {evtMode === "event" && (
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Date</label>
@@ -344,7 +436,37 @@ export default function Calendar() {
                   <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
                 </div>
               </>
-            ) : evtMode === "tacho" ? (
+            )}
+
+            {evtMode === "reminder" && (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Reminder date</label>
+                  <Input data-testid="reminder-date" type="date" required value={remForm.date} onChange={(e) => setRemForm({ ...remForm, date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">What's the reminder?</label>
+                  <Input data-testid="reminder-title" required value={remForm.title} onChange={(e) => setRemForm({ ...remForm, title: e.target.value })} placeholder="e.g. Call insurer about renewal" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Notes</label>
+                  <Textarea data-testid="reminder-notes" rows={2} value={remForm.notes} onChange={(e) => setRemForm({ ...remForm, notes: e.target.value })} />
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                  <input data-testid="reminder-email" type="checkbox" checked={remForm.email} onChange={(e) => setRemForm({ ...remForm, email: e.target.checked })} className="h-4 w-4 rounded border-slate-300" />
+                  Email me this reminder
+                </label>
+                {remForm.email && (
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Remind me this many days before</label>
+                    <Input data-testid="reminder-days-before" type="number" min="0" value={remForm.days_before} onChange={(e) => setRemForm({ ...remForm, days_before: e.target.value })} />
+                    <p className="text-xs text-slate-400 mt-1">0 = email on the day. We email at 07:00 (test mode delivers to the account owner).</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {evtMode === "tacho" && (
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Download type</label>
@@ -375,9 +497,11 @@ export default function Calendar() {
                     <Input data-testid="tacho-freq" type="number" min="1" value={tachoForm.frequency_days} onChange={(e) => setTachoForm({ ...tachoForm, frequency_days: e.target.value })} />
                   </div>
                 </div>
-                <p className="text-xs text-slate-400">Logs the download and schedules the next due date on the calendar & Tacho Portal. (Driver cards typically every 28 days, vehicle units every 90 days.)</p>
+                <p className="text-xs text-slate-400">Logs the download and schedules the next due date on the calendar & Tacho Portal.</p>
               </>
-            ) : evtMode === "holiday" ? (
+            )}
+
+            {evtMode === "holiday" && (
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Who is it for?</label>
@@ -403,50 +527,68 @@ export default function Calendar() {
                 </div>
                 <p className="text-xs text-slate-400">Adds the holiday to every day between the two dates automatically.</p>
               </>
-            ) : (
+            )}
+
+            {isDriverMode && (
               <>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Vehicle *</label>
-                  <Select value={defectForm.vehicle_reg} onValueChange={(v) => setDefectForm({ ...defectForm, vehicle_reg: v })}>
-                    <SelectTrigger data-testid="cal-defect-vehicle"><SelectValue placeholder={vehicleRegs.length ? "Select vehicle / trailer" : "Add a vehicle first"} /></SelectTrigger>
-                    <SelectContent>{vehicleRegs.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  <label className="text-sm font-medium mb-1.5 block">Driver *</label>
+                  <Select value={dlForm.driver_id} onValueChange={(v) => setDlForm({ ...dlForm, driver_id: v })}>
+                    <SelectTrigger data-testid="driver-lifecycle-select"><SelectValue placeholder={drivers.length ? "Select driver" : "Add a driver first"} /></SelectTrigger>
+                    <SelectContent>{drivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
                   </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">{evtMode === "driver_start" ? "Start date" : "Leaving date"}</label>
+                  <Input data-testid="driver-lifecycle-date" type="date" required value={dlForm.date} onChange={(e) => setDlForm({ ...dlForm, date: e.target.value })} />
+                </div>
+                <p className="text-xs text-slate-400">Saved onto the driver's record (also visible on the Drivers page) and shown here on the calendar.</p>
+              </>
+            )}
+
+            {evtMode === "training" && (
+              <>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Driver</label>
+                  <Select value={trForm.driver_name} onValueChange={(v) => setTrForm({ ...trForm, driver_name: v })}>
+                    <SelectTrigger data-testid="training-driver"><SelectValue placeholder={driverNames.length ? "Select driver" : "Add a driver first"} /></SelectTrigger>
+                    <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1.5 block">Course / training *</label>
+                  <Input data-testid="training-course" required value={trForm.course_name} onChange={(e) => setTrForm({ ...trForm, course_name: e.target.value })} placeholder="e.g. Driver CPC Module 3" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Reported by</label>
-                    <Select value={defectForm.reported_by} onValueChange={(v) => setDefectForm({ ...defectForm, reported_by: v })}>
-                      <SelectTrigger data-testid="cal-defect-reporter"><SelectValue placeholder={driverNames.length ? "Select driver" : "Add a driver first"} /></SelectTrigger>
-                      <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1.5 block">Date</label>
-                    <Input data-testid="cal-defect-date" type="date" value={defectForm.defect_date} onChange={(e) => setDefectForm({ ...defectForm, defect_date: e.target.value })} />
-                  </div>
-                  <div>
                     <label className="text-sm font-medium mb-1.5 block">Category</label>
-                    <Select value={defectForm.category} onValueChange={(v) => setDefectForm({ ...defectForm, category: v })}>
-                      <SelectTrigger data-testid="cal-defect-category"><SelectValue /></SelectTrigger>
-                      <SelectContent>{["General", "Brakes", "Tyres & Wheels", "Lights", "Steering", "Bodywork", "Load Security", "Other"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                    <Select value={trForm.category} onValueChange={(v) => setTrForm({ ...trForm, category: v })}>
+                      <SelectTrigger data-testid="training-category"><SelectValue /></SelectTrigger>
+                      <SelectContent>{["Driver CPC", "Induction", "Toolbox Talk", "Health & Safety", "Licence Acquisition", "Other"].map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Severity</label>
-                    <Select value={defectForm.severity} onValueChange={(v) => setDefectForm({ ...defectForm, severity: v })}>
-                      <SelectTrigger data-testid="cal-defect-severity"><SelectValue /></SelectTrigger>
-                      <SelectContent>{[["minor", "Minor"], ["major", "Major"], ["safety_critical", "Safety Critical"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
-                    </Select>
+                    <label className="text-sm font-medium mb-1.5 block">Hours</label>
+                    <Input data-testid="training-hours" type="number" min="0" step="0.5" value={trForm.hours} onChange={(e) => setTrForm({ ...trForm, hours: e.target.value })} placeholder="e.g. 7" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Completed date</label>
+                    <Input data-testid="training-completed" type="date" value={trForm.completed_date} onChange={(e) => setTrForm({ ...trForm, completed_date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Expiry (optional)</label>
+                    <Input data-testid="training-expiry" type="date" value={trForm.expiry_date} onChange={(e) => setTrForm({ ...trForm, expiry_date: e.target.value })} />
                   </div>
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1.5 block">Description *</label>
-                  <Textarea data-testid="cal-defect-description" rows={3} value={defectForm.description} onChange={(e) => setDefectForm({ ...defectForm, description: e.target.value })} placeholder="Describe the defect…" />
+                  <label className="text-sm font-medium mb-1.5 block">Provider</label>
+                  <Input data-testid="training-provider" value={trForm.provider} onChange={(e) => setTrForm({ ...trForm, provider: e.target.value })} placeholder="Training company" />
                 </div>
-                <p className="text-xs text-slate-400">Logs the defect (with AI safety triage) and pins it to this date on the calendar.</p>
+                <p className="text-xs text-slate-400">Saved to Office › Training. The completed & expiry dates both appear on the calendar.</p>
               </>
             )}
-            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{evtMode === "tacho" ? "Log Tacho Download" : evtMode === "holiday" ? "Add Holiday" : evtMode === "defect" ? "Log Defect" : evtEditId ? "Save Changes" : "Add Event"}</Button></DialogFooter>
+
+            <DialogFooter><Button data-testid="save-event-button" type="submit" className="bg-black hover:bg-slate-800">{btnLabel}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -456,6 +598,7 @@ export default function Calendar() {
         onOpenChange={setMaintOpen}
         defaultDate={format(selected, "yyyy-MM-dd")}
         assets={assets}
+        initialType={maintInitial}
         onSaved={loadEvents}
       />
     </div>

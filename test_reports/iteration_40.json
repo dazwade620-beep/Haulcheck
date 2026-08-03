@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only validation of the unified Calendar 'Add Event' chooser and the dashboard region toggle. All 13 chooser choices are present (Maintenance: pmi/service/defect/walkaround/wheel/job_card, People: driver_start/driver_leave/training, Reminders & other: reminder/tacho/holiday/event). Verified each requested flow end-to-end: Reminder (with email + days-before), Driver Started, Driver Leaving, Training day, Job Card (via MaintenanceQuickAdd initialType=job_card), Tacho download, and General event. Each item saved with success toast AND rendered on the correct calendar day. Reminder edit/delete via edit-event-button / delete-event-button also work. Region toggle EU button reads exactly 'EU' (regression PASS).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Console warning: recharts container width/height -1 (chart with 0 dimensions). Not blocking but should be investigated."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Calendar.js is ~615 lines - approaching size limit; consider extracting the Add Event dialog + per-mode forms into sub-components.",
+    "In renderEvent, the same event list is rendered in both the sidebar Day-detail and the enlarged Dialog, so edit/delete buttons are duplicated in the DOM (2 per reminder). Test scripts must Escape the dialog before targeting the sidebar button. Consider hiding one when the other is open, or scoping data-testids."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "operator.test@example.com / Test1234! (UK operator)",
+  "seed_data_creation": "Created via UI: reminder 'TEST_Call insurer renewal' (later edited to 'TEST_Edited reminder xyz' then deleted), driver-start & driver-leave on Cal Driver, training 'TEST_Driver CPC Module Test', job card 'TEST_Replace brake pads front axle', tacho download, general event 'TEST_Fleet review meeting'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All Add Event chooser flows validated on frontend against the live backend (region UK). If retesting edit/delete on a reminder, press Escape after clicking the day to close the enlarged dialog, then use the sidebar edit-event-button (there are 2 in the DOM due to duplicate render).",
+  "rca of the issue": "n/a - no issues found"
+}

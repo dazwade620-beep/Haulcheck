@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { Wrench, Cog, FileWarning, ClipboardCheck, Disc3 } from "lucide-react";
+import { Wrench, Cog, FileWarning, ClipboardCheck, Disc3, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
 const TYPES = [
@@ -15,13 +15,14 @@ const TYPES = [
   { key: "defect", label: "Defect", icon: FileWarning },
   { key: "walkaround", label: "Daily Check", icon: ClipboardCheck },
   { key: "wheel", label: "Wheel Security Audit", icon: Disc3 },
+  { key: "job_card", label: "Job Card", icon: ClipboardList },
 ];
 
 const F = ({ label, children }) => (
   <div><Label className="mb-1.5 block">{label}</Label>{children}</div>
 );
 
-export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = [], onSaved }) {
+export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = [], onSaved, initialType }) {
   const [type, setType] = useState("pmi");
   const [drivers, setDrivers] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -35,6 +36,7 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
       defect: { vehicle_reg: "", reported_by: "", category: "General", severity: "minor", description: "", defect_date: d, odometer: "" },
       walkaround: { vehicle_reg: "", driver_name: "", check_date: d, result: "nil_defect", mileage: "", defects_noted: "" },
       wheel: { vehicle_reg: "", audit_date: d, result: "pass", torque_setting: "", checked_by: "", next_due: "", notes: "" },
+      job_card: { vehicle_reg: "", date_raised: d, work_requested: "", technician: "", status: "open", notes: "" },
     };
     setType(t);
     setForm(defaults[t]);
@@ -42,10 +44,10 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
 
   useEffect(() => {
     if (open) {
-      reset("pmi");
+      reset(initialType || "pmi");
       api.get("/drivers").then((r) => setDrivers(r.data.map((x) => x.name))).catch(() => {});
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, initialType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -70,6 +72,10 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
       } else if (type === "wheel") {
         await api.post("/wheel-audits", { ...form, next_due: form.next_due || null, audit_date: form.audit_date || null, attachments: [] });
         toast.success("Wheel security audit logged");
+      } else if (type === "job_card") {
+        if (!form.work_requested) { toast.error("Enter the work requested"); setBusy(false); return; }
+        await api.post("/job-cards", { ...form, date_raised: form.date_raised || null });
+        toast.success("Job card raised — added to the workshop board & calendar");
       }
       onOpenChange(false);
       onSaved && onSaved();
@@ -205,6 +211,17 @@ export function MaintenanceQuickAdd({ open, onOpenChange, defaultDate, assets = 
                 <F label="Next due"><Input data-testid="mqa-wheel-next" type="date" value={form.next_due} onChange={(e) => set("next_due", e.target.value)} /></F>
               </div>
               <F label="Notes"><Textarea data-testid="mqa-wheel-notes" rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} /></F>
+            </>
+          )}
+
+          {type === "job_card" && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <F label="Date raised"><Input data-testid="mqa-jc-date" type="date" value={form.date_raised} onChange={(e) => set("date_raised", e.target.value)} /></F>
+                <F label="Technician"><Input data-testid="mqa-jc-technician" value={form.technician} onChange={(e) => set("technician", e.target.value)} placeholder="Assigned fitter" /></F>
+              </div>
+              <F label="Work requested *"><Textarea data-testid="mqa-jc-work" rows={3} value={form.work_requested} onChange={(e) => set("work_requested", e.target.value)} placeholder="Describe the work to be carried out…" /></F>
+              <F label="Notes"><Textarea data-testid="mqa-jc-notes" rows={2} value={form.notes} onChange={(e) => set("notes", e.target.value)} /></F>
             </>
           )}
 

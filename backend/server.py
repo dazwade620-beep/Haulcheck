@@ -317,6 +317,8 @@ class Driver(BaseModel):
     access_code: str = ""
     assigned_vehicle_reg: str = ""
     notes: str = ""
+    start_date: Optional[str] = None
+    leave_date: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -334,6 +336,8 @@ class DriverInput(BaseModel):
     max_weekly_hours: float = 56.0
     assigned_vehicle_reg: str = ""
     notes: str = ""
+    start_date: Optional[str] = None
+    leave_date: Optional[str] = None
 
 
 class DefectReport(BaseModel):
@@ -1948,6 +1952,23 @@ async def create_driver(data: DriverInput, user: User = Depends(get_current_user
 @api_router.put("/drivers/{did}")
 async def update_driver(did: str, data: DriverInput, user: User = Depends(get_current_user)):
     res = await db.drivers.update_one({"id": did, "user_id": user.user_id}, {"$set": data.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return {"ok": True}
+
+
+class DriverDatesInput(BaseModel):
+    start_date: Optional[str] = None
+    leave_date: Optional[str] = None
+
+
+@api_router.put("/drivers/{did}/lifecycle")
+async def set_driver_lifecycle(did: str, data: DriverDatesInput, user: User = Depends(get_current_user)):
+    """Set just the joined (start) / leaving date on a driver — used by the calendar Add Event."""
+    upd = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
+    if not upd:
+        raise HTTPException(status_code=400, detail="Provide a start or leaving date")
+    res = await db.drivers.update_one({"id": did, "user_id": user.user_id}, {"$set": upd})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Driver not found")
     return {"ok": True}
@@ -4647,9 +4668,12 @@ async def calendar(user: User = Depends(get_current_user)):
     for ev in await db.calendar_events.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         if str(ev.get("ref", "")).startswith("vor:"):
             continue
+        _rem = bool(ev.get("reminder"))
         events.append({
-            "id": ev.get("id"), "date": ev.get("date"), "type": "custom", "title": ev.get("title", "Event"),
+            "id": ev.get("id"), "date": ev.get("date"),
+            "type": "reminder" if _rem else "custom", "title": ev.get("title", "Event"),
             "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
+            "remind_email": ev.get("remind_email", False), "remind_days_before": ev.get("remind_days_before", 0),
         })
     for w in await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         if w.get("audit_date"):
@@ -4699,6 +4723,15 @@ async def calendar(user: User = Depends(get_current_user)):
                 "date": sv["next_service_due"], "type": "service", "title": f"Service Due — {sv.get('vehicle_reg')}",
                 "subtitle": sv.get("service_type") or "Service", "status": compliance_status(days_until(sv["next_service_due"])),
             })
+    for jc in await db.job_cards.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
+        if jc.get("date_raised"):
+            _st = "valid" if jc.get("status") == "completed" else "due_soon"
+            _work = (jc.get("work_requested") or "Workshop job")[:60]
+            events.append({
+                "date": jc["date_raised"], "type": "job_card",
+                "title": f"Job Card {jc.get('job_number', '')} — {jc.get('vehicle_reg', '')}".strip(),
+                "subtitle": f"{_work} · {str(jc.get('status', 'open')).replace('_', ' ')}", "status": _st,
+            })
     is_ie = (user.region or "UK").upper() in ("IE", "IRELAND", "RSA")
     mot_label = "CVRT" if is_ie else "MOT / Annual Test"
     tax_label = "Motor Tax" if is_ie else "Vehicle Tax"
@@ -4743,6 +4776,16 @@ async def calendar(user: User = Depends(get_current_user)):
                     "date": dr[key], "type": "driver", "title": f"{label} — {name}",
                     "subtitle": "Driver compliance", "status": compliance_status(days_until(dr[key])),
                 })
+        if dr.get("start_date"):
+            events.append({
+                "date": dr["start_date"], "type": "driver_start", "title": f"Driver Started — {name}",
+                "subtitle": "Joined the team", "status": "valid",
+            })
+        if dr.get("leave_date"):
+            events.append({
+                "date": dr["leave_date"], "type": "driver_leave", "title": f"Driver Leaving — {name}",
+                "subtitle": "Last day / leaving", "status": "due_soon",
+            })
     for h in await db.holidays.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         try:
             start = datetime.fromisoformat(h["from_date"]).date()
@@ -4792,6 +4835,9 @@ class CalendarEventInput(BaseModel):
     title: str
     notes: str = ""
     status: str = "valid"
+    reminder: bool = False
+    remind_email: bool = False
+    remind_days_before: int = 0
 
 
 class VorInput(BaseModel):
@@ -4860,7 +4906,10 @@ async def clear_vehicle_sold(vid: str, user: User = Depends(get_current_user)):
 @api_router.post("/calendar/events")
 async def create_calendar_event(data: CalendarEventInput, user: User = Depends(get_current_user)):
     ev = {"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.date,
-          "title": data.title, "notes": data.notes, "status": data.status, "created_at": now_iso()}
+          "title": data.title, "notes": data.notes, "status": data.status,
+          "reminder": data.reminder, "remind_email": data.remind_email,
+          "remind_days_before": max(0, int(data.remind_days_before or 0)), "reminder_sent": False,
+          "created_at": now_iso()}
     await db.calendar_events.insert_one(dict(ev))
     ev.pop("_id", None)
     return ev
@@ -4876,7 +4925,9 @@ async def delete_calendar_event(eid: str, user: User = Depends(get_current_user)
 async def update_calendar_event(eid: str, data: CalendarEventInput, user: User = Depends(get_current_user)):
     res = await db.calendar_events.update_one(
         {"id": eid, "user_id": user.user_id},
-        {"$set": {"date": data.date, "title": data.title, "notes": data.notes, "status": data.status}},
+        {"$set": {"date": data.date, "title": data.title, "notes": data.notes, "status": data.status,
+                  "reminder": data.reminder, "remind_email": data.remind_email,
+                  "remind_days_before": max(0, int(data.remind_days_before or 0)), "reminder_sent": False}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -5696,6 +5747,48 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 
+async def run_calendar_reminders():
+    """Email calendar reminders whose (date − lead days) has arrived. Sends once per reminder."""
+    today = datetime.now(timezone.utc).date()
+    try:
+        cursor = db.calendar_events.find({"reminder": True, "remind_email": True, "reminder_sent": {"$ne": True}})
+        async for ev in cursor:
+            try:
+                due = datetime.fromisoformat(str(ev.get("date"))[:10]).date()
+            except Exception:
+                continue
+            lead = int(ev.get("remind_days_before") or 0)
+            if (due - timedelta(days=lead)) > today:
+                continue
+            owner = await db.users.find_one({"user_id": ev.get("user_id")}, {"_id": 0, "email": 1, "name": 1})
+            if owner and owner.get("email"):
+                try:
+                    import resend
+                    resend.api_key = os.environ['RESEND_API_KEY']
+                    when = "today" if due == today else f"on {due.isoformat()}"
+                    title = ev.get("title") or "Reminder"
+                    notes = ev.get("notes") or ""
+                    html = (
+                        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+                        "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+                        "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Reminder</p>"
+                        f"<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>{title}</h1>"
+                        f"<p style='margin:14px 0 0;font-size:14px;color:#334155;'>This is your reminder, due {when}.</p>"
+                        + (f"<p style='margin:12px 0 0;font-size:14px;color:#475569;'>{notes}</p>" if notes else "")
+                        + "<p style='margin:20px 0 0;font-size:12px;color:#94a3b8;'>Set from your HaulCheck calendar.</p>"
+                        "</td></tr></table></div>"
+                    )
+                    await asyncio.to_thread(resend.Emails.send, {
+                        "from": os.environ['SENDER_EMAIL'], "to": [owner["email"]],
+                        "subject": f"HaulCheck reminder: {title}", "html": html,
+                    })
+                except Exception as e:
+                    logging.error(f"Calendar reminder email failed: {e}")
+            await db.calendar_events.update_one({"id": ev.get("id")}, {"$set": {"reminder_sent": True}})
+    except Exception as e:
+        logging.error(f"run_calendar_reminders failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -5706,6 +5799,7 @@ async def startup_event():
     try:
         scheduler.add_job(run_daily_reminders, "cron", hour=7, minute=0, id="daily_reminders", replace_existing=True)
         scheduler.add_job(run_weekly_reminders, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_reminders", replace_existing=True)
+        scheduler.add_job(run_calendar_reminders, "cron", hour=7, minute=5, id="calendar_reminders", replace_existing=True)
         scheduler.start()
         logger.info("Reminder scheduler started (daily 07:00 UTC, weekly Mon 07:00 UTC)")
     except Exception as e:
