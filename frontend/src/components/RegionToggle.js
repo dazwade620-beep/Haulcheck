@@ -9,7 +9,7 @@ export function RegionToggle({ className = "" }) {
   const opts = [
     { c: "UK", label: "UK · DVSA" },
     { c: "IE", label: "IE · RSA" },
-    { c: "EU", label: "EU · Tacho" },
+    { c: "EU", label: "EU" },
   ];
   const NAMES = { UK: "United Kingdom (DVSA)", IE: "Ireland (RSA)", EU: "Europe (EU tachograph & roadworthiness)" };
   const switchTo = async (c) => {
