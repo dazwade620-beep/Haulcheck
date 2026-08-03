@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend-only validation of the 4 new HaulCheck Calendar/Drivers features. 3 out of 4 features work end-to-end via the UI. Recurring events (weekly + monthly) render across months, Reminder lead-time tick-boxes save/reload correctly (1 & 7 persisted on edit), and Driver Leaver Archive correctly moves past-date leavers to the Left/Archived tab with `driver-left-badge` while keeping drivers with no leave-date under Active. Holiday clash detection (clash-badge on grid + holiday-clash-warning in day panel) works CORRECTLY when the data exists in the DB — but the UI form for creating a holiday is BROKEN: the free-text name field `holiday-name-input` never accepts any input, so any UI holiday save with a typed name fails with the 'Enter who the holiday is for' error toast. This blocks the primary user path for the Holiday Clash feature end-to-end via the UI. Regression: unified Add Event chooser still exposes all 13 choice buttons.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Calendar › Add Holiday dialog",
+        "issue": "The `holiday-name-input` <Input> does NOT accept ANY text input. Playwright .fill(), .type(), .press_sequentially() AND a native HTMLInputElement value setter + dispatched 'input' event all leave input_value=''. Attempting to save shows the error toast 'Enter who the holiday is for'. Result: users can only create a holiday for a driver already in the dropdown Select; any free-form name (e.g. 'Office closed', 'John Smith' when driver is not yet added, or two distinct names on the same day for clash-testing) is impossible. Likely cause: the Input's value is controlled by `value={holForm.name}` AND the sibling `<Select value={holForm.name} onValueChange=…>` binds the SAME state. Something (probably a competing effect or the Select stealing focus/keyboard) prevents the Input's onChange from firing / prevents the state update from sticking. The reminder-title / event-title / holiday-from / holiday-to inputs (which are single-source Inputs) all work fine, further pointing at the dual-binding as the cause.",
+        "selector": "[data-testid=\"holiday-name-input\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Create Holiday via UI",
+        "issue": "Because name never gets committed to state, every UI-initiated holiday POST is blocked client-side and no /api/holidays request is ever fired. The backend /api/holidays endpoint itself works perfectly when called directly (verified via fetch) — the bug is 100% on the frontend name-input.",
+        "affected_selectors": ["[data-testid=\"holiday-name-input\"]", "[data-testid=\"save-event-button\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX (HIGH): In `/app/frontend/src/pages/Calendar.js` holiday sub-form — decouple the free-text `holiday-name-input` from the driver `<Select>`. Simplest fix: use a separate state field (e.g. `holForm.custom_name`) for the Input, or drop the Select entirely and use a datalist/combobox pattern. Alternative: change the Input to `defaultValue` + onBlur commit, or use `key` to force-remount when opening the dialog. Verified reproduction: opening Add Event → Holiday and typing anywhere in the free-text field leaves the underlying value blank, and Save fires the 'Enter who the holiday is for' toast.",
+    "Consider extracting Calendar.js sub-dialogs (still ~692 lines) into per-mode components."
+  ],
+  "critical_code_review_comments": [
+    "Calendar.js Add-holiday: dual controlled binding of `<Select value={holForm.name}>` and `<Input value={holForm.name}>` to the same state field is fragile — this is what broke free-text entry. Split into two fields or use a combobox.",
+    "Calendar.js is ~692 lines; unified event dialog + per-mode forms would benefit from extraction into small components.",
+    "renderEvent is used in BOTH the sidebar and the enlarged Dialog, so edit/delete data-testids are duplicated in the DOM when the enlarged dialog is open — tests must Escape before targeting sidebar buttons (already known)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "75% (3/4 features fully green via UI; Holiday Clash validated end-to-end only after creating data via API workaround)"},
+  "test_credentials": "operator.test@example.com / Test1234! (UK operator)",
+  "seed_data_creation": "Created via UI: TEST_Weekly Standup (weekly recurring event, 5 occurrences current month, appears in next month too), TEST_MonthlyReminder (monthly recurring reminder with email + leads [1,7], appears in current month and next 2), TEST_Leaver Driver (past leave_date → Archived), TEST_Active Driver (no leave_date → Active). Created via direct POST /api/holidays (UI-form-broken workaround): TEST_APIhol (2026-08-25), TEST_ClashDriverA + TEST_ClashDriverB (both 2026-09-07 → produced 1 clash-badge + holiday-clash-warning '2 drivers booked off this day — possible cover shortage'), TEST_SingleOnly (2026-09-12 → correctly NO clash warning).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Holiday Clash logic (clash-badge + holiday-clash-warning) is CONFIRMED WORKING end-to-end at threshold 2 — verified after seeding holidays via direct /api/holidays POST. The ONLY blocker for full UI validation is that the `holiday-name-input` field is inert. Once E1 fixes that field (see action_items), retesting can be a simple UI re-run of the 2-holiday-on-same-day flow. Weekly recurring general events, monthly recurring reminders, reminder lead-time tick-boxes (with edit persistence of ticked options 1 & 7), and Driver Leaver Archive (Active vs Left/Archived tabs, driver-left-badge, drv-start-date + drv-leave-date fields) are all fully validated. Also confirmed regression: all 13 add-choice-* buttons still present in the unified chooser.",
+  "rca of the issue": "REPRO: Login as operator.test@example.com → /calendar → Add Event → Holiday. Try to type anything in the free-text input under 'Who is it for?'. The value remains ''. Save → error toast 'Enter who the holiday is for'. Even executing `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'X'); input.dispatchEvent(new Event('input',{bubbles:true}))` in the console fails to update the value, which strongly indicates React is re-rendering the Input every keystroke and resetting `value={holForm.name}` because the sibling `<Select value={holForm.name}>` on the same state is somehow forcing state back to '' (Radix Select with a controlled value that doesn't match any SelectItem often exhibits reset-to-empty semantics on re-render). MITIGATION: give the free-text input its own state field (e.g. `custom_name`) and merge with the Select value at save time (`name: holForm.name || holForm.custom_name`)."
+}

@@ -13,7 +13,9 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { downloadPdf } from "@/lib/download";
 import { QRCodeSVG } from "qrcode.react";
 
-const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", notes: "" };
+const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", notes: "", start_date: "", leave_date: "" };
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const isLeftDriver = (d) => !!d.leave_date && String(d.leave_date).slice(0, 10) < todayISO();
 const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
 const emptyDoc = { title: "", doc_type: "Driver Infringement", reference: "", expiry_date: "", notes: "", attachments: [] };
 const lcEmpty = () => ({ check_date: new Date().toISOString().slice(0, 10), check_code: "", points: 0, result: "clean", next_check_due: "", notes: "" });
@@ -35,6 +37,7 @@ export default function Drivers() {
   const [lcFor, setLcFor] = useState(null);
   const [lcForm, setLcForm] = useState(lcEmpty());
   const [lcHistory, setLcHistory] = useState([]);
+  const [tab, setTab] = useState("active");
 
   const load = async () => {
     const [d, t, docs, v] = await Promise.all([api.get("/drivers"), api.get("/training"), api.get("/documents"), api.get("/vehicles")]);
@@ -45,16 +48,20 @@ export default function Drivers() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
 
+  const activeItems = items.filter((d) => !isLeftDriver(d));
+  const archivedItems = items.filter((d) => isLeftDriver(d));
+  const shown = tab === "archived" ? archivedItems : activeItems;
+
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (d) => {
-    setForm({ ...empty, ...d, licence_expiry: d.licence_expiry || "", cpc_expiry: d.cpc_expiry || "", tacho_card_expiry: d.tacho_card_expiry || "", licence_check_date: d.licence_check_date || "", licence_check_due: d.licence_check_due || "" });
+    setForm({ ...empty, ...d, licence_expiry: d.licence_expiry || "", cpc_expiry: d.cpc_expiry || "", tacho_card_expiry: d.tacho_card_expiry || "", licence_check_date: d.licence_check_date || "", licence_check_due: d.licence_check_due || "", start_date: d.start_date || "", leave_date: d.leave_date || "" });
     setEditId(d.id); setOpen(true);
   };
 
   const save = async (e) => {
     e.preventDefault();
     const payload = { ...form, weekly_hours: Number(form.weekly_hours), max_weekly_hours: Number(form.max_weekly_hours), penalty_points: Number(form.penalty_points) };
-    ["licence_expiry", "cpc_expiry", "tacho_card_expiry", "licence_check_date", "licence_check_due"].forEach((k) => { if (!payload[k]) payload[k] = null; });
+    ["licence_expiry", "cpc_expiry", "tacho_card_expiry", "licence_check_date", "licence_check_due", "start_date", "leave_date"].forEach((k) => { if (!payload[k]) payload[k] = null; });
     try {
       if (editId) await api.put(`/drivers/${editId}`, payload);
       else await api.post("/drivers", payload);
@@ -126,15 +133,34 @@ export default function Drivers() {
         <Button data-testid="download-drivers-pdf" variant="outline" onClick={() => downloadPdf("/reports/drivers", "drivers-report.pdf")} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download PDF</Button>
       </div>
 
-      {items.length === 0 ? <Empty icon={Users} text="No drivers yet. Add drivers to track licences and hours." /> : (
+      <div className="flex items-center gap-2 mb-5">
+        <button
+          data-testid="drivers-tab-active"
+          onClick={() => setTab("active")}
+          className={`rounded-md px-3.5 py-1.5 text-sm font-semibold transition-colors ${tab === "active" ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}
+        >Active ({activeItems.length})</button>
+        <button
+          data-testid="drivers-tab-archived"
+          onClick={() => setTab("archived")}
+          className={`rounded-md px-3.5 py-1.5 text-sm font-semibold transition-colors ${tab === "archived" ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"}`}
+        >Left / Archived ({archivedItems.length})</button>
+      </div>
+
+      {shown.length === 0 ? (
+        <Empty icon={Users} text={tab === "archived" ? "No archived drivers. Drivers move here automatically once their leaving date passes." : (items.length === 0 ? "No drivers yet. Add drivers to track licences and hours." : "No active drivers.")} />
+      ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((d) => {
+          {shown.map((d) => {
             const over = d.weekly_hours > d.max_weekly_hours;
+            const left = isLeftDriver(d);
             return (
-              <div key={d.id} data-testid="driver-card" className="bg-white border border-slate-200 rounded-md p-5 hover:-translate-y-1 hover:shadow-sm hover:border-slate-300 transition-all duration-200 animate-in-up">
+              <div key={d.id} data-testid="driver-card" className={`bg-white border rounded-md p-5 hover:-translate-y-1 hover:shadow-sm transition-all duration-200 animate-in-up ${left ? "border-slate-200 opacity-80" : "border-slate-200 hover:border-slate-300"}`}>
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="font-heading font-bold text-lg text-slate-900">{d.name}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-heading font-bold text-lg text-slate-900">{d.name}</h3>
+                      {left && <span data-testid="driver-left-badge" className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">Left {String(d.leave_date).slice(0, 10)}</span>}
+                    </div>
                     <p className="text-xs text-slate-500">{d.licence_number || "No licence no."}</p>
                   </div>
                   <div className="flex gap-1">
@@ -258,6 +284,14 @@ export default function Drivers() {
                 <SelectContent><SelectItem value="none">None</SelectItem>{vehicles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
+            <div className="border-t border-slate-100 pt-4">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">Employment</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Start date (joined)"><Input data-testid="drv-start-date" type="date" value={form.start_date || ""} onChange={(e) => setForm({ ...form, start_date: e.target.value })} /></Field>
+                <Field label="Leaving date"><Input data-testid="drv-leave-date" type="date" value={form.leave_date || ""} onChange={(e) => setForm({ ...form, leave_date: e.target.value })} /></Field>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-2">Once the leaving date passes, the driver moves to <span className="font-semibold">Left / Archived</span> and drops off your active roster & compliance score.</p>
+            </div>
             <div className="border-t border-slate-100 pt-4">
               <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">Licence Checking (DVLA / NDLS)</p>
               <div className="grid grid-cols-2 gap-4">

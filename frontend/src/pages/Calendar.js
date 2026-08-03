@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import {
   ChevronLeft, ChevronRight, CalendarDays, Wrench, CheckCircle2, FileWarning, GraduationCap,
   ShieldCheck, Gauge, Plus, Flag, Trash2, Pencil, Cog, ArrowRight, ClipboardCheck, Palmtree, Ban,
-  Bell, UserPlus, UserMinus, ClipboardList, Disc3,
+  Bell, UserPlus, UserMinus, ClipboardList, Disc3, AlertTriangle,
 } from "lucide-react";
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
@@ -104,6 +104,22 @@ const MODE_TITLE = {
   training: "Add training day",
 };
 
+const LEAD_OPTIONS = [
+  { d: 0, label: "On the day" },
+  { d: 1, label: "1 day before" },
+  { d: 3, label: "3 days before" },
+  { d: 7, label: "1 week before" },
+  { d: 14, label: "2 weeks before" },
+];
+const RECUR_OPTIONS = [
+  { v: "none", label: "Does not repeat" },
+  { v: "weekly", label: "Weekly" },
+  { v: "fortnightly", label: "Fortnightly" },
+  { v: "monthly", label: "Monthly" },
+];
+const CLASH_THRESHOLD = 2;
+const isLeftDriver = (x) => !!x.leave_date && String(x.leave_date).slice(0, 10) < new Date().toISOString().slice(0, 10);
+
 export default function Calendar() {
   const navigate = useNavigate();
   const [cursor, setCursor] = useState(new Date());
@@ -112,7 +128,7 @@ export default function Calendar() {
   const [dayOpen, setDayOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [evtOpen, setEvtOpen] = useState(false);
-  const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "" });
+  const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "", recurrence: "none", recurrence_until: "" });
   const [evtEditId, setEvtEditId] = useState(null);
   const [evtMode, setEvtMode] = useState("event");
   const [assets, setAssets] = useState([]);
@@ -123,7 +139,7 @@ export default function Calendar() {
   const [maintInitial, setMaintInitial] = useState("pmi");
   const [tachoForm, setTachoForm] = useState({ source_type: "Vehicle Unit", reference: "", last_download: "", frequency_days: 90 });
   const [holForm, setHolForm] = useState({ name: "", from_date: "", to_date: "", notes: "" });
-  const [remForm, setRemForm] = useState({ date: "", title: "", notes: "", email: false, days_before: 0 });
+  const [remForm, setRemForm] = useState({ date: "", title: "", notes: "", email: false, leads: [], recurrence: "none", recurrence_until: "" });
   const [dlForm, setDlForm] = useState({ driver_id: "", date: "" });
   const [trForm, setTrForm] = useState({ driver_name: "", course_name: "", category: "Driver CPC", completed_date: "", expiry_date: "", provider: "", hours: "" });
 
@@ -134,8 +150,9 @@ export default function Calendar() {
     Promise.all([api.get("/vehicles"), api.get("/trailers"), api.get("/drivers")]).then(([v, t, dr]) => {
       const vr = v.data.map((x) => x.registration).filter(Boolean);
       setVehicleRegs([...vr, ...t.data.map((x) => x.trailer_number).filter(Boolean)]);
-      setDrivers(dr.data.map((x) => ({ id: x.id, name: x.name })).filter((x) => x.name));
-      setDriverNames(dr.data.map((x) => x.name).filter(Boolean));
+      const activeDrivers = dr.data.filter((x) => x.name && !isLeftDriver(x));
+      setDrivers(activeDrivers.map((x) => ({ id: x.id, name: x.name })));
+      setDriverNames(activeDrivers.map((x) => x.name));
       setAssets([...vr, ...t.data.map((x) => x.trailer_number)].filter(Boolean));
     });
   }, []);
@@ -146,10 +163,10 @@ export default function Calendar() {
     const d = format(selected, "yyyy-MM-dd");
     setEvtEditId(null);
     setEvtMode(mode);
-    setEvtForm({ date: d, title: "", notes: "" });
+    setEvtForm({ date: d, title: "", notes: "", recurrence: "none", recurrence_until: "" });
     setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: d, frequency_days: 90 });
     setHolForm({ name: "", from_date: d, to_date: d, notes: "" });
-    setRemForm({ date: d, title: "", notes: "", email: false, days_before: 0 });
+    setRemForm({ date: d, title: "", notes: "", email: false, leads: [], recurrence: "none", recurrence_until: "" });
     setDlForm({ driver_id: "", date: d });
     setTrForm({ driver_name: "", course_name: "", category: "Driver CPC", completed_date: d, expiry_date: "", provider: "", hours: "" });
     setEvtOpen(true);
@@ -165,10 +182,10 @@ export default function Calendar() {
     setEvtEditId(ev.id);
     if (ev.type === "reminder") {
       setEvtMode("reminder");
-      setRemForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "", email: !!ev.remind_email, days_before: ev.remind_days_before || 0 });
+      setRemForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "", email: !!ev.remind_email, leads: Array.isArray(ev.remind_days_before) ? ev.remind_days_before : (ev.remind_days_before != null ? [ev.remind_days_before] : []), recurrence: ev.recurrence || "none", recurrence_until: ev.recurrence_until || "" });
     } else {
       setEvtMode("event");
-      setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "" });
+      setEvtForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "", recurrence: ev.recurrence || "none", recurrence_until: ev.recurrence_until || "" });
     }
     setEvtOpen(true);
   };
@@ -187,7 +204,12 @@ export default function Calendar() {
         toast.success("Holiday added across the date range");
       } else if (evtMode === "reminder") {
         if (!remForm.title) { toast.error("Enter a reminder title"); return; }
-        const payload = { date: remForm.date, title: remForm.title, notes: remForm.notes, status: "due_soon", reminder: true, remind_email: remForm.email, remind_days_before: Number(remForm.days_before) || 0 };
+        const payload = {
+          date: remForm.date, title: remForm.title, notes: remForm.notes, status: "due_soon",
+          reminder: true, remind_email: remForm.email,
+          remind_days_before: remForm.email ? (remForm.leads.length ? remForm.leads : [0]) : [],
+          recurrence: remForm.recurrence || "none", recurrence_until: remForm.recurrence_until || null,
+        };
         if (evtEditId) await api.put(`/calendar/events/${evtEditId}`, payload);
         else await api.post("/calendar/events", payload);
         toast.success(remForm.email ? "Reminder saved — we'll email you" : "Reminder added to calendar");
@@ -201,8 +223,9 @@ export default function Calendar() {
         await api.post("/training", { ...trForm, hours: Number(trForm.hours) || 0, completed_date: trForm.completed_date || null, expiry_date: trForm.expiry_date || null, attachments: [] });
         toast.success("Training record added to Office › Training");
       } else {
-        if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, evtForm); toast.success("Event updated"); }
-        else { await api.post("/calendar/events", evtForm); toast.success("Event added to calendar"); }
+        const payload = { ...evtForm, recurrence: evtForm.recurrence || "none", recurrence_until: evtForm.recurrence_until || null };
+        if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, payload); toast.success("Event updated"); }
+        else { await api.post("/calendar/events", payload); toast.success("Event added to calendar"); }
       }
       setEvtOpen(false);
       loadEvents();
@@ -230,6 +253,14 @@ export default function Calendar() {
 
   const selectedEvents = eventsForDay(selected);
   const openDay = (day) => { setSelected(day); setDayOpen(true); };
+
+  const holidayCountByDay = useMemo(() => {
+    const m = {};
+    events.forEach((e) => { if (e.type === "holiday") m[e.date] = (m[e.date] || 0) + 1; });
+    return m;
+  }, [events]);
+  const clashForKey = (key) => ((holidayCountByDay[key] || 0) >= CLASH_THRESHOLD ? (holidayCountByDay[key] || 0) : 0);
+  const selectedClash = clashForKey(format(selected, "yyyy-MM-dd"));
 
   const renderEvent = (e, i) => {
     const M = TYPE_META[e.type] || TYPE_META.custom;
@@ -303,6 +334,8 @@ export default function Calendar() {
               const evs = eventsForDay(day);
               const inMonth = isSameMonth(day, cursor);
               const isSel = isSameDay(day, selected);
+              const key = format(day, "yyyy-MM-dd");
+              const clash = clashForKey(key);
               return (
                 <button
                   key={day.toISOString()}
@@ -311,14 +344,22 @@ export default function Calendar() {
                   className={cn(
                     "min-h-[120px] border-b border-r border-slate-100 p-1.5 text-left align-top transition-colors relative",
                     !inMonth && "bg-slate-50/60 text-slate-300",
+                    clash > 0 && !isSel && "ring-1 ring-inset ring-amber-400 bg-amber-50/40",
                     isSel && "ring-2 ring-inset ring-black",
                     "hover:bg-slate-50"
                   )}
                 >
-                  <span className={cn(
-                    "inline-flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full",
-                    isToday(day) ? "bg-black text-white" : inMonth ? "text-slate-700" : "text-slate-300"
-                  )}>{format(day, "d")}</span>
+                  <div className="flex items-start justify-between">
+                    <span className={cn(
+                      "inline-flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full",
+                      isToday(day) ? "bg-black text-white" : inMonth ? "text-slate-700" : "text-slate-300"
+                    )}>{format(day, "d")}</span>
+                    {clash > 0 && (
+                      <span data-testid="clash-badge" className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 rounded-full px-1.5 py-0.5" title={`${clash} drivers off`}>
+                        <AlertTriangle size={9} /> {clash}
+                      </span>
+                    )}
+                  </div>
                   <div className="mt-1 space-y-0.5">
                     {evs.slice(0, 4).map((e, i) => (
                       <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-center gap-1 truncate">
@@ -344,6 +385,11 @@ export default function Calendar() {
             <Button data-testid="day-add-event" size="sm" variant="outline" className="border-slate-300 rounded-md gap-1.5 h-8" onClick={openChooser}><Plus size={14} /> Add</Button>
           </div>
           <p className="text-xs text-slate-400 mb-4">{selectedEvents.length} event{selectedEvents.length !== 1 && "s"}{selectedEvents.length > 0 && " · click a day to enlarge"}</p>
+          {selectedClash > 0 && (
+            <div data-testid="holiday-clash-warning" className="mb-4 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              <AlertTriangle size={14} className="shrink-0" /> {selectedClash} drivers booked off this day — possible cover shortage.
+            </div>
+          )}
           {selectedEvents.length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">Nothing scheduled for this day.</p>
           ) : (
@@ -435,6 +481,7 @@ export default function Calendar() {
                   <label className="text-sm font-medium mb-1.5 block">Notes</label>
                   <Textarea data-testid="event-notes" rows={2} value={evtForm.notes} onChange={(e) => setEvtForm({ ...evtForm, notes: e.target.value })} />
                 </div>
+                <RepeatFields form={evtForm} setForm={setEvtForm} testid="event" />
               </>
             )}
 
@@ -452,15 +499,26 @@ export default function Calendar() {
                   <label className="text-sm font-medium mb-1.5 block">Notes</label>
                   <Textarea data-testid="reminder-notes" rows={2} value={remForm.notes} onChange={(e) => setRemForm({ ...remForm, notes: e.target.value })} />
                 </div>
+                <RepeatFields form={remForm} setForm={setRemForm} testid="reminder" />
                 <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
                   <input data-testid="reminder-email" type="checkbox" checked={remForm.email} onChange={(e) => setRemForm({ ...remForm, email: e.target.checked })} className="h-4 w-4 rounded border-slate-300" />
                   Email me this reminder
                 </label>
                 {remForm.email && (
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Remind me this many days before</label>
-                    <Input data-testid="reminder-days-before" type="number" min="0" value={remForm.days_before} onChange={(e) => setRemForm({ ...remForm, days_before: e.target.value })} />
-                    <p className="text-xs text-slate-400 mt-1">0 = email on the day. We email at 07:00 (test mode delivers to the account owner).</p>
+                    <label className="text-sm font-medium mb-1.5 block">Nudge me…</label>
+                    <div className="grid grid-cols-2 gap-2" data-testid="reminder-leads">
+                      {LEAD_OPTIONS.map((o) => {
+                        const on = remForm.leads.includes(o.d);
+                        return (
+                          <label key={o.d} className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors ${on ? "border-slate-900 bg-slate-50" : "border-slate-200 hover:bg-slate-50"}`}>
+                            <input data-testid={`reminder-lead-${o.d}`} type="checkbox" checked={on} onChange={(e) => setRemForm({ ...remForm, leads: e.target.checked ? [...remForm.leads, o.d] : remForm.leads.filter((x) => x !== o.d) })} className="h-4 w-4 rounded border-slate-300" />
+                            {o.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1.5">Pick any combination (e.g. 1 week + 1 day before). If none chosen we'll email on the day. Sent ~07:00 (test mode delivers to the account owner).</p>
                   </div>
                 )}
               </>
@@ -609,6 +667,25 @@ function Legend({ color, label }) {
   return (
     <div className="flex items-center gap-2 text-xs text-slate-600">
       <span className={cn("w-2.5 h-2.5 rounded-full", color)} /> {label}
+    </div>
+  );
+}
+
+function RepeatFields({ form, setForm, testid }) {
+  const rec = form.recurrence || "none";
+  return (
+    <div>
+      <label className="text-sm font-medium mb-1.5 block">Repeats</label>
+      <Select value={rec} onValueChange={(v) => setForm({ ...form, recurrence: v })}>
+        <SelectTrigger data-testid={`${testid}-recurrence`}><SelectValue /></SelectTrigger>
+        <SelectContent>{RECUR_OPTIONS.map((o) => <SelectItem key={o.v} value={o.v}>{o.label}</SelectItem>)}</SelectContent>
+      </Select>
+      {rec !== "none" && (
+        <div className="mt-2">
+          <label className="text-xs text-slate-500 mb-1 block">Repeat until (optional — defaults to 12 months)</label>
+          <Input data-testid={`${testid}-recurrence-until`} type="date" value={form.recurrence_until || ""} onChange={(e) => setForm({ ...form, recurrence_until: e.target.value })} />
+        </div>
+      )}
     </div>
   );
 }

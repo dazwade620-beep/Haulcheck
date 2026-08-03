@@ -4669,12 +4669,18 @@ async def calendar(user: User = Depends(get_current_user)):
         if str(ev.get("ref", "")).startswith("vor:"):
             continue
         _rem = bool(ev.get("reminder"))
-        events.append({
-            "id": ev.get("id"), "date": ev.get("date"),
-            "type": "reminder" if _rem else "custom", "title": ev.get("title", "Event"),
-            "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
-            "remind_email": ev.get("remind_email", False), "remind_days_before": ev.get("remind_days_before", 0),
-        })
+        _lead = ev.get("remind_days_before", [])
+        if isinstance(_lead, int):
+            _lead = [_lead]
+        _rec = ev.get("recurrence", "none")
+        for _occ in _expand_occurrences(ev.get("date"), _rec, ev.get("recurrence_until")):
+            events.append({
+                "id": ev.get("id"), "date": _occ,
+                "type": "reminder" if _rem else "custom", "title": ev.get("title", "Event"),
+                "subtitle": ev.get("notes", ""), "status": ev.get("status", "valid"),
+                "remind_email": ev.get("remind_email", False), "remind_days_before": _lead,
+                "recurrence": _rec, "recurrence_until": ev.get("recurrence_until"),
+            })
     for w in await db.wheel_audits.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000):
         if w.get("audit_date"):
             events.append({
@@ -4837,7 +4843,9 @@ class CalendarEventInput(BaseModel):
     status: str = "valid"
     reminder: bool = False
     remind_email: bool = False
-    remind_days_before: int = 0
+    remind_days_before: List[int] = []
+    recurrence: str = "none"
+    recurrence_until: Optional[str] = None
 
 
 class VorInput(BaseModel):
@@ -4905,10 +4913,12 @@ async def clear_vehicle_sold(vid: str, user: User = Depends(get_current_user)):
 
 @api_router.post("/calendar/events")
 async def create_calendar_event(data: CalendarEventInput, user: User = Depends(get_current_user)):
+    _leads = sorted({max(0, int(x)) for x in (data.remind_days_before or [])})
     ev = {"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.date,
           "title": data.title, "notes": data.notes, "status": data.status,
           "reminder": data.reminder, "remind_email": data.remind_email,
-          "remind_days_before": max(0, int(data.remind_days_before or 0)), "reminder_sent": False,
+          "remind_days_before": _leads, "recurrence": data.recurrence or "none",
+          "recurrence_until": data.recurrence_until, "reminders_fired": [],
           "created_at": now_iso()}
     await db.calendar_events.insert_one(dict(ev))
     ev.pop("_id", None)
@@ -4923,11 +4933,13 @@ async def delete_calendar_event(eid: str, user: User = Depends(get_current_user)
 
 @api_router.put("/calendar/events/{eid}")
 async def update_calendar_event(eid: str, data: CalendarEventInput, user: User = Depends(get_current_user)):
+    _leads = sorted({max(0, int(x)) for x in (data.remind_days_before or [])})
     res = await db.calendar_events.update_one(
         {"id": eid, "user_id": user.user_id},
         {"$set": {"date": data.date, "title": data.title, "notes": data.notes, "status": data.status,
                   "reminder": data.reminder, "remind_email": data.remind_email,
-                  "remind_days_before": max(0, int(data.remind_days_before or 0)), "reminder_sent": False}},
+                  "remind_days_before": _leads, "recurrence": data.recurrence or "none",
+                  "recurrence_until": data.recurrence_until, "reminders_fired": []}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -4935,9 +4947,58 @@ async def update_calendar_event(eid: str, data: CalendarEventInput, user: User =
 
 
 # ---------- Dashboard + AI risk ----------
+def _is_left_driver(d) -> bool:
+    """A driver whose leaving date has already passed is archived (dropped from the active roster)."""
+    ld = d.get("leave_date")
+    if not ld:
+        return False
+    try:
+        return datetime.fromisoformat(str(ld)[:10]).date() < datetime.now(timezone.utc).date()
+    except Exception:
+        return False
+
+
+def _add_month(d):
+    import calendar as _cal
+    m = d.month + 1
+    y = d.year + (1 if m > 12 else 0)
+    m = 1 if m > 12 else m
+    return d.replace(year=y, month=m, day=min(d.day, _cal.monthrange(y, m)[1]))
+
+
+def _expand_occurrences(base_iso, recurrence, until_iso=None, horizon_days=372, cap=120):
+    """Return ISO dates for a (possibly) recurring calendar item across the visible horizon."""
+    try:
+        base = datetime.fromisoformat(str(base_iso)[:10]).date()
+    except Exception:
+        return []
+    rec = (recurrence or "none").lower()
+    if rec not in ("weekly", "fortnightly", "monthly"):
+        return [base.isoformat()]
+    end = base + timedelta(days=horizon_days)
+    if until_iso:
+        try:
+            u = datetime.fromisoformat(str(until_iso)[:10]).date()
+            if u < end:
+                end = u
+        except Exception:
+            pass
+    out, cur, n = [], base, 0
+    while cur <= end and n < cap:
+        out.append(cur.isoformat())
+        n += 1
+        if rec == "weekly":
+            cur = cur + timedelta(days=7)
+        elif rec == "fortnightly":
+            cur = cur + timedelta(days=14)
+        else:
+            cur = _add_month(cur)
+    return out
+
+
 async def gather_stats(user_id: str):
     vehicles = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
-    drivers = await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    drivers = [d for d in await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000) if not _is_left_driver(d)]
     documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     defects = await db.defects.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     pmi_schedules = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
@@ -5121,7 +5182,7 @@ async def compliance_history(days: int = 90, user: User = Depends(get_current_us
 
 async def detect_gaps(user_id: str):
     vehicles = await db.vehicles.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
-    drivers = await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
+    drivers = [d for d in await db.drivers.find({"user_id": user_id}, {"_id": 0}).to_list(1000) if not _is_left_driver(d)]
     documents = await db.documents.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     insurance = await db.insurance.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
     pmi = await db.pmi_schedules.find({"user_id": user_id}, {"_id": 0}).to_list(1000)
@@ -5748,43 +5809,57 @@ scheduler = AsyncIOScheduler(timezone="UTC")
 
 
 async def run_calendar_reminders():
-    """Email calendar reminders whose (date − lead days) has arrived. Sends once per reminder."""
+    """Email calendar reminders at each chosen lead time (incl. recurring items). Each nudge sends once."""
     today = datetime.now(timezone.utc).date()
     try:
-        cursor = db.calendar_events.find({"reminder": True, "remind_email": True, "reminder_sent": {"$ne": True}})
+        cursor = db.calendar_events.find({"reminder": True, "remind_email": True})
         async for ev in cursor:
-            try:
-                due = datetime.fromisoformat(str(ev.get("date"))[:10]).date()
-            except Exception:
-                continue
-            lead = int(ev.get("remind_days_before") or 0)
-            if (due - timedelta(days=lead)) > today:
+            leads = ev.get("remind_days_before", [])
+            if isinstance(leads, int):
+                leads = [leads]
+            if not leads:
+                leads = [0]
+            fired = list(ev.get("reminders_fired") or [])
+            to_send = []
+            for occ_iso in _expand_occurrences(ev.get("date"), ev.get("recurrence", "none"), ev.get("recurrence_until")):
+                try:
+                    occ = datetime.fromisoformat(occ_iso[:10]).date()
+                except Exception:
+                    continue
+                for lead in leads:
+                    marker = f"{occ_iso}:{lead}"
+                    if (occ - timedelta(days=int(lead))) <= today <= occ and marker not in fired:
+                        to_send.append((occ, int(lead), marker))
+            if not to_send:
                 continue
             owner = await db.users.find_one({"user_id": ev.get("user_id")}, {"_id": 0, "email": 1, "name": 1})
-            if owner and owner.get("email"):
-                try:
-                    import resend
-                    resend.api_key = os.environ['RESEND_API_KEY']
-                    when = "today" if due == today else f"on {due.isoformat()}"
-                    title = ev.get("title") or "Reminder"
-                    notes = ev.get("notes") or ""
-                    html = (
-                        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
-                        "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
-                        "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Reminder</p>"
-                        f"<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>{title}</h1>"
-                        f"<p style='margin:14px 0 0;font-size:14px;color:#334155;'>This is your reminder, due {when}.</p>"
-                        + (f"<p style='margin:12px 0 0;font-size:14px;color:#475569;'>{notes}</p>" if notes else "")
-                        + "<p style='margin:20px 0 0;font-size:12px;color:#94a3b8;'>Set from your HaulCheck calendar.</p>"
-                        "</td></tr></table></div>"
-                    )
-                    await asyncio.to_thread(resend.Emails.send, {
-                        "from": os.environ['SENDER_EMAIL'], "to": [owner["email"]],
-                        "subject": f"HaulCheck reminder: {title}", "html": html,
-                    })
-                except Exception as e:
-                    logging.error(f"Calendar reminder email failed: {e}")
-            await db.calendar_events.update_one({"id": ev.get("id")}, {"$set": {"reminder_sent": True}})
+            for occ, lead, marker in to_send:
+                if owner and owner.get("email"):
+                    try:
+                        import resend
+                        resend.api_key = os.environ['RESEND_API_KEY']
+                        title = ev.get("title") or "Reminder"
+                        notes = ev.get("notes") or ""
+                        when = "today" if occ == today else f"on {occ.isoformat()}"
+                        lead_txt = "" if lead == 0 else f" ({lead} day{'s' if lead != 1 else ''} ahead)"
+                        html = (
+                            "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+                            "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+                            "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Reminder</p>"
+                            f"<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>{title}</h1>"
+                            f"<p style='margin:14px 0 0;font-size:14px;color:#334155;'>This is your reminder, due {when}{lead_txt}.</p>"
+                            + (f"<p style='margin:12px 0 0;font-size:14px;color:#475569;'>{notes}</p>" if notes else "")
+                            + "<p style='margin:20px 0 0;font-size:12px;color:#94a3b8;'>Set from your HaulCheck calendar.</p>"
+                            "</td></tr></table></div>"
+                        )
+                        await asyncio.to_thread(resend.Emails.send, {
+                            "from": os.environ['SENDER_EMAIL'], "to": [owner["email"]],
+                            "subject": f"HaulCheck reminder: {title}", "html": html,
+                        })
+                    except Exception as e:
+                        logging.error(f"Calendar reminder email failed: {e}")
+                fired.append(marker)
+            await db.calendar_events.update_one({"id": ev.get("id")}, {"$set": {"reminders_fired": fired[-200:]}})
     except Exception as e:
         logging.error(f"run_calendar_reminders failed: {e}")
 
