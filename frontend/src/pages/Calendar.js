@@ -563,11 +563,13 @@ export default function Calendar() {
               <>
                 <div>
                   <label className="text-sm font-medium mb-1.5 block">Who is it for?</label>
-                  <Select value={holForm.name} onValueChange={(v) => setHolForm({ ...holForm, name: v })}>
-                    <SelectTrigger data-testid="holiday-name"><SelectValue placeholder="Select driver or type below" /></SelectTrigger>
-                    <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <Input data-testid="holiday-name-input" className="mt-2" value={holForm.name} onChange={(e) => setHolForm({ ...holForm, name: e.target.value })} placeholder="…or type a name / reason (e.g. John Smith, Office closed)" />
+                  <Input data-testid="holiday-name-input" value={holForm.name} onChange={(e) => setHolForm({ ...holForm, name: e.target.value })} placeholder="Type a name or reason (e.g. John Smith, Office closed)" />
+                  {driverNames.length > 0 && (
+                    <Select value="" onValueChange={(v) => setHolForm({ ...holForm, name: v })}>
+                      <SelectTrigger data-testid="holiday-name" className="mt-2"><SelectValue placeholder="…or pick a driver" /></SelectTrigger>
+                      <SelectContent>{driverNames.map((n) => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
