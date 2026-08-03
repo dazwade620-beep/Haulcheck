@@ -35,7 +35,10 @@ JWT_SECRET = os.environ['JWT_SECRET']
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()}
+# Built-in super-admins (account owner) so the Admin panel works on production
+# even before any ADMIN_EMAILS environment variable is configured there.
+_BUILTIN_ADMIN_EMAILS = {"traffic@dlz-international.com"}
+ADMIN_EMAILS = _BUILTIN_ADMIN_EMAILS | {e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', '').split(',') if e.strip()}
 
 
 def _is_admin_email(email) -> bool:

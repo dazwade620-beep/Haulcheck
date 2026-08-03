@@ -1,3 +1,6 @@
+## Fix (2026-08 fork pt.8 — production admin access)
+- Admin allowlist now includes a built-in owner email (traffic@dlz-international.com) UNIONed with ADMIN_EMAILS env, so the /admin panel works on PRODUCTION after redeploy without needing the env var configured there. `_is_admin_email` is case-insensitive. NOTE: the Admin panel + user list is new this session and only reaches production on redeploy; the "95 users" the owner saw live was the older dashboard KPI, not the (undeployed) admin list.
+
 # HaulCheck — Road Haulage Compliance
 
 ## Feature batch (2026-08 fork pt.7 — welcome email + admin activity) — verified (backend curl + admin screenshot)
