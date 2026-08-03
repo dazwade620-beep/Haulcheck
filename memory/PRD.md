@@ -1,5 +1,10 @@
 # HaulCheck — Road Haulage Compliance
 
+## Feature batch (2026-08 fork pt.7 — welcome email + admin activity) — verified (backend curl + admin screenshot)
+- **Welcome email**: `_send_welcome_email` (Resend) fires fire-and-forget (asyncio.create_task) inside /api/auth/verify right after a new user verifies — friendly welcome + 4-step quick-start + "Open my dashboard" link. VerifyEmailInput gained `base_url` (frontend passes window.location.origin from both the code and link verify paths).
+- **Admin activity**: GET /api/admin/users now returns per-user `fleet_size` (vehicles+trailers for the effective account, aggregated once), `drivers`, and `activity` (active ≤7d / idle ≤30d / dormant >30d / never); stats gained `active_7d` + `dormant_30d`. Admin.js shows a Fleet column (truck icon + drivers) and an Activity badge, and the top stat cards now read Registered / Active (7d) / Dormant (30d+) / Unverified. Robust date parsing handles naive/legacy timestamps.
+
+
 ## Feature batch (2026-08 fork pt.6 — email verification, EU region, brake-test score fix, super-admin, staff role) — VERIFIED iter39 (backend 21/21, frontend 100%)
 - **Email verification on signup**: POST /api/auth/register no longer logs in — returns {needs_verification,email}, emails a one-click link + 6-digit code (Resend) via `email_verifications` (plaintext token + bcrypt code_hash, 24h expiry, 6-attempt cap on code, ~45s resend rate-limit). Login blocked pre-verify (403 "email_not_verified"). POST /api/auth/verify (token OR code) + /api/auth/resend-verification. Existing users + invited team members grandfathered (email_verified defaults True; only /register sets False). Frontend: verify screen (6-digit input + resend), /verify-email?token= link route. Register now enforces 8-char min password.
 - **EU region**: region is now UK|IE|EU. EU = € currency, "Roadworthiness Test" label, "EU (Tachograph & Roadworthiness)" authority, NO UK brake-test requirement. 3-way sidebar toggle (region-UK/IE/EU). reports._terms + all currency/authority strings updated.

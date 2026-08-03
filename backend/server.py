@@ -149,6 +149,7 @@ class VerifyEmailInput(BaseModel):
     email: EmailStr
     code: str = ""
     token: str = ""
+    base_url: str = ""
 
 
 class ResendVerificationInput(BaseModel):
@@ -1257,6 +1258,37 @@ async def register(data: RegisterInput, response: Response):
     return {"needs_verification": True, "email": email}
 
 
+async def _send_welcome_email(email: str, name: str, base_url: str):
+    base = (base_url or "").rstrip("/")
+    dash = f"{base}/dashboard" if base else "#"
+    who = name or "there"
+    html = (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='560' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck Compliance</p>"
+        f"<h1 style='margin:6px 0 0;font-size:24px;color:#0f172a;'>Welcome aboard, {who} 👋</h1>"
+        "<p style='margin:16px 0 0;font-size:14px;color:#334155;line-height:1.6;'>Your email is verified and your HaulCheck account is live. Here's how to get compliant fast:</p>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' style='margin:20px 0;'>"
+        "<tr><td style='padding:8px 0;font-size:14px;color:#0f172a;'><b>1. Add your fleet</b> — enter vehicles &amp; trailers with MOT / roadworthiness dates.</td></tr>"
+        "<tr><td style='padding:8px 0;font-size:14px;color:#0f172a;'><b>2. Set up PMIs</b> — schedule safety inspections and record laden roller brake tests.</td></tr>"
+        "<tr><td style='padding:8px 0;font-size:14px;color:#0f172a;'><b>3. Add drivers</b> — track licences, CPC and tacho, and hand out the driver app code.</td></tr>"
+        "<tr><td style='padding:8px 0;font-size:14px;color:#0f172a;'><b>4. Watch your score</b> — the dashboard flags anything overdue before the DVSA/RSA does.</td></tr>"
+        "</table>"
+        f"<p style='margin:8px 0 0;'><a href='{dash}' style='background:#0f172a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:600;'>Open my dashboard</a></p>"
+        "<p style='margin:22px 0 0;font-size:12px;color:#94a3b8;'>Need a hand getting started? Just reply to this email.</p>"
+        "</td></tr></table></div>"
+    )
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [email],
+            "subject": "Welcome to HaulCheck — let's get you compliant", "html": html,
+        })
+    except Exception as e:
+        logging.error(f"Welcome email failed: {e}")
+
+
 @api_router.post("/auth/verify")
 async def verify_email(data: VerifyEmailInput, response: Response):
     email = data.email.lower().strip()
@@ -1281,6 +1313,7 @@ async def verify_email(data: VerifyEmailInput, response: Response):
     await db.email_verifications.delete_many({"email": email})
     u = await db.users.find_one({"user_id": rec["user_id"]}, {"_id": 0}) or {}
     await db.users.update_one({"user_id": rec["user_id"]}, {"$set": {"last_login_at": now_iso()}})
+    asyncio.create_task(_send_welcome_email(email, u.get("name", ""), data.base_url))
     response.delete_cookie("session_token", path="/")
     return {"token": create_jwt(rec["user_id"]),
             "user": {"user_id": rec["user_id"], "email": email, "name": u.get("name"),
@@ -1466,20 +1499,54 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 async def admin_list_users(q: str = Query(""), admin: User = Depends(require_admin)):
     docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(5000)
     owner_names = {d["user_id"]: d.get("name") for d in docs}
+    # Fleet size per account (vehicles + trailers), aggregated once.
+    fleet = {}
+    for coll in ("vehicles", "trailers"):
+        async for row in db[coll].aggregate([{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}]):
+            fleet[row["_id"]] = fleet.get(row["_id"], 0) + row["n"]
+    drivers = {}
+    async for row in db.drivers.aggregate([{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}]):
+        drivers[row["_id"]] = row["n"]
+
+    def _days_since(iso):
+        try:
+            dt = datetime.fromisoformat(iso)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return (datetime.now(timezone.utc) - dt).days
+        except Exception:
+            return None
+
+    def activity(iso):
+        d = _days_since(iso)
+        if d is None:
+            return "never"
+        if d <= 7:
+            return "active"
+        if d <= 30:
+            return "idle"
+        return "dormant"
+
     users = []
     for d in docs:
         if q:
             hay = f"{d.get('email','')} {d.get('name','')}".lower()
             if q.lower() not in hay:
                 continue
+        acct = d.get("account_owner_id") or d["user_id"]
         users.append({
             "user_id": d["user_id"], "email": d.get("email"), "name": d.get("name"),
             "role": d.get("role", "manager"), "region": d.get("region", "UK"),
             "active": d.get("active", True), "email_verified": d.get("email_verified", True),
             "is_admin": _is_admin_email(d.get("email")), "created_at": d.get("created_at"),
             "last_login_at": d.get("last_login_at"),
+            "activity": activity(d.get("last_login_at")),
+            "fleet_size": fleet.get(acct, 0), "drivers": drivers.get(acct, 0),
             "account_owner": owner_names.get(d.get("account_owner_id")) if d.get("account_owner_id") else None,
         })
+    now = datetime.now(timezone.utc)
+    active7 = sum(1 for d in docs if (_days_since(d.get("last_login_at")) or 999) <= 7)
+    dormant30 = sum(1 for d in docs if (_days_since(d.get("last_login_at")) or -1) > 30)
     stats = {
         "total": len(docs),
         "active": sum(1 for d in docs if d.get("active", True)),
@@ -1488,6 +1555,7 @@ async def admin_list_users(q: str = Query(""), admin: User = Depends(require_adm
         "unverified": sum(1 for d in docs if d.get("email_verified", True) is False),
         "by_region": {r: sum(1 for d in docs if d.get("region", "UK") == r) for r in ("UK", "IE", "EU")},
         "owners": sum(1 for d in docs if not d.get("account_owner_id")),
+        "active_7d": active7, "dormant_30d": dormant30,
     }
     return {"users": users, "stats": stats}
 

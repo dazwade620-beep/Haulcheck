@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Users, ShieldCheck, Ban, RotateCcw, MailCheck, MailWarning, Search, Globe } from "lucide-react";
+import { Users, ShieldCheck, Ban, RotateCcw, MailCheck, MailWarning, Search, Globe, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 const relTime = (iso) => {
@@ -20,6 +20,12 @@ const relTime = (iso) => {
 };
 
 const ROLE_LABEL = { manager: "Operator", viewer: "Viewer", staff: "Staff", driver: "Driver" };
+const ACTIVITY = {
+  active: { label: "Active", cls: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
+  idle: { label: "Idle", cls: "bg-amber-100 text-amber-700", dot: "bg-amber-500" },
+  dormant: { label: "Dormant", cls: "bg-red-100 text-red-700", dot: "bg-red-500" },
+  never: { label: "Never", cls: "bg-slate-100 text-slate-500", dot: "bg-slate-400" },
+};
 
 function Stat({ label, value, tone = "text-slate-900", Icon }) {
   return (
@@ -73,8 +79,8 @@ export default function Admin() {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-6" data-testid="admin-stats">
           <Stat label="Registered users" value={stats.total} Icon={Users} />
-          <Stat label="Active" value={stats.active} tone="text-emerald-600" Icon={ShieldCheck} />
-          <Stat label="Suspended" value={stats.suspended} tone={stats.suspended ? "text-red-600" : "text-slate-900"} Icon={Ban} />
+          <Stat label="Active (7d)" value={stats.active_7d ?? 0} tone="text-emerald-600" Icon={ShieldCheck} />
+          <Stat label="Dormant (30d+)" value={stats.dormant_30d ?? 0} tone={stats.dormant_30d ? "text-red-600" : "text-slate-900"} Icon={Ban} />
           <Stat label="Unverified" value={stats.unverified} tone={stats.unverified ? "text-amber-600" : "text-slate-900"} Icon={MailWarning} />
         </div>
       )}
@@ -104,6 +110,7 @@ export default function Admin() {
                 <th className="px-5 py-3 font-semibold">User</th>
                 <th className="px-5 py-3 font-semibold">Role</th>
                 <th className="px-5 py-3 font-semibold">Region</th>
+                <th className="px-5 py-3 font-semibold">Fleet</th>
                 <th className="px-5 py-3 font-semibold">Email</th>
                 <th className="px-5 py-3 font-semibold">Last active</th>
                 <th className="px-5 py-3 font-semibold">Status</th>
@@ -112,7 +119,7 @@ export default function Admin() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {users.length === 0 ? (
-                <tr><td colSpan={7} className="px-5 py-10 text-center text-slate-400" data-testid="admin-no-users">No users found.</td></tr>
+                <tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400" data-testid="admin-no-users">No users found.</td></tr>
               ) : users.map((u) => {
                 const self = u.user_id === user?.user_id;
                 const protectedAcct = self || u.is_admin;
@@ -127,13 +134,26 @@ export default function Admin() {
                     </td>
                     <td className="px-5 py-3 text-slate-600">{ROLE_LABEL[u.role] || u.role}</td>
                     <td className="px-5 py-3 text-slate-600">{u.region}</td>
+                    <td className="px-5 py-3" data-testid="admin-fleet-cell">
+                      {u.role === "manager" || u.account_owner ? (
+                        <span className="inline-flex items-center gap-1 text-slate-700"><Truck size={13} className="text-slate-400" /><span className="font-semibold">{u.fleet_size ?? 0}</span>{u.drivers ? <span className="text-slate-400 text-xs">· {u.drivers} drv</span> : null}</span>
+                      ) : <span className="text-slate-300">—</span>}
+                    </td>
                     <td className="px-5 py-3 text-slate-500">
                       <span className="inline-flex items-center gap-1">
                         {u.email_verified ? <MailCheck size={13} className="text-emerald-600" /> : <MailWarning size={13} className="text-amber-600" />}
                         {u.email}
                       </span>
                     </td>
-                    <td className="px-5 py-3 text-slate-400 whitespace-nowrap">{relTime(u.last_login_at)}</td>
+                    <td className="px-5 py-3 whitespace-nowrap" data-testid="admin-activity-cell">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-slate-500 text-xs">{relTime(u.last_login_at)}</span>
+                        <span className={`inline-flex items-center gap-1 w-fit text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${(ACTIVITY[u.activity] || ACTIVITY.never).cls}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${(ACTIVITY[u.activity] || ACTIVITY.never).dot}`} />
+                          {(ACTIVITY[u.activity] || ACTIVITY.never).label}
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-5 py-3">
                       {u.active === false
                         ? <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-100 px-2 py-0.5 rounded-full"><Ban size={12} /> Suspended</span>

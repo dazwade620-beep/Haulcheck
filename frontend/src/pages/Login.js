@@ -27,7 +27,7 @@ export default function Login() {
       setMode("verify");
       setSentTo(email);
       setVerifying(true);
-      api.post("/auth/verify", { email, token })
+      api.post("/auth/verify", { email, token, base_url: window.location.origin })
         .then((res) => {
           loginWithToken(res.data.token, res.data.user);
           toast.success("Email verified — welcome to HaulCheck!");
@@ -81,7 +81,7 @@ export default function Login() {
     if (code.trim().length !== 6) return toast.error("Enter the 6-digit code");
     setBusy(true);
     try {
-      const res = await api.post("/auth/verify", { email: sentTo, code: code.trim() });
+      const res = await api.post("/auth/verify", { email: sentTo, code: code.trim(), base_url: window.location.origin });
       loginWithToken(res.data.token, res.data.user);
       toast.success("Email verified — welcome to HaulCheck!");
       navigate("/dashboard");
