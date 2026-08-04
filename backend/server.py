@@ -5191,6 +5191,18 @@ async def gather_stats(user_id: str):
         pt = (p.get("prohibition_type") or "").replace("-", " ").title()
         alerts.insert(0, {"type": "prohibition", "name": p.get("vehicle_reg") or "Vehicle",
                           "item": f"Outstanding roadside prohibition ({pt or 'PG9'})", "status": "expired", "days": None})
+    # Critical: any active UK vehicle missing a recorded laden roller brake test (DVSA safety inspection).
+    udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    if udoc.get("region", "UK") == "UK":
+        pmi_records = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        regs_with_brake = {r.get("vehicle_reg") for r in pmi_records if r.get("brake_test_type") and r.get("brake_test_type") != "none"}
+        for v in vehicles:
+            if v.get("vor") or v.get("sold"):
+                continue
+            if v.get("registration") not in regs_with_brake:
+                alerts.insert(0, {"type": "pmi", "name": v.get("registration"),
+                                  "item": "No laden roller brake test recorded (DVSA safety inspection)",
+                                  "status": "expired", "days": None, "critical": True})
     return {
         "counts": {
             "vehicles": len(vehicles), "drivers": len(drivers), "documents": len(documents),
@@ -5210,6 +5222,11 @@ def _score_and_band(counts, gaps):
     # Smooth exponential decay (half-life 45) so heavy non-compliance approaches — but never flat-lines at — 0,
     # keeping the relative ordering visible (e.g. UK laden-brake requirement scores strictly below Ireland).
     score = round(100 * (0.5 ** (penalty / 45.0)))
+    # A missing UK laden roller brake test is a critical DVSA safety-inspection failure — never score it on
+    # optimism: each active vehicle without a recorded laden roller brake test drops the score by 25 points.
+    brake_missing = sum(1 for g in gaps if g.get("code") == "brake_test_missing")
+    if brake_missing:
+        score = max(0, score - 25 * brake_missing)
     band = "Low Risk" if score >= 85 else "Moderate Risk" if score >= 60 else "High Risk"
     return score, band
 
@@ -5303,7 +5320,7 @@ async def detect_gaps(user_id: str):
         if reg not in pmi_regs:
             gaps.append({"area": "PMI", "item": f"{reg}: no PMI inspection schedule", "priority": "high"})
         if is_uk and reg not in pmr_with_brake:
-            gaps.append({"area": "PMI", "item": f"{reg}: no laden roller brake test recorded (DVSA safety inspection)", "priority": "high"})
+            gaps.append({"area": "PMI", "item": f"{reg}: no laden roller brake test recorded (DVSA safety inspection)", "priority": "high", "code": "brake_test_missing"})
         if reg not in wheel_regs:
             gaps.append({"area": "Maintenance", "item": f"{reg}: no wheel security audit recorded", "priority": "medium"})
         if reg not in walk_regs:

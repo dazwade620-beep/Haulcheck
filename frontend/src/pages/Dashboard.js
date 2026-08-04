@@ -243,7 +243,10 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold w-20 shrink-0">{a.type}</span>
                   <div className="min-w-0">
-                    <p className="font-semibold text-slate-900 text-sm truncate">{a.name}</p>
+                    <p className="font-semibold text-slate-900 text-sm truncate flex items-center gap-2">
+                      {a.name}
+                      {a.critical && <span data-testid="critical-alert-tag" className="text-[9px] font-bold uppercase tracking-wider text-red-700 bg-red-100 rounded-full px-2 py-0.5 shrink-0">Critical</span>}
+                    </p>
                     <p className="text-xs text-slate-500">{a.item}{a.days != null && ` · ${a.days < 0 ? `${Math.abs(a.days)}d overdue` : `${a.days}d left`}`}</p>
                   </div>
                 </div>
