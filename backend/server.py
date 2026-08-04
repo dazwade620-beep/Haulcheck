@@ -18,6 +18,7 @@ import json
 import re
 import base64
 import tempfile
+import math
 from passlib.context import CryptContext
 from datetime import datetime, timezone, timedelta
 from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf, concat_pdfs, build_weekly_walkaround_pdf
@@ -1082,6 +1083,13 @@ class DriverLocationInput(BaseModel):
     heading: Optional[float] = None
     recorded_at: Optional[str] = None
     shift_id: str = ""
+
+
+class GeofenceInput(BaseModel):
+    name: str
+    lat: float
+    lng: float
+    radius_m: int = 200
 
 
 # ---------- Auth ----------
@@ -2267,6 +2275,79 @@ async def driver_tacho_analyse(payload: dict, driver: dict = Depends(get_current
 
 
 # ---------- Driver shift & GPS tracking ----------
+def _haversine_km(lat1, lon1, lat2, lon2):
+    R = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _parse_ts(s):
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _route_stats(points):
+    """Distance (km) and speed (kmh) derived from consecutive GPS points; GPS-glitch speeds are discarded."""
+    dist_km = 0.0
+    speeds = []
+    for i in range(1, len(points)):
+        a, b = points[i - 1], points[i]
+        if a.get("lat") is None or b.get("lat") is None:
+            continue
+        d = _haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
+        dist_km += d
+        ta, tb = _parse_ts(a.get("recorded_at")), _parse_ts(b.get("recorded_at"))
+        if ta and tb:
+            secs = (tb - ta).total_seconds()
+            if secs > 0 and d > 0:
+                kmh = d / (secs / 3600.0)
+                if kmh <= 160:
+                    speeds.append(kmh)
+    return {"distance_km": round(dist_km, 2),
+            "top_speed_kmh": round(max(speeds), 1) if speeds else 0.0,
+            "avg_speed_kmh": round(sum(speeds) / len(speeds), 1) if speeds else 0.0}
+
+
+async def _check_geofences(driver, lat, lng, ts):
+    """Enter/leave detection against the account's sites; logs an event + a manager alert on transitions."""
+    fences = await db.geofences.find({"user_id": driver["user_id"]}, {"_id": 0}).to_list(200)
+    if not fences:
+        return
+    state_doc = await db.geofence_state.find_one(
+        {"user_id": driver["user_id"], "driver_id": driver["id"]}, {"_id": 0}) or {"states": {}}
+    states = dict(state_doc.get("states", {}))
+    changed = False
+    for f in fences:
+        inside = _haversine_km(lat, lng, f["lat"], f["lng"]) * 1000 <= (f.get("radius_m") or 200)
+        prev = states.get(f["id"])
+        if prev is None:
+            states[f["id"]] = inside
+            changed = True
+            continue
+        if inside != prev:
+            states[f["id"]] = inside
+            changed = True
+            await db.geofence_events.insert_one({
+                "id": f"gfe_{uuid.uuid4().hex[:10]}", "user_id": driver["user_id"],
+                "driver_id": driver["id"], "driver_name": driver.get("name", ""),
+                "geofence_id": f["id"], "geofence_name": f.get("name", ""),
+                "event": "enter" if inside else "leave", "at": ts,
+            })
+            await create_alert(driver["user_id"], "geofence", "minor",
+                               f"{driver.get('name', 'Driver')} {'arrived at' if inside else 'left'} {f.get('name', 'site')}",
+                               f"{'Entered' if inside else 'Left'} site '{f.get('name', '')}'.",
+                               driver_name=driver.get("name", ""), link="/tracking")
+    if changed:
+        await db.geofence_state.update_one(
+            {"user_id": driver["user_id"], "driver_id": driver["id"]},
+            {"$set": {"states": states, "driver_name": driver.get("name", "")}}, upsert=True)
+
+
 @api_router.post("/driver/shift/start")
 async def driver_shift_start(driver: dict = Depends(get_current_driver)):
     await db.driver_shifts.update_many({"driver_id": driver["id"], "active": True},
@@ -2302,6 +2383,7 @@ async def driver_location(data: DriverLocationInput, driver: dict = Depends(get_
         "recorded_at": ts, "date": ts[:10],
     }
     await db.driver_locations.insert_one(doc)
+    await _check_geofences(driver, data.lat, data.lng, ts)
     return {"ok": True}
 
 
@@ -2342,7 +2424,71 @@ async def tracking_driver(driver_id: str, date: str = Query(None), user: User = 
             {"user_id": user.user_id, "driver_id": driver_id, "date": sel}, {"_id": 0}
         ).sort("recorded_at", 1).to_list(20000)
     return {"driver": {"id": d["id"], "name": d.get("name"), "vehicle_reg": d.get("assigned_vehicle_reg", "")},
-            "dates": dates, "date": sel, "points": points}
+            "dates": dates, "date": sel, "points": points, "stats": _route_stats(points)}
+
+
+@api_router.get("/geofences")
+async def list_geofences(user: User = Depends(require_tracking_view)):
+    return await db.geofences.find({"user_id": user.user_id}, {"_id": 0}).to_list(500)
+
+
+@api_router.post("/geofences")
+async def create_geofence(data: GeofenceInput, user: User = Depends(get_current_user)):
+    if not (user.is_admin or user.role == "manager"):
+        raise HTTPException(status_code=403, detail="Only managers and admins can manage sites")
+    gf = {"id": f"gf_{uuid.uuid4().hex[:10]}", "user_id": user.user_id,
+          "name": (data.name or "").strip() or "Site", "lat": data.lat, "lng": data.lng,
+          "radius_m": max(50, min(int(data.radius_m or 200), 20000)), "created_at": now_iso()}
+    await db.geofences.insert_one(gf)
+    gf.pop("_id", None)
+    return gf
+
+
+@api_router.delete("/geofences/{gid}")
+async def delete_geofence(gid: str, user: User = Depends(get_current_user)):
+    if not (user.is_admin or user.role == "manager"):
+        raise HTTPException(status_code=403, detail="Only managers and admins can manage sites")
+    await db.geofences.delete_one({"id": gid, "user_id": user.user_id})
+    await db.geofence_state.update_many({"user_id": user.user_id}, {"$unset": {f"states.{gid}": ""}})
+    return {"ok": True}
+
+
+@api_router.get("/tracking/geofence-events")
+async def list_geofence_events(limit: int = Query(50), user: User = Depends(require_tracking_view)):
+    evs = await db.geofence_events.find({"user_id": user.user_id}, {"_id": 0}).sort("at", -1).to_list(min(limit, 200))
+    return {"events": evs}
+
+
+@api_router.get("/tracking/timesheet")
+async def tracking_timesheet(driver_id: str = Query(None), start: str = Query(None), end: str = Query(None),
+                             user: User = Depends(require_tracking_view)):
+    q = {"user_id": user.user_id}
+    if driver_id:
+        q["driver_id"] = driver_id
+    shifts = await db.driver_shifts.find(q, {"_id": 0}).sort("started_at", -1).to_list(3000)
+    rows = []
+    for s in shifts:
+        started, ended = s.get("started_at"), s.get("ended_at")
+        date = (started or "")[:10]
+        if start and date < start:
+            continue
+        if end and date > end:
+            continue
+        pts = await db.driver_locations.find(
+            {"user_id": user.user_id, "shift_id": s["id"]}, {"_id": 0}).sort("recorded_at", 1).to_list(20000)
+        stats = _route_stats(pts)
+        ts_a = _parse_ts(started)
+        hours = None
+        if ts_a:
+            end_dt = _parse_ts(ended) if ended else datetime.now(timezone.utc)
+            if end_dt:
+                hours = round(max(0.0, (end_dt - ts_a).total_seconds()) / 3600.0, 2)
+        rows.append({"shift_id": s["id"], "driver_id": s["driver_id"], "driver_name": s.get("driver_name"),
+                     "vehicle_reg": s.get("vehicle_reg", ""), "date": date, "start": started, "end": ended,
+                     "active": s.get("active", False), "hours": hours,
+                     "distance_km": stats["distance_km"], "top_speed_kmh": stats["top_speed_kmh"],
+                     "avg_speed_kmh": stats["avg_speed_kmh"], "points": len(pts)})
+    return {"rows": rows}
 
 
 @api_router.get("/driver/files/{file_id}")
