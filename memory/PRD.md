@@ -1,3 +1,10 @@
+## Change (2026-08 fork pt.20 — Contact form emails routed to info@haulcheck.co.uk)
+- `POST /api/contact` (server.py ~4454) now emails to `os.environ.get('CONTACT_RECIPIENT_EMAIL') or 'info@haulcheck.co.uk'` (was hardcoded to SENDER_EMAIL). Code default ensures it works on production after redeploy without env config; can be overridden with CONTACT_RECIPIENT_EMAIL env var. Sender's email is set as reply_to. Messages still save to `contact_messages` (in-app inbox on Contact page) as a safety net.
+- Verified via curl: submission → 200, no "Contact email failed" log (Resend accepted), message saved to inbox.
+- Deliverability caveat: haulcheck.co.uk email/hosting is on Fasthosts; if live emails don't arrive, verify the sending domain (SENDER_EMAIL) in Resend and check spam.
+- NOTE: PREVIEW verified — live needs Save-to-GitHub → Deploy.
+
+
 ## Feature (2026-08 fork pt.19 — Weekly Driving Summary email + Map Marker Labels) — VERIFIED (curl + testing_agent iteration_48, frontend 100%)
 - **Map Marker Labels**: MapView binds a permanent Leaflet tooltip (CSS `.hc-map-label`, dark pill in App.css) showing the driver name on each LIVE position marker — fleet readable at a glance without clicking. Only live markers get labels (not trail/stop/site/playhead).
 - **Weekly Driving Summary**: per-driver recap of shifts, hours, distance, top speed and stops.

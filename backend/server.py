@@ -4451,8 +4451,9 @@ async def submit_contact(data: ContactInput):
             f"<p style='white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px'>{data.message}</p>"
             "</div>"
         )
+        recipient = os.environ.get('CONTACT_RECIPIENT_EMAIL') or 'info@haulcheck.co.uk'
         await asyncio.to_thread(resend.Emails.send, {
-            "from": os.environ['SENDER_EMAIL'], "to": [os.environ['SENDER_EMAIL']],
+            "from": os.environ['SENDER_EMAIL'], "to": [recipient],
             "reply_to": data.email, "subject": f"[Contact] {data.subject or 'New message'} — {data.name}", "html": html,
         })
     except Exception as e:
