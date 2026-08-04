@@ -155,34 +155,39 @@ function ShiftTracker({ driver }) {
   const [lastAt, setLastAt] = useState(null);
   const [geoError, setGeoError] = useState("");
   const watchRef = useRef(null);
+  const heartbeatRef = useRef(null);
+  const shiftIdRef = useRef(null);
   const lastPostRef = useRef(0);
+
+  const postFix = useCallback((coords) => {
+    const now = Date.now();
+    if (now - lastPostRef.current < 20000) return; // throttle to ~20s between pings
+    lastPostRef.current = now;
+    const { latitude, longitude, accuracy, speed, heading } = coords;
+    driverApi.post("/driver/location", {
+      lat: latitude, lng: longitude, accuracy,
+      speed: speed == null ? null : speed, heading: heading == null ? null : heading,
+      recorded_at: new Date().toISOString(), shift_id: shiftIdRef.current,
+    }).then(() => { setPointsSent((n) => n + 1); setLastAt(new Date()); setGeoError(""); }).catch(() => {});
+  }, []);
 
   const startWatch = useCallback((shiftId) => {
     if (!navigator.geolocation) { setGeoError("This device can't share location."); return; }
-    if (watchRef.current != null) return;
-    watchRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const now = Date.now();
-        if (now - lastPostRef.current < 20000) return; // throttle to ~20s between pings
-        lastPostRef.current = now;
-        const { latitude, longitude, accuracy, speed, heading } = pos.coords;
-        driverApi.post("/driver/location", {
-          lat: latitude, lng: longitude, accuracy,
-          speed: speed == null ? null : speed, heading: heading == null ? null : heading,
-          recorded_at: new Date().toISOString(), shift_id: shiftId,
-        }).then(() => { setPointsSent((n) => n + 1); setLastAt(new Date()); setGeoError(""); }).catch(() => {});
-      },
-      (err) => {
-        setGeoError(err.code === 1
-          ? "Location permission denied — enable location to share your route."
-          : "Couldn't get a GPS fix. Make sure location is on.");
-      },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 25000 }
-    );
-  }, []);
+    shiftIdRef.current = shiftId;
+    const opts = { enableHighAccuracy: true, maximumAge: 10000, timeout: 25000 };
+    const onPos = (pos) => postFix(pos.coords);
+    const onErr = (err) => setGeoError(err.code === 1
+      ? "Location permission denied — enable location to share your route."
+      : "Couldn't get a GPS fix. Make sure location is on.");
+    if (watchRef.current == null) watchRef.current = navigator.geolocation.watchPosition(onPos, onErr, opts);
+    // Heartbeat so a stationary/parked driver still reports position every ~30s
+    if (heartbeatRef.current == null) heartbeatRef.current = setInterval(() => navigator.geolocation.getCurrentPosition(onPos, onErr, opts), 30000);
+    navigator.geolocation.getCurrentPosition(onPos, onErr, opts); // immediate first fix
+  }, [postFix]);
 
   const stopWatch = useCallback(() => {
     if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
+    if (heartbeatRef.current != null) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
   }, []);
 
   useEffect(() => {
