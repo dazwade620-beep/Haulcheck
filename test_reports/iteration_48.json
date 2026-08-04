@@ -1,0 +1,19 @@
+{
+  "summary": "Verified the two new HaulCheck Tracking additions for manager account. (1) Map Marker Labels: On the Map tab, the Leaflet map renders 2 permanent tooltips with class 'leaflet-tooltip.hc-map-label' showing 'John Smith' and 'Jane Doe' — visible without clicking, matching total tooltips count (2 = only live markers, no extras on trail/stop/site markers). (2) Email me weekly summary: 'ts-email-summary' button present in Timesheets toolbar alongside CSV/PDF; clicking triggers POST /api/tracking/weekly-summary/send returning 200 {sent:true, drivers:2, start:'2026-07-29', end:'2026-08-04', email:'manager@haulcheck.co.uk'}. Success toast 'Weekly summary emailed to manager@haulcheck.co.uk (2 drivers)' displayed. No JS pageerrors. Only two unrelated 401s at initial dashboard load (pre-existing) and recharts width warnings (pre-existing).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! (UK)",
+  "seed_data_creation": "None (used existing seeded manager with 2 drivers).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iterations 40-47 covered base Tracking. Iteration 48 confirmed the two final additions (permanent map name labels + Email me weekly summary) work end-to-end for manager@haulcheck.co.uk."
+}

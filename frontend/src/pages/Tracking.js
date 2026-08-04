@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download, FileText } from "lucide-react";
+import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download, FileText, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
@@ -60,9 +60,10 @@ function MapView({ markers = [], trail = [], geofences = [], stops = [], playhea
     }
     markers.forEach((m) => {
       if (m.lat == null) return;
-      L.circleMarker([m.lat, m.lng], { radius: 8, color: "#1d4ed8", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 })
-        .bindPopup(`<b>${m.name || "Driver"}</b>${m.vehicle_reg ? "<br>" + m.vehicle_reg : ""}${m.recorded_at ? "<br>" + new Date(m.recorded_at).toLocaleString() : ""}`)
-        .addTo(layer);
+      const cm = L.circleMarker([m.lat, m.lng], { radius: 8, color: "#1d4ed8", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 })
+        .bindPopup(`<b>${m.name || "Driver"}</b>${m.vehicle_reg ? "<br>" + m.vehicle_reg : ""}${m.recorded_at ? "<br>" + new Date(m.recorded_at).toLocaleString() : ""}`);
+      if (m.name) cm.bindTooltip(m.name, { permanent: true, direction: "top", offset: [0, -6], className: "hc-map-label" });
+      cm.addTo(layer);
       bounds.push([m.lat, m.lng]);
     });
     stops.forEach((s) => {
@@ -234,6 +235,15 @@ export default function Tracking() {
       a.href = url; a.download = `haulcheck-timesheet-${new Date().toISOString().slice(0, 10)}.pdf`;
       a.click(); URL.revokeObjectURL(url);
     } catch { toast.error("Could not export PDF"); }
+  };
+
+  const emailSummary = async () => {
+    try {
+      const { data } = await api.post("/tracking/weekly-summary/send");
+      if (data.sent) toast.success(`Weekly summary emailed to ${data.email || "you"} (${data.drivers} driver${data.drivers === 1 ? "" : "s"})`);
+      else if (data.reason === "no_data" || data.drivers === 0) toast.info("No driving data in the last 7 days to summarise");
+      else toast.message("Summary prepared, but the email couldn't be sent (check email settings)");
+    } catch { toast.error("Could not send summary"); }
   };
 
   const liveMarkers = drivers.filter((d) => d.last && d.last.lat != null)
@@ -461,6 +471,7 @@ export default function Tracking() {
               <input data-testid="ts-to" type="date" value={tsTo} onChange={(e) => setTsTo(e.target.value)} className="border border-slate-300 rounded-md px-2 py-2 text-sm" />
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <button data-testid="ts-email-summary" onClick={emailSummary} className="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-semibold rounded-md px-4 py-2"><Mail size={15} /> Email me</button>
               <button data-testid="ts-export" onClick={exportCsv} disabled={tsRows.length === 0} className="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-semibold rounded-md px-4 py-2 disabled:opacity-50"><Download size={15} /> CSV</button>
               <button data-testid="ts-export-pdf" onClick={exportPdf} disabled={tsRows.length === 0} className="inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-semibold rounded-md px-4 py-2 disabled:opacity-50"><FileText size={15} /> PDF</button>
             </div>

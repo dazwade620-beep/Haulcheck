@@ -2589,6 +2589,18 @@ async def tracking_timesheet_pdf(driver_id: str = Query(None), start: str = Quer
     return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
+@api_router.post("/tracking/weekly-summary/send")
+async def send_weekly_summary_now(user: User = Depends(require_tracking_view)):
+    today = datetime.now(timezone.utc).date()
+    start, end = (today - timedelta(days=6)).isoformat(), today.isoformat()
+    udoc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    data = await _weekly_driving_summary_data(user.user_id, start, end)
+    if not data:
+        return {"sent": False, "reason": "no_data", "drivers": 0, "start": start, "end": end}
+    sent = await _send_weekly_driving_summary(udoc, start, end)
+    return {"sent": sent, "drivers": len(data), "start": start, "end": end, "email": udoc.get("email")}
+
+
 @api_router.get("/driver/files/{file_id}")
 async def driver_download_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
     driver = None
@@ -6288,6 +6300,101 @@ async def run_calendar_reminders():
         logging.error(f"run_calendar_reminders failed: {e}")
 
 
+async def _weekly_driving_summary_data(user_id, start, end):
+    """Per-driver weekly aggregate: shifts, hours, distance (km), top speed (kmh), stops."""
+    shifts = await db.driver_shifts.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
+    agg = {}
+    for s in shifts:
+        date = (s.get("started_at") or "")[:10]
+        if not date or date < start or date > end:
+            continue
+        a = agg.setdefault(s["driver_id"], {"driver_id": s["driver_id"], "driver_name": s.get("driver_name"),
+                                            "shifts": 0, "hours": 0.0, "distance_km": 0.0, "top_speed_kmh": 0.0, "stops": 0})
+        a["shifts"] += 1
+        ts_a = _parse_ts(s.get("started_at"))
+        if ts_a:
+            end_dt = _parse_ts(s.get("ended_at")) if s.get("ended_at") else datetime.now(timezone.utc)
+            if end_dt:
+                a["hours"] += max(0.0, (end_dt - ts_a).total_seconds()) / 3600.0
+        pts = await db.driver_locations.find({"user_id": user_id, "shift_id": s["id"]}, {"_id": 0}).sort("recorded_at", 1).to_list(20000)
+        st = _route_stats(pts)
+        a["distance_km"] += st["distance_km"]
+        a["top_speed_kmh"] = max(a["top_speed_kmh"], st["top_speed_kmh"])
+        a["stops"] += len(_detect_stops(pts))
+    for a in agg.values():
+        a["hours"] = round(a["hours"], 1)
+        a["distance_km"] = round(a["distance_km"], 1)
+    return sorted(agg.values(), key=lambda x: -x["distance_km"])
+
+
+def _weekly_summary_html(name, start, end, data, miles):
+    du, su = ("mi", "mph") if miles else ("km", "km/h")
+    conv = (lambda km: km * 0.621371) if miles else (lambda km: km)
+    rows_html = ""
+    for d in data:
+        rows_html += (
+            "<tr>"
+            f"<td style='padding:8px 6px;font-size:13px;color:#0f172a;border-top:1px solid #e2e8f0;'><b>{d['driver_name']}</b></td>"
+            f"<td style='padding:8px 6px;font-size:13px;color:#334155;border-top:1px solid #e2e8f0;text-align:right;'>{d['hours']:.1f} h</td>"
+            f"<td style='padding:8px 6px;font-size:13px;color:#334155;border-top:1px solid #e2e8f0;text-align:right;'>{conv(d['distance_km']):.0f} {du}</td>"
+            f"<td style='padding:8px 6px;font-size:13px;color:#334155;border-top:1px solid #e2e8f0;text-align:right;'>{conv(d['top_speed_kmh']):.0f} {su}</td>"
+            f"<td style='padding:8px 6px;font-size:13px;color:#334155;border-top:1px solid #e2e8f0;text-align:right;'>{d['stops']}</td>"
+            "</tr>")
+    return (
+        "<div style='background:#f1f5f9;padding:32px 0;font-family:Arial,Helvetica,sans-serif;'>"
+        "<table role='presentation' width='600' align='center' cellpadding='0' cellspacing='0' style='background:#fff;border-radius:12px;padding:32px;margin:0 auto;'>"
+        "<tr><td><p style='margin:0;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700;'>HaulCheck</p>"
+        "<h1 style='margin:6px 0 0;font-size:22px;color:#0f172a;'>Weekly driving summary</h1>"
+        f"<p style='margin:8px 0 0;font-size:13px;color:#64748b;'>{start} to {end}</p>"
+        "<table width='100%' cellpadding='0' cellspacing='0' style='margin:20px 0 0;border-collapse:collapse;'>"
+        "<tr><th align='left' style='padding:6px;font-size:11px;text-transform:uppercase;color:#94a3b8;'>Driver</th>"
+        "<th align='right' style='padding:6px;font-size:11px;text-transform:uppercase;color:#94a3b8;'>Hours</th>"
+        "<th align='right' style='padding:6px;font-size:11px;text-transform:uppercase;color:#94a3b8;'>Distance</th>"
+        "<th align='right' style='padding:6px;font-size:11px;text-transform:uppercase;color:#94a3b8;'>Top</th>"
+        "<th align='right' style='padding:6px;font-size:11px;text-transform:uppercase;color:#94a3b8;'>Stops</th></tr>"
+        f"{rows_html}</table>"
+        "<p style='margin:20px 0 0;font-size:12px;color:#94a3b8;'>From your HaulCheck fleet tracking, covering last week's driver shifts.</p>"
+        "</td></tr></table></div>")
+
+
+async def _send_weekly_driving_summary(user_doc, start, end):
+    email = (user_doc or {}).get("email")
+    if not email:
+        return False
+    data = await _weekly_driving_summary_data(user_doc["user_id"], start, end)
+    if not data:
+        return False  # nothing to report — don't send an empty email
+    miles = (user_doc.get("region") or "UK") == "UK"
+    html = _weekly_summary_html(user_doc.get("name") or "there", start, end, data, miles)
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [email],
+            "subject": f"HaulCheck weekly driving summary ({start} to {end})", "html": html,
+        })
+        return True
+    except Exception as e:
+        logging.error(f"Weekly driving summary email failed: {e}")
+        return False
+
+
+async def run_weekly_driving_summary():
+    today = datetime.now(timezone.utc).date()
+    end = today - timedelta(days=1)     # yesterday (Sunday when run on Monday)
+    start = end - timedelta(days=6)     # previous Monday
+    try:
+        cursor = db.users.find({"role": "manager", "active": {"$ne": False}},
+                               {"_id": 0, "user_id": 1, "email": 1, "name": 1, "region": 1})
+        async for u in cursor:
+            try:
+                await _send_weekly_driving_summary(u, start.isoformat(), end.isoformat())
+            except Exception as e:
+                logging.error(f"weekly driving summary for {u.get('user_id')} failed: {e}")
+    except Exception as e:
+        logging.error(f"run_weekly_driving_summary failed: {e}")
+
+
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -6299,6 +6406,7 @@ async def startup_event():
         scheduler.add_job(run_daily_reminders, "cron", hour=7, minute=0, id="daily_reminders", replace_existing=True)
         scheduler.add_job(run_weekly_reminders, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_reminders", replace_existing=True)
         scheduler.add_job(run_calendar_reminders, "cron", hour=7, minute=5, id="calendar_reminders", replace_existing=True)
+        scheduler.add_job(run_weekly_driving_summary, "cron", day_of_week="mon", hour=7, minute=10, id="weekly_driving_summary", replace_existing=True)
         scheduler.start()
         logger.info("Reminder scheduler started (daily 07:00 UTC, weekly Mon 07:00 UTC)")
     except Exception as e:
