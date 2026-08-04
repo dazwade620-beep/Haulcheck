@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only verification of the 3 new HaulCheck changes: (1) Calendar month-grid bold/large day numbers + click-to-enlarge dialog, (2) Training tab CPC Progress summary with pro-rata behind-pace logic, (3) 'PDF + evidence' button now available on the standalone Driver Training / CPC audit report. Logged in as manager@haulcheck.co.uk via UI and drove real Playwright flows against the preview URL. All 4 requested scenarios PASS.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "calendar_bold_and_popup": "PASS — 42 [data-testid=calendar-day] cells rendered. Day-number span has computed font-weight 700 at 14px (bold). Event pills show a coloured status dot + text (verified pill on day 28 'Daily Check — AB12 CDE'). Clicking the cell opens Dialog with title 'Tuesday 28 July 2026', [data-testid=day-dialog-events] lists the day's event with description '1 event scheduled for this day', and [data-testid=day-dialog-add] 'Add for this day' is present. Clicking a day with 0 events (Sat 15 Aug 2026) opens the same dialog with correct title, day-dialog-add present and (correctly) no day-dialog-events testid because empty-state 'Nothing scheduled for this day.' is rendered instead.",
+    "cpc_progress_summary_initial": "PASS — /office?tab=training renders [data-testid=cpc-progress-summary]. Headline badge [data-testid=cpc-behind-count] reads '1 behind pace' (amber). Exactly 1 [data-testid=cpc-summary-row] shown for Jane Doe (0 / 35h, [data-testid=cpc-behind-badge] 'Behind pace' visible, expiry 2027-06-01). John Smith (no CPC expiry, 0 hours) is correctly EXCLUDED from the summary.",
+    "cpc_progress_summary_after_log": "PASS — Added a Driver-CPC training record for Jane Doe (30h, completed 2026-01-15) via the Training 'Add Record' dialog (testids: add-training-button, training-driver-select, training-course, training-completed, training-hours, save-training-button). After reload the row updates to '30 / 35h', bar filled proportionally, and Jane no longer has cpc-behind-badge; overall badge flips to 'All on pace' (green). 30h > ~29h pro-rata expected for 2027-06-01 expiry, matches spec.",
+    "audit_training_evidence_button_hidden_when_no_files": "PASS — With no training attachments in the account, opening Fleet Audit Report → 'Driver Training / CPC' shows Print + PDF buttons but hides [data-testid=audit-download-evidence-button]. GET /api/reports/training?format=json returned has_files=false, matching UI.",
+    "audit_training_evidence_button_visible_when_files_present": "PASS — Added a second training record for Jane ('TEST_CPC_WithCert') with a PDF attachment uploaded via [data-testid=training-upload]. GET /api/reports/training?format=json then returned has_files=true. Reopened Fleet Audit Report and selected 'Driver Training / CPC' — [data-testid=audit-download-evidence-button] 'PDF + evidence' is now visible alongside Print and PDF. Print (audit-print-button) and PDF (audit-download-button) render without crashing; report body [data-testid=audit-report-body] loads with 5 training rows including new records."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Training.js cpcRows: for a driver with cpc_hours>0 but NO cpc_expiry the row is rendered with expected=null and behind=false — copy 'no renewal date set' is clear; consider still surfacing a subtle warning that cycle end is unknown.",
+    "Training.js line 46 uses `hours + 0.5 < expected` — the +0.5h grace matches the spec ('behind if logged hours are more than ~0.5h below the pro-rata expected'). Note: if cpc_expiry is in the past (cycle already elapsed) the formula clamps frac to 1.0 so anyone with <34.5h will be flagged behind indefinitely — probably desired, but consider whether an expired cycle should trigger a different 'cycle expired' state instead of 'behind pace'.",
+    "AuditReportDialog.js line 131: change from `kind==='audit' && report?.has_files` to just `report?.has_files` correctly generalises the evidence button. Confirmed working for training. No regression to full audit (still shows when has_files true).",
+    "Calendar day cell height min-h-[132px] with bold w-7 day number and event pills renders well at 1920px. Pills use bg-red-50/bg-amber-50/bg-slate-100 via eventBg() — good contrast, coloured status dot preserved."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (skipped per request)", "frontend": "100% (5/5 scenarios pass)" },
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! (used)",
+  "seed_data_creation": "Created 2 training records for Jane Doe in the manager account: 'TEST_CPC_Refresher_30h' (30h, no attachment, 2026-01-15) and 'TEST_CPC_WithCert' (2h, PDF attachment, 2026-01-16). Main agent can delete via Training tab if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All three requested UI changes verified via real login + Playwright. Note: manager account initially had zero training attachments — you MUST upload a certificate (input[type=file] inside training modal, testid training-upload) before the audit training report exposes the PDF+evidence button. Login submit button testid is 'submit-auth-button' (the tab toggle also has text 'Sign In' via data-testid='tab-login' — do not use get_by_role('button', name='Sign In') without exact scoping)."
+}

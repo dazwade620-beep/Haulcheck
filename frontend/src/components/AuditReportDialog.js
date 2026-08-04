@@ -128,7 +128,7 @@ export function AuditReportDialog({ open, onOpenChange }) {
           <div className="flex-1" />
           <Button data-testid="audit-print-button" variant="outline" className="border-slate-300 rounded-md gap-2" onClick={printReport} disabled={!report}><Printer size={16} /> Print</Button>
           <Button data-testid="audit-download-button" variant="outline" className="border-slate-300 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}${dlQs()}`, `${kind}-report.pdf`)}><FileDown size={16} /> PDF</Button>
-          {kind === "audit" && report?.has_files && (
+          {report?.has_files && (
             <Button data-testid="audit-download-evidence-button" className="bg-black hover:bg-slate-800 rounded-md gap-2" onClick={() => downloadPdf(`/reports/${kind}${dlQs()}${dlQs() ? "&" : "?"}include_files=true`, `${kind}-pack.pdf`)}><FileDown size={16} /> PDF + evidence</Button>
           )}
         </div>

@@ -45,6 +45,7 @@ const TYPE_META = {
 
 const dotColor = (status) => (status === "expired" ? "bg-red-500" : status === "due_soon" ? "bg-yellow-500" : "bg-green-500");
 const pillColor = (status) => (status === "expired" ? "bg-red-100 text-red-700" : status === "due_soon" ? "bg-yellow-100 text-yellow-800" : "bg-green-100 text-green-700");
+const eventBg = (status) => (status === "expired" ? "bg-red-50 text-red-700" : status === "due_soon" ? "bg-amber-50 text-amber-800" : "bg-slate-100 text-slate-700");
 
 // Where each auto-generated event type lives so the user can edit it at source.
 const EVENT_LINK = {
@@ -371,7 +372,7 @@ export default function Calendar() {
                   data-testid="calendar-day"
                   onClick={() => openDay(day)}
                   className={cn(
-                    "min-h-[120px] border-b border-r border-slate-100 p-1.5 text-left align-top transition-colors relative",
+                    "min-h-[132px] border-b border-r border-slate-100 p-2 text-left align-top transition-colors relative",
                     !inMonth && "bg-slate-50/60 text-slate-300",
                     clash > 0 && !isSel && "ring-1 ring-inset ring-amber-400 bg-amber-50/40",
                     isSel && "ring-2 ring-inset ring-black",
@@ -380,8 +381,8 @@ export default function Calendar() {
                 >
                   <div className="flex items-start justify-between">
                     <span className={cn(
-                      "inline-flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full",
-                      isToday(day) ? "bg-black text-white" : inMonth ? "text-slate-700" : "text-slate-300"
+                      "inline-flex items-center justify-center w-7 h-7 text-sm font-bold rounded-full",
+                      isToday(day) ? "bg-black text-white" : inMonth ? "text-slate-800" : "text-slate-300"
                     )}>{format(day, "d")}</span>
                     {clash > 0 && (
                       <span data-testid="clash-badge" className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 rounded-full px-1.5 py-0.5" title={`${clash} drivers off`}>
@@ -389,14 +390,14 @@ export default function Calendar() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 space-y-0.5">
+                  <div className="mt-1.5 space-y-1">
                     {evs.slice(0, 4).map((e, i) => (
-                      <div key={`${e.date}-${e.type}-${e.title}-${i}`} className="flex items-center gap-1 truncate">
-                        <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", dotColor(e.status))} />
-                        <span className="text-[10px] text-slate-600 truncate">{e.title}</span>
+                      <div key={`${e.date}-${e.type}-${e.title}-${i}`} className={cn("flex items-center gap-1.5 rounded px-1.5 py-0.5 truncate", eventBg(e.status))}>
+                        <span className={cn("w-2 h-2 rounded-full shrink-0", dotColor(e.status))} />
+                        <span className="text-[11px] font-semibold truncate">{e.title}</span>
                       </div>
                     ))}
-                    {evs.length > 4 && <span className="text-[10px] text-slate-400">+{evs.length - 4} more</span>}
+                    {evs.length > 4 && <span className="block text-[11px] font-semibold text-slate-500 pl-1">+{evs.length - 4} more</span>}
                   </div>
                 </button>
               );

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, GraduationCap } from "lucide-react";
+import { Trash2, Pencil, GraduationCap, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Header, Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
@@ -25,6 +25,35 @@ export function TrainingPanel({ embedded = false }) {
   const driverFolders = ["All", ...Array.from(new Set(items.map((t) => t.driver_name || "Unassigned")))];
   const shown = folder === "All" ? items : items.filter((t) => (t.driver_name || "Unassigned") === folder);
   const countFor = (name) => (name === "All" ? items.length : items.filter((t) => (t.driver_name || "Unassigned") === name).length);
+
+  // Driver CPC 35-hour periodic-training progress, pro-rata paced against the 5-year DQC cycle.
+  const today = new Date().toISOString().slice(0, 10);
+  const cpcRows = drivers
+    .filter((d) => !(d.leave_date && String(d.leave_date).slice(0, 10) < today))
+    .filter((d) => d.cpc_expiry || Number(d.cpc_hours || 0) > 0)
+    .map((d) => {
+      const hours = Number(d.cpc_hours || 0);
+      const pct = Math.min(100, (hours / 35) * 100);
+      let expected = null;
+      let behind = false;
+      if (d.cpc_expiry) {
+        const end = new Date(d.cpc_expiry);
+        const start = new Date(end);
+        start.setFullYear(start.getFullYear() - 5); // 5-year DQC cycle
+        const now = new Date();
+        const frac = Math.max(0, Math.min(1, (now - start) / (end - start)));
+        expected = 35 * frac; // ~7h per year of the cycle
+        behind = hours >= 35 ? false : hours + 0.5 < expected;
+      }
+      return { id: d.id, name: d.name, hours, pct, expected, behind, expiry: d.cpc_expiry };
+    })
+    .sort((a, b) => {
+      if (a.behind !== b.behind) return a.behind ? -1 : 1;
+      const da = a.expected == null ? 0 : a.hours - a.expected;
+      const db = b.expected == null ? 0 : b.hours - b.expected;
+      return da - db; // most behind first
+    });
+  const behindCount = cpcRows.filter((r) => r.behind).length;
 
   const load = async () => {
     setItems((await api.get("/training")).data);
@@ -63,6 +92,40 @@ export function TrainingPanel({ embedded = false }) {
       {embedded && (
         <div className="flex justify-end mb-4">
           <Button data-testid="add-training-button" onClick={openNew} className="bg-black hover:bg-slate-800 rounded-md gap-2">Add Record</Button>
+        </div>
+      )}
+
+      {cpcRows.length > 0 && (
+        <div data-testid="cpc-progress-summary" className="bg-white border border-slate-200 rounded-md p-5 mb-6 animate-in-up">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="min-w-0">
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Driver CPC · 35-hour periodic training</p>
+              <h3 className="font-heading font-bold text-lg text-slate-900">CPC Progress</h3>
+            </div>
+            <span data-testid="cpc-behind-count" className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full ${behindCount ? "bg-amber-100 text-amber-800" : "bg-green-100 text-green-700"}`}>
+              {behindCount ? <><AlertTriangle size={12} /> {behindCount} behind pace</> : "All on pace"}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4">
+            {cpcRows.map((r) => (
+              <div key={r.id} data-testid="cpc-summary-row">
+                <div className="flex items-center justify-between gap-2 text-sm mb-1">
+                  <span className="font-semibold text-slate-800 truncate">{r.name}</span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    {r.behind && <span data-testid="cpc-behind-badge" className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5"><AlertTriangle size={10} /> Behind pace</span>}
+                    <span className={`font-bold ${r.hours >= 35 ? "text-green-700" : r.behind ? "text-amber-600" : "text-slate-700"}`}>{r.hours.toFixed(0)} / 35h</span>
+                  </span>
+                </div>
+                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all duration-500 ${r.hours >= 35 ? "bg-green-600" : r.behind ? "bg-amber-500" : "bg-slate-700"}`} style={{ width: `${r.pct}%` }} />
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {r.hours >= 35 ? "Complete for this cycle" : `${Math.max(0, 35 - r.hours).toFixed(0)}h remaining`}
+                  {r.expiry ? ` · renews ${r.expiry}` : " · no renewal date set"}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
