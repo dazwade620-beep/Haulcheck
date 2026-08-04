@@ -1,3 +1,12 @@
+## Feature (2026-08 fork pt.18 — Tracking: Geofence Dwell Time, Idle & Stops, Timesheet PDF, live on-site status) — VERIFIED (curl e2e + testing_agent iterations 46+47, frontend 100%)
+- **Geofence Dwell Time**: on a 'leave' transition, `_check_geofences` looks up the driver's last 'enter' for that site and stores `dwell_minutes` on the leave event (+ appends to the alert message). Site activity leave rows show "· stayed <dur>".
+- **Live on-site status**: `GET /api/tracking/live` now returns `at_site` + `at_site_since` per driver (from `geofence_state` inside-flags + last enter event); live driver list shows a violet "At <site> · <elapsed>" line when a driver is currently inside a site.
+- **Idle & Stops**: `_detect_stops(points, 60m, 5min)` clusters consecutive near-stationary points into stops; `GET /api/tracking/driver/{id}` returns `stops`. Detail panel shows an "Idle & stops" list (count + total idle + each stop's time range/duration); map renders amber stop markers (fill #f59e0b) with "Stopped <dur>" popups. (Fix: MapView needed the `stops` prop — patched Tracking.js:413.)
+- **Timesheet PDF**: `GET /api/tracking/timesheet.pdf` builds a branded PDF via `build_report_pdf` (logo + operator + region authority), region units (mi/mph UK, km/kmh IE/EU), Shifts table + Totals (shifts/hours/distance). Returns application/pdf. Timesheets tab now has CSV + PDF export buttons. `_timesheet_rows` shared helper feeds JSON + PDF.
+- Verified via curl: dwell=30m on leave event, 20-min stop detected, realistic speeds (top 128/avg 55 kmh), timesheet.pdf → 200/application/pdf/%PDF (269KB w/ logo). Testing agent: dwell text, PDF download, stops list + amber markers all 100%.
+- NOTE: PREVIEW only — needs Save-to-GitHub → Deploy for haulcheck.co.uk.
+
+
 ## Feature (2026-08 fork pt.17 — Tracking add-ons: Speed & Distance, Geofences, Route Playback, Shift Timesheet) — VERIFIED (curl e2e + testing_agent iteration_45.json, frontend 13/13 100%)
 - Built on pt.16 GPS tracking. Managers & admins only. Units auto by region: UK → miles/mph, IE/EU → km/kmh (frontend converts from km via `useAuth` region).
 - **Speed & Distance** (server `_route_stats`, `_haversine_km`): distance + top/avg speed derived from consecutive GPS points; speeds >160 kmh discarded as GPS glitches. `GET /api/tracking/driver/{id}` now returns `stats {distance_km, top_speed_kmh, avg_speed_kmh}`. Driver detail panel shows the tiles + amber "High mileage" flag (>250 mi / 400 km/day).
