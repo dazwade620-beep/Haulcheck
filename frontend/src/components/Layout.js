@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -105,6 +105,24 @@ export default function Layout({ children }) {
           )}
         </NavLink>
       ))}
+      {(user?.role === "manager" || user?.is_admin) && (
+        <NavLink
+          to="/tracking"
+          data-testid="nav-tracking"
+          onClick={() => setOpen(false)}
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all duration-200 border-l-2",
+              isActive
+                ? "bg-slate-800 text-white border-white"
+                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/60"
+            )
+          }
+        >
+          <MapPin size={20} />
+          Tracking
+        </NavLink>
+      )}
       {user?.is_admin && (
         <NavLink
           to="/admin"

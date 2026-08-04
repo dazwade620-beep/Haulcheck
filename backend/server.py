@@ -1063,6 +1063,27 @@ class TestHistoryInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class DriverShift(BaseModel):
+    id: str = Field(default_factory=lambda: f"shift_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    driver_id: str = ""
+    driver_name: str = ""
+    vehicle_reg: str = ""
+    started_at: str = Field(default_factory=now_iso)
+    ended_at: Optional[str] = None
+    active: bool = True
+
+
+class DriverLocationInput(BaseModel):
+    lat: float
+    lng: float
+    accuracy: Optional[float] = None
+    speed: Optional[float] = None
+    heading: Optional[float] = None
+    recorded_at: Optional[str] = None
+    shift_id: str = ""
+
+
 # ---------- Auth ----------
 def create_jwt(user_id: str) -> str:
     payload = {"user_id": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7)}
@@ -2243,6 +2264,85 @@ async def driver_tacho_analyse(payload: dict, driver: dict = Depends(get_current
     )
     await db.tacho_analyses.insert_one(analysis.model_dump())
     return analysis.model_dump()
+
+
+# ---------- Driver shift & GPS tracking ----------
+@api_router.post("/driver/shift/start")
+async def driver_shift_start(driver: dict = Depends(get_current_driver)):
+    await db.driver_shifts.update_many({"driver_id": driver["id"], "active": True},
+                                       {"$set": {"active": False, "ended_at": now_iso()}})
+    shift = DriverShift(user_id=driver["user_id"], driver_id=driver["id"],
+                        driver_name=driver.get("name", ""), vehicle_reg=driver.get("assigned_vehicle_reg", ""))
+    await db.driver_shifts.insert_one(shift.model_dump())
+    return shift.model_dump()
+
+
+@api_router.post("/driver/shift/end")
+async def driver_shift_end(driver: dict = Depends(get_current_driver)):
+    await db.driver_shifts.update_many({"driver_id": driver["id"], "active": True},
+                                       {"$set": {"active": False, "ended_at": now_iso()}})
+    return {"ok": True}
+
+
+@api_router.get("/driver/shift/active")
+async def driver_shift_active(driver: dict = Depends(get_current_driver)):
+    s = await db.driver_shifts.find_one({"driver_id": driver["id"], "active": True}, {"_id": 0}, sort=[("started_at", -1)])
+    return s or {}
+
+
+@api_router.post("/driver/location")
+async def driver_location(data: DriverLocationInput, driver: dict = Depends(get_current_driver)):
+    ts = data.recorded_at or now_iso()
+    doc = {
+        "id": f"loc_{uuid.uuid4().hex[:12]}", "user_id": driver["user_id"],
+        "driver_id": driver["id"], "driver_name": driver.get("name", ""),
+        "vehicle_reg": driver.get("assigned_vehicle_reg", ""), "shift_id": data.shift_id or "",
+        "lat": data.lat, "lng": data.lng, "accuracy": data.accuracy,
+        "speed": data.speed, "heading": data.heading,
+        "recorded_at": ts, "date": ts[:10],
+    }
+    await db.driver_locations.insert_one(doc)
+    return {"ok": True}
+
+
+async def require_tracking_view(user: User = Depends(get_current_user)) -> User:
+    """Only account owners (managers) and admins may view driver tracking (not staff/viewer)."""
+    if user.is_admin or user.role == "manager":
+        return user
+    raise HTTPException(status_code=403, detail="Only managers and admins can view tracking")
+
+
+@api_router.get("/tracking/live")
+async def tracking_live(user: User = Depends(require_tracking_view)):
+    drivers = await db.drivers.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    active = set()
+    async for s in db.driver_shifts.find({"user_id": user.user_id, "active": True}, {"_id": 0, "driver_id": 1}):
+        active.add(s["driver_id"])
+    out = []
+    for d in drivers:
+        last = await db.driver_locations.find_one(
+            {"user_id": user.user_id, "driver_id": d["id"]}, {"_id": 0}, sort=[("recorded_at", -1)])
+        out.append({"driver_id": d["id"], "driver_name": d.get("name"),
+                    "vehicle_reg": d.get("assigned_vehicle_reg", ""),
+                    "on_shift": d["id"] in active, "last": last})
+    return {"drivers": out}
+
+
+@api_router.get("/tracking/driver/{driver_id}")
+async def tracking_driver(driver_id: str, date: str = Query(None), user: User = Depends(require_tracking_view)):
+    d = await db.drivers.find_one({"user_id": user.user_id, "id": driver_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    dates = sorted([x for x in await db.driver_locations.distinct(
+        "date", {"user_id": user.user_id, "driver_id": driver_id}) if x], reverse=True)
+    sel = date or (dates[0] if dates else None)
+    points = []
+    if sel:
+        points = await db.driver_locations.find(
+            {"user_id": user.user_id, "driver_id": driver_id, "date": sel}, {"_id": 0}
+        ).sort("recorded_at", 1).to_list(20000)
+    return {"driver": {"id": d["id"], "name": d.get("name"), "vehicle_reg": d.get("assigned_vehicle_reg", "")},
+            "dates": dates, "date": sel, "points": points}
 
 
 @api_router.get("/driver/files/{file_id}")

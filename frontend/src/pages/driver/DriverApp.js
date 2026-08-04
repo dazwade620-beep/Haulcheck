@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import driverApi from "@/lib/driverApi";
 import { CHECKLIST, buildChecklist } from "@/pages/Walkaround";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   Truck, ClipboardCheck, AlertTriangle, IdCard, FileText, ScanSearch, LogOut,
   Check, X, ChevronLeft, Loader2, Camera, ShieldCheck, ChevronRight, Gauge,
-  Download, Share, Plus, CalendarRange,
+  Download, Share, Plus, CalendarRange, MapPin, Play, StopCircle,
 } from "lucide-react";
 
 const STATUS = {
@@ -147,6 +147,101 @@ function StatusChip({ status }) {
   return <span className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${STATUS[status] || STATUS.unknown}`}>{statusLabel[status] || "—"}</span>;
 }
 
+// ---------- Shift / GPS tracking ----------
+function ShiftTracker({ driver }) {
+  const [shift, setShift] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [pointsSent, setPointsSent] = useState(0);
+  const [lastAt, setLastAt] = useState(null);
+  const [geoError, setGeoError] = useState("");
+  const watchRef = useRef(null);
+  const lastPostRef = useRef(0);
+
+  const startWatch = useCallback((shiftId) => {
+    if (!navigator.geolocation) { setGeoError("This device can't share location."); return; }
+    if (watchRef.current != null) return;
+    watchRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastPostRef.current < 20000) return; // throttle to ~20s between pings
+        lastPostRef.current = now;
+        const { latitude, longitude, accuracy, speed, heading } = pos.coords;
+        driverApi.post("/driver/location", {
+          lat: latitude, lng: longitude, accuracy,
+          speed: speed == null ? null : speed, heading: heading == null ? null : heading,
+          recorded_at: new Date().toISOString(), shift_id: shiftId,
+        }).then(() => { setPointsSent((n) => n + 1); setLastAt(new Date()); setGeoError(""); }).catch(() => {});
+      },
+      (err) => {
+        setGeoError(err.code === 1
+          ? "Location permission denied — enable location to share your route."
+          : "Couldn't get a GPS fix. Make sure location is on.");
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 25000 }
+    );
+  }, []);
+
+  const stopWatch = useCallback(() => {
+    if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
+  }, []);
+
+  useEffect(() => {
+    driverApi.get("/driver/shift/active").then(({ data }) => {
+      if (data && data.id) { setShift(data); lastPostRef.current = 0; startWatch(data.id); }
+    }).catch(() => {});
+    return () => stopWatch();
+  }, [startWatch, stopWatch]);
+
+  const start = async () => {
+    setBusy(true); setGeoError("");
+    try {
+      const { data } = await driverApi.post("/driver/shift/start");
+      setShift(data); setPointsSent(0); lastPostRef.current = 0;
+      startWatch(data.id);
+      toast.success("Shift started — sharing your location");
+    } catch { toast.error("Could not start shift"); }
+    setBusy(false);
+  };
+  const end = async () => {
+    setBusy(true);
+    stopWatch();
+    try { await driverApi.post("/driver/shift/end"); } catch { /* ignore */ }
+    setShift(null); setPointsSent(0); setLastAt(null);
+    toast.success("Shift ended — location sharing stopped");
+    setBusy(false);
+  };
+
+  const active = !!shift;
+  return (
+    <div data-testid="driver-shift-tracker" className={`rounded-2xl border p-4 ${active ? "bg-emerald-500/10 border-emerald-500/40" : "bg-slate-900 border-slate-800"}`}>
+      <div className="flex items-center gap-3">
+        <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-emerald-500/20" : "bg-white/10"}`}>
+          <MapPin size={22} className={active ? "text-emerald-300" : "text-white"} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold">{active ? "On shift — sharing location" : "Start your shift"}</p>
+          <p className="text-sm text-slate-400 truncate">
+            {active
+              ? `${pointsSent} point${pointsSent === 1 ? "" : "s"} sent${lastAt ? ` · last ${lastAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`
+              : "Share your GPS route with your transport manager"}
+          </p>
+        </div>
+        {active && <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />}
+      </div>
+      {geoError && <p data-testid="driver-shift-geo-error" className="text-xs text-red-300 mt-3">{geoError}</p>}
+      <button
+        data-testid={active ? "driver-end-shift" : "driver-start-shift"}
+        onClick={active ? end : start}
+        disabled={busy}
+        className={`mt-4 w-full flex items-center justify-center gap-2 font-bold rounded-xl py-3 active:scale-[0.98] transition-transform disabled:opacity-60 ${active ? "bg-red-500 text-white" : "bg-emerald-500 text-white"}`}
+      >
+        {busy ? <Loader2 size={18} className="animate-spin" /> : active ? <StopCircle size={18} /> : <Play size={18} />}
+        {active ? "End shift" : "Start shift"}
+      </button>
+    </div>
+  );
+}
+
 // ---------- Home ----------
 function DriverHome({ driver, go, logout }) {
   const tiles = [
@@ -174,7 +269,8 @@ function DriverHome({ driver, go, logout }) {
           </div>
         )}
       </div>
-      <div className="px-4 space-y-3">
+      <div className="px-4 pb-1"><ShiftTracker driver={driver} /></div>
+      <div className="px-4 space-y-3 mt-3">
         {tiles.map((t) => (
           <button key={t.key} data-testid={`driver-tile-${t.key}`} onClick={() => go(t.key)} className="w-full flex items-center gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 text-left active:scale-[0.98] transition-transform">
             <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0"><t.icon size={22} className="text-white" /></div>

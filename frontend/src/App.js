@@ -19,6 +19,7 @@ import Admin from "@/pages/Admin";
 import AcceptInvite from "@/pages/AcceptInvite";
 import ResetPassword from "@/pages/ResetPassword";
 import DriverApp from "@/pages/driver/DriverApp";
+import Tracking from "@/pages/Tracking";
 import Contact from "@/pages/Contact";
 import { Truck } from "lucide-react";
 
@@ -58,6 +59,7 @@ function AppRouter() {
       <Route path="/vehicles" element={<Protected><Vehicles /></Protected>} />
       <Route path="/fleet" element={<Navigate to="/vehicles" replace />} />
       <Route path="/drivers" element={<Protected><Drivers /></Protected>} />
+      <Route path="/tracking" element={<Protected><Tracking /></Protected>} />
       <Route path="/tacho" element={<Protected><Tacho /></Protected>} />
       <Route path="/office" element={<Protected><Office /></Protected>} />
       <Route path="/training" element={<Navigate to="/office" replace />} />
