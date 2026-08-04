@@ -199,14 +199,15 @@ export default function Tracking() {
   useEffect(() => { if (tab === "timesheets") loadTimesheet(); }, [tab, loadTimesheet]);
 
   const exportCsv = () => {
-    const head = ["Driver", "Vehicle", "Date", "Start", "End", `Hours`, `Distance (${distU})`, `Top speed (${spdU})`, `Avg speed (${spdU})`, "Points"];
-    const lines = [head.join(",")];
+    const csv = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const head = ["Driver", "Vehicle", "Date", "Start", "End", "Hours", `Distance (${distU})`, `Top speed (${spdU})`, `Avg speed (${spdU})`, "Points"];
+    const lines = [head.map(csv).join(",")];
     tsRows.forEach((r) => {
       lines.push([
-        `"${r.driver_name || ""}"`, `"${r.vehicle_reg || ""}"`, r.date || "",
+        r.driver_name || "", r.vehicle_reg || "", r.date || "",
         r.start ? fmtTime(r.start) : "", r.end ? fmtTime(r.end) : (r.active ? "on shift" : ""),
         r.hours ?? "", toDist(r.distance_km).toFixed(1), toSpd(r.top_speed_kmh).toFixed(0), toSpd(r.avg_speed_kmh).toFixed(0), r.points,
-      ].join(","));
+      ].map(csv).join(","));
     });
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const url = URL.createObjectURL(blob);

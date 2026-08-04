@@ -1,3 +1,14 @@
+## Feature (2026-08 fork pt.17 — Tracking add-ons: Speed & Distance, Geofences, Route Playback, Shift Timesheet) — VERIFIED (curl e2e + testing_agent iteration_45.json, frontend 13/13 100%)
+- Built on pt.16 GPS tracking. Managers & admins only. Units auto by region: UK → miles/mph, IE/EU → km/kmh (frontend converts from km via `useAuth` region).
+- **Speed & Distance** (server `_route_stats`, `_haversine_km`): distance + top/avg speed derived from consecutive GPS points; speeds >160 kmh discarded as GPS glitches. `GET /api/tracking/driver/{id}` now returns `stats {distance_km, top_speed_kmh, avg_speed_kmh}`. Driver detail panel shows the tiles + amber "High mileage" flag (>250 mi / 400 km/day).
+- **Geofences / Sites**: model `GeofenceInput`; `GET/POST /api/geofences`, `DELETE /api/geofences/{gid}` (managers/admins only, staff/viewer 403). Map "Add" mode → click map to drop pin → name + radius form → save (violet circle). `_check_geofences()` runs inside `POST /api/driver/location`: compares distance to each site, tracks inside/outside per driver in `geofence_state`, and on a transition writes a `geofence_events` doc + a manager alert (`create_alert` type 'geofence', severity 'minor' → no email spam). `GET /api/tracking/geofence-events` feeds the "Site activity" log.
+- **Route Playback**: frontend-only. Play/pause button + scrub slider animates an orange playhead marker along the day's trail (350ms/step) in a separate Leaflet layer (no map refit on tick).
+- **Shift Timesheet**: `GET /api/tracking/timesheet?driver_id=&start=&end=` → per-shift rows {date, start, end, hours, distance_km, top/avg speed, points}. Timesheets tab: driver + date-range filters, table, client-side CSV export (Blob; all fields CSV-escaped for quotes/commas).
+- Collections added: `geofences`, `geofence_state`, `geofence_events`.
+- Verified via curl: create site → drive outside→inside→outside logs enter+leave events; route stats computed (glitch speeds filtered); timesheet returns rows. Testing agent: all 4 sub-features 100% incl. CSV download + playback animation.
+- NOTE: PREVIEW only — needs Save-to-GitHub → Deploy for haulcheck.co.uk.
+
+
 ## Feature (2026-08 fork pt.16 — GPS tracking: driver "Start Shift" + manager live map & daily route history) — VERIFIED (curl e2e + testing_agent iteration_44.json, frontend 100%)
 - **Design (user choice)**: driver-phone GPS (no hardware/keys); **full daily breadcrumb history**; viewable by **managers & admins only** (staff/viewer blocked). Uses free OpenStreetMap tiles via Leaflet (leaflet@1.9.4, vanilla — no react-leaflet to avoid React 19 peer issues).
 - **Backend** (server.py): models `DriverShift`, `DriverLocationInput`; collections `driver_shifts`, `driver_locations`. Endpoints:
