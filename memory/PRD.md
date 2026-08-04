@@ -1,3 +1,13 @@
+## Feature (2026-08 fork pt.19 — Weekly Driving Summary email + Map Marker Labels) — VERIFIED (curl + testing_agent iteration_48, frontend 100%)
+- **Map Marker Labels**: MapView binds a permanent Leaflet tooltip (CSS `.hc-map-label`, dark pill in App.css) showing the driver name on each LIVE position marker — fleet readable at a glance without clicking. Only live markers get labels (not trail/stop/site/playhead).
+- **Weekly Driving Summary**: per-driver recap of shifts, hours, distance, top speed and stops.
+  - `_weekly_driving_summary_data(user_id, start, end)`: aggregates per-driver from driver_shifts + per-shift points (`_route_stats` + `_detect_stops`). `_weekly_summary_html` builds a branded table (region units). `_send_weekly_driving_summary` emails via Resend (skips if no data — no empty emails).
+  - Scheduler: new APScheduler job `run_weekly_driving_summary` (Monday 07:10 UTC) iterates all active manager accounts and emails last week's (prev Mon–Sun) summary.
+  - On-demand: `POST /api/tracking/weekly-summary/send` (require_tracking_view; last-7-days) → {sent, drivers, email}; "Email me" button (ts-email-summary) on the Timesheets toolbar with toast.
+- Verified: endpoint returned {sent:true, drivers:2} for manager account (email sent via Resend); staff→403; scheduler job registered & started; map labels render 2 tooltips (John Smith, Jane Doe). 
+- NOTE: PREVIEW only — needs Save-to-GitHub → Deploy for haulcheck.co.uk.
+
+
 ## Feature (2026-08 fork pt.18 — Tracking: Geofence Dwell Time, Idle & Stops, Timesheet PDF, live on-site status) — VERIFIED (curl e2e + testing_agent iterations 46+47, frontend 100%)
 - **Geofence Dwell Time**: on a 'leave' transition, `_check_geofences` looks up the driver's last 'enter' for that site and stores `dwell_minutes` on the leave event (+ appends to the alert message). Site activity leave rows show "· stayed <dur>".
 - **Live on-site status**: `GET /api/tracking/live` now returns `at_site` + `at_site_since` per driver (from `geofence_state` inside-flags + last enter event); live driver list shows a violet "At <site> · <elapsed>" line when a driver is currently inside a site.
