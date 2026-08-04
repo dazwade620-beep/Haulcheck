@@ -5193,7 +5193,7 @@ async def gather_stats(user_id: str):
                           "item": f"Outstanding roadside prohibition ({pt or 'PG9'})", "status": "expired", "days": None})
     # Critical: any active UK vehicle missing a recorded laden roller brake test (DVSA safety inspection).
     udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    if udoc.get("region", "UK") == "UK":
+    if (udoc.get("region") or "UK") == "UK":  # strict default: unset/blank region uses the UK (DVSA) ruleset
         pmi_records = await db.pmi_records.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         regs_with_brake = {r.get("vehicle_reg") for r in pmi_records if r.get("brake_test_type") and r.get("brake_test_type") != "none"}
         for v in vehicles:
@@ -5223,10 +5223,11 @@ def _score_and_band(counts, gaps):
     # keeping the relative ordering visible (e.g. UK laden-brake requirement scores strictly below Ireland).
     score = round(100 * (0.5 ** (penalty / 45.0)))
     # A missing UK laden roller brake test is a critical DVSA safety-inspection failure — never score it on
-    # optimism: each active vehicle without a recorded laden roller brake test drops the score by 25 points.
+    # optimism: ANY missing laden roller brake test HARD-CAPS the score at 75, and each additional missing
+    # test drops the cap a further 25 points (75 → 50 → 25 → 0).
     brake_missing = sum(1 for g in gaps if g.get("code") == "brake_test_missing")
     if brake_missing:
-        score = max(0, score - 25 * brake_missing)
+        score = max(0, min(score, 75 - 25 * (brake_missing - 1)))
     band = "Low Risk" if score >= 85 else "Moderate Risk" if score >= 60 else "High Risk"
     return score, band
 
@@ -5272,7 +5273,7 @@ async def detect_gaps(user_id: str):
     walkarounds = await db.walkaround_checks.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     test_history = await db.test_history.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
     udoc = await db.users.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    region = udoc.get("region", "UK")
+    region = udoc.get("region") or "UK"  # strict default: unset/blank region uses the UK (DVSA) ruleset
     is_ie = region == "IE"
     is_uk = region == "UK"
     mot_label = "CVRT" if is_ie else ("roadworthiness test" if region == "EU" else "MOT")

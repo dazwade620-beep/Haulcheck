@@ -1,11 +1,11 @@
-## Fix/logic change (2026-08 fork pt.15 — UK laden brake test now drops score & raises a Critical Alert) — VERIFIED (curl e2e on preview)
-- **User instruction**: a UK vehicle missing its laden roller brake test must NOT allow a "safe"/100% score — it must drop the score and show as a Critical Alert. User chose a **−25 point drop** per missing test (not a cap-to-50).
-- **`_score_and_band`** (server.py ~5206): after the normal penalty/decay, `brake_missing = count of gaps with code 'brake_test_missing'`; `score = max(0, score - 25*brake_missing)`. Applies to BOTH `/api/dashboard` and `/api/ai/risk-insight` (both call `_score_and_band` with `detect_gaps`).
-- **`detect_gaps`** (~5306): the existing UK-only "no laden roller brake test recorded" high-priority gap now also carries `"code": "brake_test_missing"` so the score rule can detect it.
-- **`gather_stats`** (~5194, before return): for UK region, loads pmi_records; every active (non-VOR/sold) vehicle whose reg has no pmi_record with a brake_test_type != 'none' gets a critical alert inserted at the FRONT of the alerts feed: `{type:'pmi', item:'No laden roller brake test recorded (DVSA safety inspection)', status:'expired', critical:True}`.
-- **Dashboard.js** alert row: renders a red **CRITICAL** tag (testid `critical-alert-tag`) next to the name when `a.critical`.
-- Verified on preview with the DLZ account: IE region → 44/100, no critical alerts; UK region → **12/100** + critical alert "191-MN-1789 — No laden roller brake test recorded"; AI briefing score matches (12) and lists the brake gap. Account restored to IE after testing.
-- NOTE: this is live on PREVIEW only. Production (haulcheck.co.uk) also needs a successful Save-to-GitHub → Deploy; user has an open deployment-pipeline issue (production serving stale code despite successful deploys) escalated to support@emergent.sh.
+## Fix/logic change (2026-08 fork pt.15 — UK laden brake test hard-caps score at 75 + Critical Alert; UK is the default ruleset) — VERIFIED (function-level e2e on preview)
+- **User instruction**: a UK vehicle missing its laden roller brake test must NOT allow a "safe"/100% score. Final rule: any missing laden roller brake test HARD-CAPS the compliance score at **75%** (each additional missing test drops the cap a further 25: 75 → 50 → 25 → 0) and raises a **Critical Alert**. UK ruleset is used **by default** (unset/blank region → UK/DVSA).
+- **`_score_and_band`** (server.py ~5206): `brake_missing = count of gaps with code 'brake_test_missing'`; if any, `score = max(0, min(score, 75 - 25*(brake_missing-1)))`. Applies to BOTH `/api/dashboard` and `/api/ai/risk-insight`.
+- **`detect_gaps`** (~5276): `region = udoc.get("region") or "UK"` (blank/None → UK). The UK-only "no laden roller brake test recorded" high-priority gap carries `"code": "brake_test_missing"`.
+- **`gather_stats`** (~5194): `if (udoc.get("region") or "UK") == "UK"` → for every active (non-VOR/sold) vehicle whose reg has no pmi_record with brake_test_type != 'none', insert a Critical alert at the front of the feed (`critical:True, status:'expired'`).
+- **Dashboard.js**: red **CRITICAL** tag (testid `critical-alert-tag`) next to alerts flagged `critical`.
+- Verified (clean UK account, only brake test missing → **75** + critical alert; brake test recorded → **100**, no alert; blank region → defaults to UK, capped 75 + critical alert).
+- NOTE: PREVIEW only. Production (haulcheck.co.uk) still needs a successful Save-to-GitHub → Deploy; a UK missing-brake account can NEVER reach 100 on current code, so any 100% on production = stale build (open deployment-pipeline escalation with support@emergent.sh).
 
 
 ## Feature batch (2026-08 fork pt.14 — Calendar clarity, Training CPC Progress summary, Training evidence button) — VERIFIED (testing_agent iteration_43.json, frontend 5/5)
