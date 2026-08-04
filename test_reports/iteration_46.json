@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only validation of the 4 new Tracking features for manager@haulcheck.co.uk. 3 of 4 features fully work; amber stop circle markers do NOT render on the Leaflet map (prop not passed to MapView), though the panel list and data are correct.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Tracking.js MapView invocation (line 413)",
+        "issue": "Amber stop circle markers missing on the map. MapView component supports a `stops` prop (line 24, renders L.circleMarker with fillColor '#f59e0b' and popup 'Stopped <dur>' at lines 68-71), and a `stops` variable is computed at line 242, but the JSX at line 413 does NOT pass stops={stops}. Result: Jane Doe has 1 stop shown in the 'Idle & stops' panel (07:16 PM–07:36 PM, 20m) but no amber marker on the map. DOM inspection: 0 elements matching amber/orange colors on the leaflet map (only violet site circle, blue route line, green start, red latest).",
+        "selector": "MapView call in Tracking.js:413",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix Tracking.js line 413: change `<MapView markers={markers} trail={trail} geofences={geofences} playhead={playhead} onMapClick={addSite ? handleMapClick : null} />` to include `stops={stops}` so the amber circle markers render at stop locations with the 'Stopped 20m' popup."
+  ],
+  "critical_code_review_comments": [
+    "Tracking.js:413 — MapView invoked without `stops` prop although the data is computed and the component supports it. Simple one-line fix.",
+    "Timesheet PDF export: HTTP call uses try/catch with generic error but no loading state (button doesn't disable while download in flight). Minor UX improvement.",
+    "Tracking.js file is 509 lines — approaching the 700-line threshold; consider splitting MapView into its own module before adding further map features."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "95%"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234! (used successfully)",
+  "seed_data_creation": "None (used pre-seeded Jane Doe + John Smith route/shift data)",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Verified: (1) IDLE & STOPS panel [tracking-stops] shows for both Jane Doe (1 row, 07:16 PM–07:36 PM, 20m, header 'IDLE & STOPS · 1 · 20M TOTAL') and John Smith (1 row). Panel absent for drivers with no stops — no error. (2) GEOFENCE DWELL: Site activity panel shows 'Jane Doe left London Depot · stayed 30m' on the leave row; enter rows ('Jane Doe arrived at London Depot', 'John Smith arrived at London Depot') correctly have NO 'stayed' suffix. John Smith also has a 'left London Depot' entry (no dwell shown in current data — verify if backend returns dwell_minutes for him). (3) LIVE ON-SITE STATUS: No driver currently at_site; live list renders cleanly with 3 driver items, no crash, 'At London' string absent as expected. (4) TIMESHEET PDF: Both buttons render ([ts-export] CSV and [ts-export-pdf] PDF), enabled with 5 rows in [ts-table]. Clicking PDF triggered a real download event: filename 'haulcheck-timesheet-2026-08-04.pdf', no JS errors. FAILING: amber stop markers on map (root cause identified — missing stops prop on MapView invocation, see action_items).",
+  "rca of the issue": "Root cause: In /app/frontend/src/pages/Tracking.js line 413, MapView is rendered as `<MapView markers={markers} trail={trail} geofences={geofences} playhead={playhead} onMapClick={addSite ? handleMapClick : null} />` — the `stops={stops}` prop is missing. The `stops` variable is properly computed on line 242 (`const stops = sel && detail ? (detail.stops || []) : [];`) and MapView accepts and renders it via L.circleMarker with amber styling (lines 68-71). Reproduction: log in as manager, open Tracking, click Jane Doe — the 'Idle & stops' panel shows 1 stop but the map has no amber marker at the stop coords. Fix: add `stops={stops}` to the MapView JSX at line 413."
+}

@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download } from "lucide-react";
+import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
@@ -19,8 +19,9 @@ function relTime(iso) {
 }
 const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return "—"; } };
 const fmtDate = (d) => { try { return format(parseISO(d), "EEE d MMM yyyy"); } catch { return d; } };
+const dur = (min) => { if (min == null) return ""; const m = Math.max(0, Math.round(min)); const h = Math.floor(m / 60), r = m % 60; return h ? `${h}h ${r}m` : `${r}m`; };
 
-function MapView({ markers = [], trail = [], geofences = [], playhead = null, onMapClick = null }) {
+function MapView({ markers = [], trail = [], geofences = [], stops = [], playhead = null, onMapClick = null }) {
   const elRef = useRef(null);
   const mapRef = useRef(null);
   const baseRef = useRef(null);
@@ -64,9 +65,14 @@ function MapView({ markers = [], trail = [], geofences = [], playhead = null, on
         .addTo(layer);
       bounds.push([m.lat, m.lng]);
     });
+    stops.forEach((s) => {
+      if (s.lat == null) return;
+      L.circleMarker([s.lat, s.lng], { radius: 7, color: "#b45309", fillColor: "#f59e0b", fillOpacity: 0.9, weight: 2 })
+        .bindPopup(`Stopped ${dur(s.minutes)}<br>${fmtTime(s.start)}–${fmtTime(s.end)}`).addTo(layer);
+    });
     if (bounds.length === 1) map.setView(bounds[0], 13);
     else if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-  }, [markers, trail, geofences]);
+  }, [markers, trail, geofences, stops]);
 
   useEffect(() => {
     const layer = playRef.current;
@@ -216,9 +222,24 @@ export default function Tracking() {
     a.click(); URL.revokeObjectURL(url);
   };
 
+  const exportPdf = async () => {
+    try {
+      const qs = new URLSearchParams();
+      if (tsDriver) qs.set("driver_id", tsDriver);
+      if (tsFrom) qs.set("start", tsFrom);
+      if (tsTo) qs.set("end", tsTo);
+      const res = await api.get(`/tracking/timesheet.pdf${qs.toString() ? `?${qs}` : ""}`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = `haulcheck-timesheet-${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch { toast.error("Could not export PDF"); }
+  };
+
   const liveMarkers = drivers.filter((d) => d.last && d.last.lat != null)
     .map((d) => ({ name: d.driver_name, vehicle_reg: d.vehicle_reg, lat: d.last.lat, lng: d.last.lng, recorded_at: d.last.recorded_at }));
   const markers = sel ? [] : liveMarkers;
+  const stops = sel && detail ? (detail.stops || []) : [];
   const playhead = trail.length && (playing || idx > 0) ? trail[idx] : null;
   const anyData = drivers.some((d) => d.last) || drivers.some((d) => d.on_shift) || geofences.length > 0;
   const stats = detail?.stats;
@@ -265,6 +286,7 @@ export default function Tracking() {
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-semibold text-slate-900 truncate">{d.driver_name}</p>
                               <p className="text-xs text-slate-500 truncate">{d.vehicle_reg || "No vehicle"} · {relTime(d.last?.recorded_at)}</p>
+                              {d.at_site && <p className="text-[11px] font-semibold text-violet-600 truncate flex items-center gap-1"><MapPin size={10} /> At {d.at_site}{d.at_site_since ? ` · ${dur((Date.now() - new Date(d.at_site_since).getTime()) / 60000)}` : ""}</p>}
                             </div>
                             {d.on_shift && <span className="text-[9px] font-bold uppercase tracking-wider text-green-700 bg-green-100 rounded-full px-2 py-0.5 shrink-0">Live</span>}
                           </button>
@@ -310,6 +332,19 @@ export default function Tracking() {
                               <input type="range" min={0} max={trail.length - 1} value={idx} onChange={(e) => { setPlaying(false); setIdx(Number(e.target.value)); }} className="w-full accent-orange-500" />
                               <p className="text-[11px] text-slate-500 mt-0.5">{playhead ? fmtTime(playhead.recorded_at) : "Play route"} · {idx + 1}/{trail.length}</p>
                             </div>
+                          </div>
+                        </div>
+                      )}
+                      {stops.length > 0 && (
+                        <div className="pt-3 border-t border-slate-100" data-testid="tracking-stops">
+                          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold flex items-center gap-1 mb-2"><Pause size={11} /> Idle & stops · {stops.length} · {dur(stops.reduce((a, s) => a + s.minutes, 0))} total</p>
+                          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                            {stops.map((s, i) => (
+                              <div key={i} data-testid="tracking-stop-row" className="flex items-center justify-between text-xs">
+                                <span className="text-slate-600">{fmtTime(s.start)}–{fmtTime(s.end)}</span>
+                                <span className="font-semibold text-amber-600">{dur(s.minutes)}</span>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
@@ -396,6 +431,7 @@ export default function Tracking() {
                           <span className="font-semibold text-slate-800">{e.driver_name}</span>
                           <span className="text-slate-500"> {e.event === "enter" ? "arrived at" : "left"} </span>
                           <span className="font-semibold text-slate-800">{e.geofence_name}</span>
+                          {e.event === "leave" && e.dwell_minutes != null && <span className="text-slate-500"> · stayed {dur(e.dwell_minutes)}</span>}
                         </span>
                         <span className="text-xs text-slate-400 shrink-0">{relTime(e.at)}</span>
                       </div>
@@ -424,7 +460,10 @@ export default function Tracking() {
               <label className="text-xs font-semibold text-slate-500 mb-1 block">To</label>
               <input data-testid="ts-to" type="date" value={tsTo} onChange={(e) => setTsTo(e.target.value)} className="border border-slate-300 rounded-md px-2 py-2 text-sm" />
             </div>
-            <button data-testid="ts-export" onClick={exportCsv} disabled={tsRows.length === 0} className="ml-auto inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-semibold rounded-md px-4 py-2 disabled:opacity-50"><Download size={15} /> Export CSV</button>
+            <div className="ml-auto flex items-center gap-2">
+              <button data-testid="ts-export" onClick={exportCsv} disabled={tsRows.length === 0} className="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-sm font-semibold rounded-md px-4 py-2 disabled:opacity-50"><Download size={15} /> CSV</button>
+              <button data-testid="ts-export-pdf" onClick={exportPdf} disabled={tsRows.length === 0} className="inline-flex items-center gap-2 bg-slate-900 text-white text-sm font-semibold rounded-md px-4 py-2 disabled:opacity-50"><FileText size={15} /> PDF</button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm" data-testid="ts-table">

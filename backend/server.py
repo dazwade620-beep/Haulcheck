@@ -2313,6 +2313,70 @@ def _route_stats(points):
             "avg_speed_kmh": round(sum(speeds) / len(speeds), 1) if speeds else 0.0}
 
 
+def _detect_stops(points, radius_m=60, min_minutes=5):
+    """Cluster consecutive points that stay within radius_m for >= min_minutes → a stationary stop."""
+    stops = []
+    i, n = 0, len(points)
+    while i < n:
+        if points[i].get("lat") is None:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and points[j + 1].get("lat") is not None and \
+                _haversine_km(points[i]["lat"], points[i]["lng"], points[j + 1]["lat"], points[j + 1]["lng"]) * 1000 <= radius_m:
+            j += 1
+        if j > i:
+            ta, tb = _parse_ts(points[i].get("recorded_at")), _parse_ts(points[j].get("recorded_at"))
+            if ta and tb:
+                mins = (tb - ta).total_seconds() / 60.0
+                if mins >= min_minutes:
+                    stops.append({
+                        "lat": round(sum(points[k]["lat"] for k in range(i, j + 1)) / (j - i + 1), 6),
+                        "lng": round(sum(points[k]["lng"] for k in range(i, j + 1)) / (j - i + 1), 6),
+                        "start": points[i].get("recorded_at"), "end": points[j].get("recorded_at"),
+                        "minutes": round(mins, 1),
+                    })
+            i = j + 1
+        else:
+            i += 1
+    return stops
+
+
+def _hhmm(iso):
+    dt = _parse_ts(iso)
+    return dt.strftime("%H:%M") if dt else "—"
+
+
+async def _timesheet_rows(user_id, driver_id=None, start=None, end=None):
+    q = {"user_id": user_id}
+    if driver_id:
+        q["driver_id"] = driver_id
+    shifts = await db.driver_shifts.find(q, {"_id": 0}).sort("started_at", -1).to_list(3000)
+    rows = []
+    for s in shifts:
+        started, ended = s.get("started_at"), s.get("ended_at")
+        date = (started or "")[:10]
+        if start and date < start:
+            continue
+        if end and date > end:
+            continue
+        pts = await db.driver_locations.find(
+            {"user_id": user_id, "shift_id": s["id"]}, {"_id": 0}).sort("recorded_at", 1).to_list(20000)
+        st = _route_stats(pts)
+        ts_a = _parse_ts(started)
+        hours = None
+        if ts_a:
+            end_dt = _parse_ts(ended) if ended else datetime.now(timezone.utc)
+            if end_dt:
+                hours = round(max(0.0, (end_dt - ts_a).total_seconds()) / 3600.0, 2)
+        rows.append({"shift_id": s["id"], "driver_id": s["driver_id"], "driver_name": s.get("driver_name"),
+                     "vehicle_reg": s.get("vehicle_reg", ""), "date": date, "start": started, "end": ended,
+                     "active": s.get("active", False), "hours": hours,
+                     "distance_km": st["distance_km"], "top_speed_kmh": st["top_speed_kmh"],
+                     "avg_speed_kmh": st["avg_speed_kmh"], "points": len(pts)})
+    return rows
+
+
 async def _check_geofences(driver, lat, lng, ts):
     """Enter/leave detection against the account's sites; logs an event + a manager alert on transitions."""
     fences = await db.geofences.find({"user_id": driver["user_id"]}, {"_id": 0}).to_list(200)
@@ -2332,15 +2396,23 @@ async def _check_geofences(driver, lat, lng, ts):
         if inside != prev:
             states[f["id"]] = inside
             changed = True
+            dwell = None
+            if not inside:
+                le = await db.geofence_events.find_one(
+                    {"user_id": driver["user_id"], "driver_id": driver["id"], "geofence_id": f["id"], "event": "enter"},
+                    {"_id": 0}, sort=[("at", -1)])
+                ea, eb = (_parse_ts(le.get("at")) if le else None), _parse_ts(ts)
+                if ea and eb:
+                    dwell = round(max(0.0, (eb - ea).total_seconds()) / 60.0, 1)
             await db.geofence_events.insert_one({
                 "id": f"gfe_{uuid.uuid4().hex[:10]}", "user_id": driver["user_id"],
                 "driver_id": driver["id"], "driver_name": driver.get("name", ""),
                 "geofence_id": f["id"], "geofence_name": f.get("name", ""),
-                "event": "enter" if inside else "leave", "at": ts,
+                "event": "enter" if inside else "leave", "at": ts, "dwell_minutes": dwell,
             })
             await create_alert(driver["user_id"], "geofence", "minor",
                                f"{driver.get('name', 'Driver')} {'arrived at' if inside else 'left'} {f.get('name', 'site')}",
-                               f"{'Entered' if inside else 'Left'} site '{f.get('name', '')}'.",
+                               f"{'Entered' if inside else 'Left'} site '{f.get('name', '')}'." + (f" Dwell {dwell} min." if dwell else ""),
                                driver_name=driver.get("name", ""), link="/tracking")
     if changed:
         await db.geofence_state.update_one(
@@ -2400,13 +2472,26 @@ async def tracking_live(user: User = Depends(require_tracking_view)):
     active = set()
     async for s in db.driver_shifts.find({"user_id": user.user_id, "active": True}, {"_id": 0, "driver_id": 1}):
         active.add(s["driver_id"])
+    fmap = {f["id"]: f for f in await db.geofences.find({"user_id": user.user_id}, {"_id": 0}).to_list(200)}
+    states = {}
+    async for stt in db.geofence_state.find({"user_id": user.user_id}, {"_id": 0}):
+        states[stt["driver_id"]] = stt.get("states", {})
     out = []
     for d in drivers:
         last = await db.driver_locations.find_one(
             {"user_id": user.user_id, "driver_id": d["id"]}, {"_id": 0}, sort=[("recorded_at", -1)])
+        inside_fid = next((fid for fid, ins in states.get(d["id"], {}).items() if ins and fid in fmap), None)
+        at_site, at_site_since = None, None
+        if inside_fid:
+            at_site = fmap[inside_fid].get("name")
+            le = await db.geofence_events.find_one(
+                {"user_id": user.user_id, "driver_id": d["id"], "geofence_id": inside_fid, "event": "enter"},
+                {"_id": 0}, sort=[("at", -1)])
+            at_site_since = le.get("at") if le else None
         out.append({"driver_id": d["id"], "driver_name": d.get("name"),
                     "vehicle_reg": d.get("assigned_vehicle_reg", ""),
-                    "on_shift": d["id"] in active, "last": last})
+                    "on_shift": d["id"] in active, "last": last,
+                    "at_site": at_site, "at_site_since": at_site_since})
     return {"drivers": out}
 
 
@@ -2424,7 +2509,7 @@ async def tracking_driver(driver_id: str, date: str = Query(None), user: User = 
             {"user_id": user.user_id, "driver_id": driver_id, "date": sel}, {"_id": 0}
         ).sort("recorded_at", 1).to_list(20000)
     return {"driver": {"id": d["id"], "name": d.get("name"), "vehicle_reg": d.get("assigned_vehicle_reg", "")},
-            "dates": dates, "date": sel, "points": points, "stats": _route_stats(points)}
+            "dates": dates, "date": sel, "points": points, "stats": _route_stats(points), "stops": _detect_stops(points)}
 
 
 @api_router.get("/geofences")
@@ -2462,33 +2547,46 @@ async def list_geofence_events(limit: int = Query(50), user: User = Depends(requ
 @api_router.get("/tracking/timesheet")
 async def tracking_timesheet(driver_id: str = Query(None), start: str = Query(None), end: str = Query(None),
                              user: User = Depends(require_tracking_view)):
-    q = {"user_id": user.user_id}
-    if driver_id:
-        q["driver_id"] = driver_id
-    shifts = await db.driver_shifts.find(q, {"_id": 0}).sort("started_at", -1).to_list(3000)
-    rows = []
-    for s in shifts:
-        started, ended = s.get("started_at"), s.get("ended_at")
-        date = (started or "")[:10]
-        if start and date < start:
-            continue
-        if end and date > end:
-            continue
-        pts = await db.driver_locations.find(
-            {"user_id": user.user_id, "shift_id": s["id"]}, {"_id": 0}).sort("recorded_at", 1).to_list(20000)
-        stats = _route_stats(pts)
-        ts_a = _parse_ts(started)
-        hours = None
-        if ts_a:
-            end_dt = _parse_ts(ended) if ended else datetime.now(timezone.utc)
-            if end_dt:
-                hours = round(max(0.0, (end_dt - ts_a).total_seconds()) / 3600.0, 2)
-        rows.append({"shift_id": s["id"], "driver_id": s["driver_id"], "driver_name": s.get("driver_name"),
-                     "vehicle_reg": s.get("vehicle_reg", ""), "date": date, "start": started, "end": ended,
-                     "active": s.get("active", False), "hours": hours,
-                     "distance_km": stats["distance_km"], "top_speed_kmh": stats["top_speed_kmh"],
-                     "avg_speed_kmh": stats["avg_speed_kmh"], "points": len(pts)})
-    return {"rows": rows}
+    return {"rows": await _timesheet_rows(user.user_id, driver_id, start, end)}
+
+
+@api_router.get("/tracking/timesheet.pdf")
+async def tracking_timesheet_pdf(driver_id: str = Query(None), start: str = Query(None), end: str = Query(None),
+                                 user: User = Depends(require_tracking_view)):
+    rows = await _timesheet_rows(user.user_id, driver_id, start, end)
+    miles = user.region == "UK"
+    du, su = ("mi", "mph") if miles else ("km", "km/h")
+    cd = (lambda km: km * 0.621371) if miles else (lambda km: km)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
+    columns = ["Driver", "Vehicle", "Date", "Start", "End", "Hours", f"Distance ({du})", f"Top ({su})", f"Avg ({su})"]
+    trows = [{"cells": [
+        r.get("driver_name") or "", r.get("vehicle_reg") or "", r.get("date") or "",
+        _hhmm(r.get("start")), ("On shift" if r.get("active") else _hhmm(r.get("end"))),
+        f"{r['hours']:.2f}" if r.get("hours") is not None else "—",
+        f"{cd(r.get('distance_km') or 0):.1f}", f"{cd(r.get('top_speed_kmh') or 0):.0f}", f"{cd(r.get('avg_speed_kmh') or 0):.0f}",
+    ]} for r in rows]
+    total_hours = round(sum(r["hours"] or 0 for r in rows), 2)
+    total_dist = round(cd(sum(r["distance_km"] or 0 for r in rows)), 1)
+    sections = [
+        {"heading": "Shifts", "columns": columns, "rows": trows},
+        {"heading": "Totals", "type": "kv", "pairs": [
+            ("Shifts", str(len(rows))),
+            ("Total hours", f"{total_hours:.2f} h"),
+            ("Total distance", f"{total_dist:.1f} {du}"),
+        ]},
+    ]
+    subtitle = "Driver shift hours & mileage"
+    if start or end:
+        subtitle += f" · {start or 'start'} to {end or 'now'}"
+    if driver_id and rows:
+        subtitle = f"{rows[0].get('driver_name', '')} · " + subtitle
+    pdf = await asyncio.to_thread(
+        build_report_pdf, "Driver Shift Timesheet", subtitle,
+        [("Operator", operator.get("company_name", ""))], sections,
+        await _get_logo_bytes(user.user_id, operator), authority)
+    fname = f"timesheet-{datetime.now(timezone.utc).date().isoformat()}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @api_router.get("/driver/files/{file_id}")
