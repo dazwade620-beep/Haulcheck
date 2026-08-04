@@ -410,7 +410,7 @@ export default function Tracking() {
                 <p className="text-sm text-slate-400 max-w-sm">Ask your drivers to open the driver app and tap <span className="font-semibold text-slate-600">"Start Shift"</span>. Their live position and full daily route will appear here.</p>
               </div>
             ) : (
-              <MapView markers={markers} trail={trail} geofences={geofences} playhead={playhead} onMapClick={addSite ? handleMapClick : null} />
+              <MapView markers={markers} trail={trail} geofences={geofences} stops={stops} playhead={playhead} onMapClick={addSite ? handleMapClick : null} />
             )}
 
             {/* Site activity */}

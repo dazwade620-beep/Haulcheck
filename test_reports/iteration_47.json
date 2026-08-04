@@ -1,0 +1,20 @@
+{
+  "summary": "Narrow retest of amber stop-marker fix on Tracking Map (iteration_46 follow-up). Logged in as manager@haulcheck.co.uk, navigated to Tracking, clicked Jane Doe. Verified: (1) exactly 1 SVG <path> with fill='#f59e0b' and stroke='#b45309' (fill-opacity 0.9) is rendered on the Leaflet map — matches the L.circleMarker style for stops. (2) Clicking the amber marker opens a Leaflet popup reading 'Stopped 20m\\n07:16 PM–07:36 PM'. (3) The 'Idle & stops' side panel (data-testid='tracking-stops') is present with 1 matching tracking-stop-row showing '07:16 PM–07:36 PM 20m'. Fix confirmed working end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234!",
+  "seed_data_creation": "None — used existing Jane Doe seeded route with a 20m stop.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Amber stop markers on Tracking Map now render correctly (MapView receives stops prop). Popup text 'Stopped <dur>' works. tracking-stop-row / tracking-stops selectors intact. No further action needed on this fix.",
+  "rca of the issue": "N/A — verification only. Previous root cause (missing stops={stops} prop on <MapView/> at Tracking.js:413) has been correctly patched."
+}
