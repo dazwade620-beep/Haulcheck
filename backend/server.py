@@ -4673,7 +4673,7 @@ async def calendar(user: User = Depends(get_current_user)):
         if isinstance(_lead, int):
             _lead = [_lead]
         _rec = ev.get("recurrence", "none")
-        for _occ in _expand_occurrences(ev.get("date"), _rec, ev.get("recurrence_until")):
+        for _occ in _expand_occurrences(ev.get("date"), _rec, ev.get("recurrence_until"), exceptions=ev.get("exceptions")):
             events.append({
                 "id": ev.get("id"), "date": _occ,
                 "type": "reminder" if _rem else "custom", "title": ev.get("title", "Event"),
@@ -4926,9 +4926,35 @@ async def create_calendar_event(data: CalendarEventInput, user: User = Depends(g
 
 
 @api_router.delete("/calendar/events/{eid}")
-async def delete_calendar_event(eid: str, user: User = Depends(get_current_user)):
-    await db.calendar_events.delete_one({"id": eid, "user_id": user.user_id})
+async def delete_calendar_event(eid: str, occurrence: Optional[str] = None, user: User = Depends(get_current_user)):
+    if occurrence:
+        # Remove just this one date from a repeating series (leaves the rest intact).
+        await db.calendar_events.update_one({"id": eid, "user_id": user.user_id}, {"$addToSet": {"exceptions": occurrence}})
+    else:
+        await db.calendar_events.delete_one({"id": eid, "user_id": user.user_id})
     return {"ok": True}
+
+
+class OccurrenceEditInput(CalendarEventInput):
+    occurrence_date: str
+
+
+@api_router.put("/calendar/events/{eid}/occurrence")
+async def edit_calendar_occurrence(eid: str, data: OccurrenceEditInput, user: User = Depends(get_current_user)):
+    """Edit a single occurrence of a repeating series: skip the original date and add a detached one-off event."""
+    base = await db.calendar_events.find_one({"id": eid, "user_id": user.user_id}, {"_id": 0})
+    if not base:
+        raise HTTPException(status_code=404, detail="Event not found")
+    await db.calendar_events.update_one({"id": eid, "user_id": user.user_id}, {"$addToSet": {"exceptions": data.occurrence_date}})
+    _leads = sorted({max(0, int(x)) for x in (data.remind_days_before or [])})
+    ev = {"id": f"evt_{uuid.uuid4().hex[:10]}", "user_id": user.user_id, "date": data.date,
+          "title": data.title, "notes": data.notes, "status": data.status,
+          "reminder": data.reminder, "remind_email": data.remind_email,
+          "remind_days_before": _leads, "recurrence": "none", "recurrence_until": None,
+          "exceptions": [], "reminders_fired": [], "created_at": now_iso()}
+    await db.calendar_events.insert_one(dict(ev))
+    ev.pop("_id", None)
+    return ev
 
 
 @api_router.put("/calendar/events/{eid}")
@@ -4944,6 +4970,33 @@ async def update_calendar_event(eid: str, data: CalendarEventInput, user: User =
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
     return {"ok": True}
+
+
+@api_router.get("/roster/week")
+async def roster_week(user: User = Depends(get_current_user)):
+    """Who's off this week (Mon–Sun), grouped by day, with a clash flag at 2+ drivers off."""
+    today = datetime.now(timezone.utc).date()
+    monday = today - timedelta(days=today.weekday())
+    week = [monday + timedelta(days=i) for i in range(7)]
+    hols = await db.holidays.find({"user_id": user.user_id}, {"_id": 0}).to_list(2000)
+    parsed = []
+    for h in hols:
+        try:
+            s = datetime.fromisoformat(str(h.get("from_date"))[:10]).date()
+            e = datetime.fromisoformat(str(h.get("to_date"))[:10]).date()
+        except Exception:
+            continue
+        if e < s:
+            s, e = e, s
+        parsed.append((s, e, h.get("name") or "—"))
+    days = []
+    for d in week:
+        names = sorted({nm for (s, e, nm) in parsed if s <= d <= e})
+        days.append({
+            "date": d.isoformat(), "weekday": d.strftime("%a"), "day_num": d.day,
+            "off": names, "count": len(names), "clash": len(names) >= 2, "is_today": d == today,
+        })
+    return {"week_start": monday.isoformat(), "total_off": sum(x["count"] for x in days), "days": days}
 
 
 # ---------- Dashboard + AI risk ----------
@@ -4966,15 +5019,16 @@ def _add_month(d):
     return d.replace(year=y, month=m, day=min(d.day, _cal.monthrange(y, m)[1]))
 
 
-def _expand_occurrences(base_iso, recurrence, until_iso=None, horizon_days=372, cap=120):
+def _expand_occurrences(base_iso, recurrence, until_iso=None, horizon_days=372, cap=120, exceptions=None):
     """Return ISO dates for a (possibly) recurring calendar item across the visible horizon."""
+    exc = set(exceptions or [])
     try:
         base = datetime.fromisoformat(str(base_iso)[:10]).date()
     except Exception:
         return []
     rec = (recurrence or "none").lower()
     if rec not in ("weekly", "fortnightly", "monthly"):
-        return [base.isoformat()]
+        return [] if base.isoformat() in exc else [base.isoformat()]
     end = base + timedelta(days=horizon_days)
     if until_iso:
         try:
@@ -4985,7 +5039,9 @@ def _expand_occurrences(base_iso, recurrence, until_iso=None, horizon_days=372, 
             pass
     out, cur, n = [], base, 0
     while cur <= end and n < cap:
-        out.append(cur.isoformat())
+        iso = cur.isoformat()
+        if iso not in exc:
+            out.append(iso)
         n += 1
         if rec == "weekly":
             cur = cur + timedelta(days=7)
@@ -5821,7 +5877,7 @@ async def run_calendar_reminders():
                 leads = [0]
             fired = list(ev.get("reminders_fired") or [])
             to_send = []
-            for occ_iso in _expand_occurrences(ev.get("date"), ev.get("recurrence", "none"), ev.get("recurrence_until")):
+            for occ_iso in _expand_occurrences(ev.get("date"), ev.get("recurrence", "none"), ev.get("recurrence_until"), exceptions=ev.get("exceptions")):
                 try:
                     occ = datetime.fromisoformat(occ_iso[:10]).date()
                 except Exception:

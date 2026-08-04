@@ -131,6 +131,10 @@ export default function Calendar() {
   const [evtForm, setEvtForm] = useState({ date: "", title: "", notes: "", recurrence: "none", recurrence_until: "" });
   const [evtEditId, setEvtEditId] = useState(null);
   const [evtMode, setEvtMode] = useState("event");
+  const [editIsRecurring, setEditIsRecurring] = useState(false);
+  const [editScope, setEditScope] = useState("one");
+  const [editOccDate, setEditOccDate] = useState("");
+  const [delTarget, setDelTarget] = useState(null);
   const [assets, setAssets] = useState([]);
   const [vehicleRegs, setVehicleRegs] = useState([]);
   const [drivers, setDrivers] = useState([]); // [{id,name}]
@@ -162,6 +166,8 @@ export default function Calendar() {
   const startMode = (mode) => {
     const d = format(selected, "yyyy-MM-dd");
     setEvtEditId(null);
+    setEditIsRecurring(false);
+    setEditScope("one");
     setEvtMode(mode);
     setEvtForm({ date: d, title: "", notes: "", recurrence: "none", recurrence_until: "" });
     setTachoForm({ source_type: "Vehicle Unit", reference: "", last_download: d, frequency_days: 90 });
@@ -180,6 +186,10 @@ export default function Calendar() {
 
   const openEditEvent = (ev) => {
     setEvtEditId(ev.id);
+    setEditOccDate(ev.date);
+    const recurring = !!(ev.recurrence && ev.recurrence !== "none");
+    setEditIsRecurring(recurring);
+    setEditScope(recurring ? "one" : "all");
     if (ev.type === "reminder") {
       setEvtMode("reminder");
       setRemForm({ date: ev.date, title: ev.title, notes: ev.subtitle || "", email: !!ev.remind_email, leads: Array.isArray(ev.remind_days_before) ? ev.remind_days_before : (ev.remind_days_before != null ? [ev.remind_days_before] : []), recurrence: ev.recurrence || "none", recurrence_until: ev.recurrence_until || "" });
@@ -210,9 +220,16 @@ export default function Calendar() {
           remind_days_before: remForm.email ? (remForm.leads.length ? remForm.leads : [0]) : [],
           recurrence: remForm.recurrence || "none", recurrence_until: remForm.recurrence_until || null,
         };
-        if (evtEditId) await api.put(`/calendar/events/${evtEditId}`, payload);
-        else await api.post("/calendar/events", payload);
-        toast.success(remForm.email ? "Reminder saved — we'll email you" : "Reminder added to calendar");
+        if (evtEditId && editIsRecurring && editScope === "one") {
+          await api.put(`/calendar/events/${evtEditId}/occurrence`, { ...payload, recurrence: "none", recurrence_until: null, occurrence_date: editOccDate });
+          toast.success("This reminder date updated");
+        } else if (evtEditId) {
+          await api.put(`/calendar/events/${evtEditId}`, payload);
+          toast.success(editIsRecurring ? "Whole reminder series updated" : (remForm.email ? "Reminder saved — we'll email you" : "Reminder updated"));
+        } else {
+          await api.post("/calendar/events", payload);
+          toast.success(remForm.email ? "Reminder saved — we'll email you" : "Reminder added to calendar");
+        }
       } else if (evtMode === "driver_start" || evtMode === "driver_leave") {
         if (!dlForm.driver_id) { toast.error("Select a driver"); return; }
         const payload = evtMode === "driver_start" ? { start_date: dlForm.date } : { leave_date: dlForm.date };
@@ -224,8 +241,16 @@ export default function Calendar() {
         toast.success("Training record added to Office › Training");
       } else {
         const payload = { ...evtForm, recurrence: evtForm.recurrence || "none", recurrence_until: evtForm.recurrence_until || null };
-        if (evtEditId) { await api.put(`/calendar/events/${evtEditId}`, payload); toast.success("Event updated"); }
-        else { await api.post("/calendar/events", payload); toast.success("Event added to calendar"); }
+        if (evtEditId && editIsRecurring && editScope === "one") {
+          await api.put(`/calendar/events/${evtEditId}/occurrence`, { ...payload, recurrence: "none", recurrence_until: null, occurrence_date: editOccDate });
+          toast.success("This date updated");
+        } else if (evtEditId) {
+          await api.put(`/calendar/events/${evtEditId}`, payload);
+          toast.success(editIsRecurring ? "Whole series updated" : "Event updated");
+        } else {
+          await api.post("/calendar/events", payload);
+          toast.success("Event added to calendar");
+        }
       }
       setEvtOpen(false);
       loadEvents();
@@ -234,6 +259,10 @@ export default function Calendar() {
 
   const deleteEvent = async (id) => {
     try { await api.delete(`/calendar/events/${id}`); toast.success("Removed"); loadEvents(); }
+    catch { toast.error("Could not remove"); }
+  };
+  const deleteOccurrence = async (t) => {
+    try { await api.delete(`/calendar/events/${t.id}?occurrence=${encodeURIComponent(t.date)}`); toast.success("This date removed"); setDelTarget(null); loadEvents(); }
     catch { toast.error("Could not remove"); }
   };
   const deleteHoliday = async (id) => {
@@ -286,7 +315,7 @@ export default function Calendar() {
         {editable && e.id && (
           <div className="flex items-center gap-1.5 shrink-0">
             <button data-testid="edit-event-button" onClick={() => openEditEvent(e)} className="text-slate-300 hover:text-slate-900"><Pencil size={14} /></button>
-            <button data-testid="delete-event-button" onClick={() => deleteEvent(e.id)} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
+            <button data-testid="delete-event-button" onClick={() => ((e.recurrence && e.recurrence !== "none") ? setDelTarget({ id: e.id, date: e.date }) : deleteEvent(e.id))} className="text-slate-300 hover:text-red-600"><Trash2 size={14} /></button>
           </div>
         )}
         {e.type === "holiday" && e.id && (
@@ -467,6 +496,15 @@ export default function Calendar() {
           </DialogHeader>
 
           <form onSubmit={saveEvent} className="space-y-4">
+            {evtEditId && editIsRecurring && (evtMode === "event" || evtMode === "reminder") && (
+              <div data-testid="edit-scope" className="rounded-md bg-slate-50 border border-slate-200 p-3">
+                <p className="text-xs font-semibold text-slate-500 mb-2">This is a repeating item — apply changes to:</p>
+                <div className="flex gap-2">
+                  <button type="button" data-testid="edit-scope-one" onClick={() => setEditScope("one")} className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${editScope === "one" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>Just this date</button>
+                  <button type="button" data-testid="edit-scope-all" onClick={() => setEditScope("all")} className={`flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${editScope === "all" ? "bg-slate-900 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>The whole series</button>
+                </div>
+              </div>
+            )}
             {evtMode === "event" && (
               <>
                 <div>
@@ -661,6 +699,19 @@ export default function Calendar() {
         initialType={maintInitial}
         onSaved={loadEvents}
       />
+
+      <Dialog open={!!delTarget} onOpenChange={(o) => !o && setDelTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Delete repeating event</DialogTitle>
+            <DialogDescription>Remove just this one date, or the whole repeating series?</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button data-testid="delete-one" variant="outline" className="border-slate-300" onClick={() => deleteOccurrence(delTarget)}>Just this date</Button>
+            <Button data-testid="delete-all" className="bg-red-600 hover:bg-red-700" onClick={() => { deleteEvent(delTarget.id); setDelTarget(null); }}>Whole series</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only testing of HaulCheck edit-one-vs-all recurring calendar flows + Dashboard roster snapshot. Logged in as operator.test@example.com, ran a single Playwright script covering all 6 requested scenarios. Every assertion passed on the first attempt.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "roster_snapshot": "PASS — after adding 2 holidays on Tue 4 Aug, Dashboard 'Who's off this week' strip renders 7 roster-day cells. Tue cell shows both names (TEST_HolidayA, TEST_HolidayB), amber 'clash' indicator visible, summary reads '2 driver-days booked off'. Empty days show a dash.",
+    "recurring_edit_just_this_date": "PASS — edit-scope selector (edit-scope-one/all) appears only for recurring items. Choosing edit-scope-one and changing title from TEST_WeeklyEvent to TEST_ChangedOne detached only the Aug 11 occurrence; all other weekly occurrences kept the original title.",
+    "recurring_edit_whole_series": "PASS — edit-scope-all with title TEST_WholeSeries updated all remaining occurrences (Aug 18, 25, Sep 1, …) while the previously-detached Aug 11 stayed as TEST_ChangedOne (correct behaviour).",
+    "recurring_delete": "PASS — clicking delete on a recurring occurrence opens the Dialog with delete-one and delete-all. delete-one removed only Aug 25; Sep 1 (and beyond) TEST_WholeSeries occurrences remained.",
+    "non_recurring_regression": "PASS — editing TEST_NonRecurring did NOT render edit-scope. Deleting TEST_NonRecurring did NOT open the delete-scope Dialog (delete-one selector absent) — deleted directly.",
+    "reminder_recurrence": "PASS — Reminder with reminder-recurrence=Monthly, when edited, shows the edit-scope selector (edit-scope-one/all) exactly like general events."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Calendar.js is ~745 lines and could be split (form dialog, delete dialog, chooser) for maintainability, but not blocking.",
+    "openEditEvent sets editScope default to 'all' for non-recurring items — safe because the scope UI is hidden and the saveEvent branch for non-recurring routes to PUT /events/{id} regardless, but consider making the default explicit for clarity.",
+    "renderEvent is shared between the sidebar list and the enlarged day Dialog, so edit/delete testids appear twice while both are open — tests must Escape the dialog first (already documented). Consider scoping edit/delete testids uniquely per surface."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (skipped)", "frontend": "100%" },
+  "test_credentials": "operator.test@example.com / Test1234! (used)",
+  "seed_data_creation": "Created TEST_HolidayA, TEST_HolidayB, TEST_WeeklyEvent, TEST_ChangedOne (detached), TEST_WholeSeries (series rename), TEST_NonRecurring, TEST_ReminderMonthly in the operator.test account for the current week (Aug 2026). Not cleaned up — main agent can remove if desired.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 6 edit-one-vs-all and roster-strip flows verified end-to-end via Playwright. Backend routes /calendar/events/{id}/occurrence (scope=one) and DELETE ?occurrence= confirmed working through the UI. If further changes touch Calendar.js openEditEvent / saveEvent branches, re-run the same script."
+}
