@@ -90,6 +90,28 @@ def drivers_report(drivers, region):
     return "Drivers — Licence & CPC", f"{len(rows)} driver(s) on file", sections
 
 
+def training_report(records, region):
+    rows = []
+    for t in sorted(records, key=lambda x: (x.get("expiry_date") or x.get("completed_date") or ""), reverse=True):
+        exp = t.get("expiry_date")
+        status = t.get("status") or ("valid" if not exp else "unknown")
+        rows.append({
+            "cells": [
+                t.get("driver_name") or "—", t.get("course_name") or "—",
+                t.get("category") or "—", t.get("completed_date") or "—",
+                exp or "—", (f"{float(t.get('hours') or 0):g}" if t.get("hours") else "—"),
+                t.get("provider") or "—",
+            ],
+            "status": status,
+        })
+    sections = [{
+        "heading": "Driver Training & CPC",
+        "columns": ["Driver", "Course / Training", "Category", "Completed", "Expiry", "Hours", "Provider"],
+        "rows": rows,
+    }]
+    return "Driver Training & CPC", f"{len(rows)} training record(s)", sections
+
+
 def defects_report(defects, region):
     rows = []
     for d in sorted(defects, key=lambda x: (x.get("defect_date") or x.get("created_at") or ""), reverse=True):
@@ -406,6 +428,7 @@ def audit_pack(data, region):
             ("Vehicles", counts.get("vehicles", 0)),
             ("Trailers", counts.get("trailers", 0)),
             ("Drivers", counts.get("drivers", 0)),
+            ("Training records", counts.get("training", 0)),
             ("PMI schedules", counts.get("pmi", 0)),
             ("PMI records", counts.get("pmi_records", 0)),
             ("Open defects", sum(1 for d in data.get("defects", []) if not (d.get("rectified_date") or d.get("status") == "rectified"))),
@@ -426,6 +449,7 @@ def audit_pack(data, region):
     sections += vehicles_report(data.get("vehicles", []), region)[2]
     sections += trailers_report(data.get("trailers", []), region)[2]
     sections += drivers_report(data.get("drivers", []), region)[2]
+    sections += training_report(data.get("training", []), region)[2]
     sections += pmi_report(data.get("pmi", []), data.get("pmi_records", []), region)[2]
     sections += defects_report(data.get("defects", []), region)[2]
     sections += service_report(data.get("service", []), region)[2]

@@ -2846,6 +2846,11 @@ async def _report_data(user_id, kinds, from_date=None, to_date=None):
     if "job_cards" in kinds:
         jc = await db.job_cards.find({"user_id": user_id}, {"_id": 0}).to_list(5000)
         out["job_cards"] = [d for d in jc if in_range(d, "date_raised", "created_at")]
+    if "training" in kinds:
+        tr = await db.training.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
+        for d in tr:
+            d["status"] = compliance_status(days_until(d.get("expiry_date"))) if d.get("expiry_date") else "valid"
+        out["training"] = [d for d in tr if in_range(d, "completed_date", "created_at")]
     if "prohibitions" in kinds:
         pb = await db.prohibitions.find({"user_id": user_id}, {"_id": 0}).to_list(2000)
         out["prohibitions"] = [d for d in pb if in_range(d, "encounter_date", "created_at")]
@@ -2856,6 +2861,7 @@ _REPORT_BUILDERS = {
     "vehicles": (["vehicles"], lambda d, r: reports.vehicles_report(d["vehicles"], r)),
     "trailers": (["trailers"], lambda d, r: reports.trailers_report(d["trailers"], r)),
     "drivers": (["drivers"], lambda d, r: reports.drivers_report(d["drivers"], r)),
+    "training": (["training"], lambda d, r: reports.training_report(d["training"], r)),
     "defects": (["defects"], lambda d, r: reports.defects_report(d["defects"], r)),
     "service": (["service"], lambda d, r: reports.service_report(d["service"], r)),
     "wheel": (["wheel"], lambda d, r: reports.wheel_report(d["wheel"], r)),
@@ -2867,7 +2873,7 @@ _REPORT_BUILDERS = {
     "job_cards": (["job_cards"], lambda d, r: reports.job_cards_report(d["job_cards"], r)),
     "prohibitions": (["prohibitions"], lambda d, r: reports.prohibitions_report(d["prohibitions"], r)),
     "recalls": (["recalls"], lambda d, r: reports.recalls_report(d["recalls"], r)),
-    "audit": (["vehicles", "trailers", "drivers", "defects", "service", "repairs", "job_cards", "wheel", "walkaround", "weekly_walkaround", "tacho", "prohibitions", "recalls", "pmi"],
+    "audit": (["vehicles", "trailers", "drivers", "training", "defects", "service", "repairs", "job_cards", "wheel", "walkaround", "weekly_walkaround", "tacho", "prohibitions", "recalls", "pmi"],
               lambda d, r: reports.audit_pack(d, r)),
 }
 
@@ -2875,8 +2881,8 @@ _REPORT_BUILDERS = {
 _REPORT_FILE_KEYS = {
     "defects": ["defects"], "service": ["service"], "wheel": ["wheel"],
     "walkaround": ["walkaround"], "pmi": ["pmi_records"], "job_cards": ["job_cards"],
-    "prohibitions": ["prohibitions"],
-    "audit": ["defects", "service", "wheel", "walkaround", "pmi_records", "job_cards", "prohibitions"],
+    "prohibitions": ["prohibitions"], "training": ["training"],
+    "audit": ["defects", "service", "wheel", "walkaround", "pmi_records", "job_cards", "prohibitions", "training"],
 }
 
 

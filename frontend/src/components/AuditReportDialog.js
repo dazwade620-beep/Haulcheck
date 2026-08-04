@@ -12,6 +12,7 @@ const REPORT_KINDS = [
   { value: "vehicles", label: "Vehicles" },
   { value: "trailers", label: "Trailers" },
   { value: "drivers", label: "Drivers" },
+  { value: "training", label: "Driver Training / CPC" },
   { value: "pmi", label: "PMI Inspections" },
   { value: "defects", label: "Defect Reports" },
   { value: "service", label: "Vehicles Service" },
