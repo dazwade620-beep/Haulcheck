@@ -212,18 +212,6 @@ export default function Dashboard() {
         <Kpi testid="kpi-defects" icon={FileWarning} label="Open Defects" value={counts.open_defects} tone={counts.open_defects ? "text-red-600" : "text-slate-900"} delay={300} />
       </div>
 
-      <RosterStrip />
-
-      <ComplianceTrend />
-
-      <MaintenanceCosts />
-
-      <RecallCard />
-
-      <RetentionCard />
-
-      <DefectAlerts />
-
       {/* Alerts feed */}
       <div className="bg-white border border-slate-200 rounded-md overflow-hidden animate-in-up">
         <div className="px-5 py-4 border-b border-slate-200 flex items-center gap-2">
@@ -256,6 +244,18 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <RosterStrip />
+
+      <ComplianceTrend />
+
+      <MaintenanceCosts />
+
+      <RecallCard />
+
+      <RetentionCard />
+
+      <DefectAlerts />
 
       <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
         <DialogContent className="max-w-md">
