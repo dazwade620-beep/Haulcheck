@@ -11,13 +11,15 @@ const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
   { to: "/operator", label: "Operator", icon: Building2, id: "operator" },
   { to: "/calendar", label: "Calendar", icon: CalendarDays, id: "calendar" },
-  { to: "/maintenance", label: "Maintenance", icon: Wrench, id: "maintenance" },
-  { to: "/vehicles", label: "Fleet", icon: Truck, id: "vehicles" },
   { to: "/drivers", label: "Drivers", icon: Users, id: "drivers" },
-  { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
+  { to: "/vehicles", label: "Fleet", icon: Truck, id: "vehicles" },
+  { to: "/maintenance", label: "Maintenance", icon: Wrench, id: "maintenance" },
   { to: "/office", label: "Office", icon: Briefcase, id: "office" },
+  { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
+  { to: "/tracking", label: "Tracking", icon: MapPin, id: "tracking", when: (u) => u?.role === "manager" || u?.is_admin },
   { to: "/reminders", label: "Reminders", icon: Bell, id: "reminders" },
   { to: "/team", label: "Team", icon: UserPlus, id: "team" },
+  { to: "/admin", label: "Admin", icon: ShieldCheck, id: "admin", when: (u) => u?.is_admin, variant: "admin" },
   { to: "/contact", label: "Contact", icon: Mail, id: "contact" },
 ];
 
@@ -83,7 +85,7 @@ export default function Layout({ children }) {
 
   const NavItems = () => (
     <nav className="flex flex-col gap-1">
-      {NAV.map((item) => (
+      {NAV.filter((item) => !item.when || item.when(user)).map((item) => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -92,9 +94,13 @@ export default function Layout({ children }) {
           className={({ isActive }) =>
             cn(
               "flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all duration-200 border-l-2",
-              isActive
-                ? "bg-slate-800 text-white border-white"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/60"
+              item.variant === "admin"
+                ? (isActive
+                    ? "bg-amber-500/20 text-amber-300 border-amber-400"
+                    : "text-amber-300/70 border-transparent hover:text-amber-200 hover:bg-slate-800/60")
+                : (isActive
+                    ? "bg-slate-800 text-white border-white"
+                    : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/60")
             )
           }
         >
@@ -105,42 +111,6 @@ export default function Layout({ children }) {
           )}
         </NavLink>
       ))}
-      {(user?.role === "manager" || user?.is_admin) && (
-        <NavLink
-          to="/tracking"
-          data-testid="nav-tracking"
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all duration-200 border-l-2",
-              isActive
-                ? "bg-slate-800 text-white border-white"
-                : "text-slate-400 border-transparent hover:text-white hover:bg-slate-800/60"
-            )
-          }
-        >
-          <MapPin size={20} />
-          Tracking
-        </NavLink>
-      )}
-      {user?.is_admin && (
-        <NavLink
-          to="/admin"
-          data-testid="nav-admin"
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all duration-200 border-l-2",
-              isActive
-                ? "bg-amber-500/20 text-amber-300 border-amber-400"
-                : "text-amber-300/70 border-transparent hover:text-amber-200 hover:bg-slate-800/60"
-            )
-          }
-        >
-          <ShieldCheck size={20} />
-          Admin
-        </NavLink>
-      )}
     </nav>
   );
 
