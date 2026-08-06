@@ -1,3 +1,9 @@
+## Change (2026-08 fork pt.21 — Dashboard layout: Compliance Alerts above roster strip) — VERIFIED (screenshot)
+- Dashboard.js now renders the "Compliance Alerts" feed block (lines ~215-246) ABOVE `<RosterStrip />` (line 248), per user request ("compliance alert above who's off this week"). Order below alerts: RosterStrip → ComplianceTrend → MaintenanceCosts → RecallCard → RetentionCard → DefectAlerts.
+- Verified via screenshot on preview: alerts feed shows first, "Who's off this week" strip renders directly beneath it; no layout/syntax breakage.
+- NOTE: PREVIEW verified — live needs Save-to-GitHub → Deploy.
+
+
 ## Change (2026-08 fork pt.20 — Contact form emails routed to info@haulcheck.co.uk)
 - `POST /api/contact` (server.py ~4454) now emails to `os.environ.get('CONTACT_RECIPIENT_EMAIL') or 'info@haulcheck.co.uk'` (was hardcoded to SENDER_EMAIL). Code default ensures it works on production after redeploy without env config; can be overridden with CONTACT_RECIPIENT_EMAIL env var. Sender's email is set as reply_to. Messages still save to `contact_messages` (in-app inbox on Contact page) as a safety net.
 - Verified via curl: submission → 200, no "Contact email failed" log (Resend accepted), message saved to inbox.
