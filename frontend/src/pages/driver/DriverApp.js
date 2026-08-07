@@ -267,12 +267,15 @@ function DriverHome({ driver, go, logout }) {
           </div>
           <button data-testid="driver-logout-button" onClick={logout} className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center active:scale-95"><LogOut size={18} /></button>
         </div>
-        {driver.assigned_vehicle_reg && (
-          <div className="mt-4 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2">
-            <Truck size={16} className="text-slate-400" />
-            <span className="font-mono font-bold tracking-wide">{driver.assigned_vehicle_reg}</span>
-          </div>
-        )}
+        <button
+          data-testid="driver-switch-vehicle-chip"
+          onClick={() => go("switch")}
+          className="mt-4 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 active:scale-[0.98] transition-transform"
+        >
+          <Truck size={16} className="text-slate-400" />
+          <span className="font-mono font-bold tracking-wide">{driver.assigned_vehicle_reg || "Choose vehicle"}</span>
+          <span className="text-xs font-semibold text-emerald-300 ml-1">Switch</span>
+        </button>
       </div>
       <div className="px-4 pb-1"><ShiftTracker driver={driver} /></div>
       <div className="px-4 space-y-3 mt-3">
@@ -690,6 +693,66 @@ function DriverTacho({ back }) {
   );
 }
 
+// ---------- Switch vehicle ----------
+function DriverSwitchVehicle({ driver, back, onSwitched }) {
+  const [list, setList] = useState(null);
+  const [busy, setBusy] = useState("");
+  useEffect(() => {
+    driverApi.get("/driver/vehicles").then((r) => setList(r.data)).catch(() => setList([]));
+  }, []);
+  const current = (driver.assigned_vehicle_reg || "").toUpperCase();
+  const choose = async (reg) => {
+    setBusy(reg);
+    try {
+      const { data } = await driverApi.post("/driver/active-vehicle", { registration: reg });
+      onSwitched(data);
+      toast.success(`Now driving ${reg}`);
+      back();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Could not switch vehicle");
+      setBusy("");
+    }
+  };
+  return (
+    <Screen title="Switch vehicle" onBack={back} testid="driver-switch-vehicle">
+      <p className="text-sm text-slate-400 mb-4">Pick the vehicle you're driving today. Your walkaround checks, defect reports and tracking will use it.</p>
+      {!list ? (
+        <div className="flex justify-center py-16"><Loader2 className="animate-spin text-slate-500" /></div>
+      ) : list.length === 0 ? (
+        <p className="text-slate-400 text-sm py-8 text-center">No vehicles in your fleet yet. Ask your manager to add one.</p>
+      ) : (
+        <div className="space-y-2" data-testid="switch-vehicle-list">
+          {list.map((v) => {
+            const isCurrent = v.registration.toUpperCase() === current;
+            const sub = [v.make, v.model].filter(Boolean).join(" ") || v.type;
+            return (
+              <button
+                key={v.registration}
+                data-testid={`switch-vehicle-${v.registration}`}
+                disabled={!!busy}
+                onClick={() => choose(v.registration)}
+                className={`w-full flex items-center justify-between rounded-xl p-4 border active:scale-[0.98] transition-transform disabled:opacity-60 ${isCurrent ? "bg-white/10 border-white" : "bg-slate-900 border-slate-800"}`}
+              >
+                <div className="text-left min-w-0">
+                  <p className="font-mono font-bold tracking-wide text-lg">{v.registration}</p>
+                  {sub && <p className="text-xs text-slate-400 truncate">{sub}</p>}
+                </div>
+                {busy === v.registration ? (
+                  <Loader2 size={18} className="animate-spin shrink-0" />
+                ) : isCurrent ? (
+                  <span className="flex items-center gap-1 text-xs font-bold text-emerald-300 shrink-0"><Check size={16} /> Current</span>
+                ) : (
+                  <ChevronRight size={18} className="text-slate-600 shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Screen>
+  );
+}
+
 // ---------- Root ----------
 export default function DriverApp() {
   const [driver, setDriver] = useState(null);
@@ -726,6 +789,7 @@ export default function DriverApp() {
   if (screen === "defect") return <DriverDefect driver={driver} back={back} />;
   if (screen === "compliance") return <DriverCompliance profile={profile || driver} back={back} />;
   if (screen === "vehicle") return <DriverVehicle back={back} />;
+  if (screen === "switch") return <DriverSwitchVehicle driver={driver} back={back} onSwitched={(d) => { setDriver((prev) => ({ ...prev, ...d })); setProfile((prev) => ({ ...(prev || {}), ...d })); }} />;
   if (screen === "tacho") return <DriverTacho back={back} />;
   return <DriverHome driver={driver} go={go} logout={logout} />;
 }

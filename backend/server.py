@@ -2210,8 +2210,35 @@ async def driver_vehicle(driver: dict = Depends(get_current_driver)):
 
 @api_router.get("/driver/vehicles")
 async def driver_vehicles(driver: dict = Depends(get_current_driver)):
-    docs = await db.vehicles.find({"user_id": driver["user_id"]}, {"_id": 0, "registration": 1}).to_list(1000)
-    return [d["registration"] for d in docs]
+    docs = await db.vehicles.find(
+        {"user_id": driver["user_id"]},
+        {"_id": 0, "registration": 1, "make": 1, "model": 1, "type": 1, "sold": 1},
+    ).sort("registration", 1).to_list(1000)
+    seen, out = set(), []
+    for d in docs:
+        reg = (d.get("registration") or "").strip()
+        if not reg or d.get("sold") or reg.upper() in seen:
+            continue
+        seen.add(reg.upper())
+        out.append({"registration": reg, "make": d.get("make", ""), "model": d.get("model", ""), "type": d.get("type", "")})
+    return out
+
+
+@api_router.post("/driver/active-vehicle")
+async def driver_set_active_vehicle(payload: dict, driver: dict = Depends(get_current_driver)):
+    reg = (payload.get("registration") or "").strip()
+    if not reg:
+        raise HTTPException(status_code=400, detail="Choose a vehicle")
+    veh = await db.vehicles.find_one(
+        {"user_id": driver["user_id"], "registration": {"$regex": f"^{re.escape(reg)}$", "$options": "i"}},
+        {"_id": 0, "registration": 1},
+    )
+    if not veh:
+        raise HTTPException(status_code=404, detail="That vehicle isn't in your fleet")
+    reg = veh["registration"]
+    await db.drivers.update_one({"id": driver["id"]}, {"$set": {"assigned_vehicle_reg": reg}})
+    updated = await db.drivers.find_one({"id": driver["id"]}, {"_id": 0})
+    return _driver_profile(updated)
 
 
 @api_router.post("/driver/upload")
