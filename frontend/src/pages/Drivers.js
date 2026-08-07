@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { downloadPdf } from "@/lib/download";
 import { QRCodeSVG } from "qrcode.react";
 
-const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", notes: "", start_date: "", leave_date: "" };
+const empty = { name: "", licence_number: "", licence_expiry: "", cpc_expiry: "", tacho_card_expiry: "", licence_check_date: "", licence_check_code: "", penalty_points: 0, licence_check_due: "", weekly_hours: 0, max_weekly_hours: 56, assigned_vehicle_reg: "", vehicle_locked: false, notes: "", start_date: "", leave_date: "" };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const isLeftDriver = (d) => !!d.leave_date && String(d.leave_date).slice(0, 10) < todayISO();
 const DRIVER_DOC_TYPES = ["Driver Infringement", "Infringement Report", "Warning Letter", "Attestation Record", "Indoctrination Document", "Adhoc Note", "Other"];
@@ -283,6 +283,12 @@ export default function Drivers() {
                 <SelectTrigger data-testid="drv-assigned-vehicle"><SelectValue placeholder="Select vehicle" /></SelectTrigger>
                 <SelectContent><SelectItem value="none">None</SelectItem>{vehicles.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
               </Select>
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer mt-2 select-none">
+                <input type="checkbox" data-testid="drv-vehicle-lock" checked={!!form.vehicle_locked}
+                  onChange={(e) => setForm({ ...form, vehicle_locked: e.target.checked })}
+                  className="w-4 h-4 rounded border-slate-300 accent-slate-900" />
+                Lock to this vehicle — stop the driver switching it in the app
+              </label>
             </Field>
             <div className="border-t border-slate-100 pt-4">
               <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-3">Employment</p>

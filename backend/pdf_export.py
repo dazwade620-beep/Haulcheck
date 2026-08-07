@@ -107,6 +107,31 @@ def build_report_pdf(title, subtitle, meta_pairs, sections, logo_bytes=None, aut
 
     for sec in sections:
         story.append(Paragraph(sec["heading"], ss["Heading"]))
+        if sec.get("type") == "signature":
+            boxes = sec.get("boxes", [])
+            cells = []
+            for b in boxes:
+                inner = [
+                    [Paragraph(f"<b>{_xml_escape(str(b.get('role', '')))}</b>", ss["Cell"])],
+                    [Spacer(1, 26)],
+                    [Paragraph("Signature", ss["Sub"])],
+                    [Spacer(1, 14)],
+                    [Paragraph("Name: " + ("_" * 24), ss["Cell"])],
+                    [Spacer(1, 8)],
+                    [Paragraph("Date: " + ("_" * 24), ss["Cell"])],
+                ]
+                bt = Table(inner, colWidths=[84 * mm])
+                bt.setStyle(TableStyle([
+                    ("BOX", (0, 0), (-1, -1), 0.6, LINE),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ]))
+                cells.append(bt)
+            outer = Table([cells], colWidths=[89 * mm] * len(cells))
+            outer.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
+                                       ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 5)]))
+            story.append(outer)
+            continue
         if sec.get("type") == "kv":
             pairs = sec.get("pairs", [])
             if not pairs:

@@ -64,6 +64,14 @@ def walkaround(rec, region):
     cl = _checklist_section(rec)
     if cl:
         sections.append(cl)
+    sections.append({
+        "heading": "Sign-off",
+        "type": "signature",
+        "boxes": [
+            {"role": "Driver"},
+            {"role": "Verified by (Transport / Fleet Manager)"},
+        ],
+    })
     return title, subtitle, meta, sections
 
 

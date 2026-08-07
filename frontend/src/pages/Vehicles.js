@@ -16,7 +16,7 @@ import { TrailersPanel } from "@/pages/Trailers";
 import { TestHistoryPanel } from "@/pages/TestHistory";
 import { FuelPanel } from "@/pages/Fuel";
 import { ProhibitionsPanel } from "@/pages/Prohibitions";
-import { downloadPdf } from "@/lib/download";
+import { downloadPdf, printPdf } from "@/lib/download";
 
 const VEHICLE_TYPES = ["HGV (Rigid)", "HGV (Artic / Tractor Unit)", "LGV / Van", "Car", "Minibus / PSV", "Other"];
 const empty = { registration: "", make: "", model: "", type: "HGV (Rigid)", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
@@ -173,14 +173,17 @@ function VehiclesPanel() {
                           </>)}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button data-testid="vehicle-history-button" aria-label="Vehicle history pack" title="Vehicle history pack (PDF)" className="text-slate-400 hover:text-slate-900 p-1.5"><History size={16} /></button>
+                        <button data-testid="vehicle-history-button" aria-label="Print all for this vehicle" title="Print / download everything for this vehicle" className="text-slate-400 hover:text-slate-900 p-1.5"><History size={16} /></button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem data-testid="vehicle-history-print" onClick={() => printPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}`)}>
+                          Print all for this vehicle
+                        </DropdownMenuItem>
                         <DropdownMenuItem data-testid="vehicle-history-summary" onClick={() => downloadPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}`, `vehicle-history-${(v.registration || "vehicle").replace(/ /g, "")}.pdf`)}>
-                          History pack (summary)
+                          Download PDF (summary)
                         </DropdownMenuItem>
                         <DropdownMenuItem data-testid="vehicle-history-files" onClick={() => downloadPdf(`/reports/vehicle/${encodeURIComponent(v.registration)}?include_files=true`, `vehicle-history-${(v.registration || "vehicle").replace(/ /g, "")}-pack.pdf`)}>
-                          History pack + evidence
+                          Download full pack + evidence
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

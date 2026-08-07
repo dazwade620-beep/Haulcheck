@@ -318,6 +318,7 @@ class Driver(BaseModel):
     max_weekly_hours: float = 56.0
     access_code: str = ""
     assigned_vehicle_reg: str = ""
+    vehicle_locked: bool = False
     notes: str = ""
     start_date: Optional[str] = None
     leave_date: Optional[str] = None
@@ -337,6 +338,7 @@ class DriverInput(BaseModel):
     weekly_hours: float = 0.0
     max_weekly_hours: float = 56.0
     assigned_vehicle_reg: str = ""
+    vehicle_locked: bool = False
     notes: str = ""
     start_date: Optional[str] = None
     leave_date: Optional[str] = None
@@ -2182,6 +2184,7 @@ def _driver_profile(driver: dict) -> dict:
     return {
         "id": driver["id"], "name": driver.get("name"),
         "assigned_vehicle_reg": driver.get("assigned_vehicle_reg", ""),
+        "vehicle_locked": driver.get("vehicle_locked", False),
         "licence_number": driver.get("licence_number", ""),
         "licence_expiry": driver.get("licence_expiry"),
         "cpc_expiry": driver.get("cpc_expiry"),
@@ -2250,6 +2253,8 @@ async def driver_set_active_vehicle(payload: dict, driver: dict = Depends(get_cu
     reg = (payload.get("registration") or "").strip()
     if not reg:
         raise HTTPException(status_code=400, detail="Choose a vehicle")
+    if driver.get("vehicle_locked"):
+        raise HTTPException(status_code=403, detail="Your vehicle is locked by the office. Contact your manager to change it.")
     veh = await db.vehicles.find_one(
         {"user_id": driver["user_id"], "registration": {"$regex": f"^{re.escape(reg)}$", "$options": "i"}},
         {"_id": 0, "registration": 1},
@@ -4657,6 +4662,54 @@ async def list_feedback(user: User = Depends(get_current_user)):
 async def delete_feedback(fid: str, user: User = Depends(get_current_user)):
     query = {"id": fid} if user.is_admin else {"id": fid, "user_id": user.user_id}
     await db.feedback.delete_one(query)
+    return {"ok": True}
+
+
+@api_router.patch("/feedback/{fid}")
+async def update_feedback_status(fid: str, payload: dict, admin: User = Depends(require_admin)):
+    handled = bool(payload.get("handled", True))
+    res = await db.feedback.update_one({"id": fid}, {"$set": {"handled": handled}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    return {"ok": True, "handled": handled}
+
+
+@api_router.post("/feedback/{fid}/reply")
+async def reply_feedback(fid: str, payload: dict, admin: User = Depends(require_admin)):
+    fb = await db.feedback.find_one({"id": fid}, {"_id": 0})
+    if not fb:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    to_email = (fb.get("email") or "").strip()
+    message = (payload.get("message") or "").strip()
+    if not to_email:
+        raise HTTPException(status_code=400, detail="This feedback has no email to reply to")
+    if not message:
+        raise HTTPException(status_code=400, detail="Write a reply message")
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        safe_msg = message.replace("\n", "<br>")
+        quoted = (fb.get("message") or "").replace("\n", "<br>")
+        html = (
+            "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#0f172a'>"
+            "<p style='font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#64748b;font-weight:700'>HaulCheck</p>"
+            f"<p style='font-size:14px;line-height:1.6'>Hi {fb.get('name') or 'there'},</p>"
+            f"<p style='font-size:14px;line-height:1.6;white-space:pre-wrap'>{safe_msg}</p>"
+            "<hr style='border:none;border-top:1px solid #e2e8f0;margin:20px 0'>"
+            f"<p style='font-size:12px;color:#94a3b8'>In reply to your feedback:</p>"
+            f"<p style='font-size:12px;color:#94a3b8;font-style:italic'>{quoted}</p>"
+            "<p style='font-size:13px;color:#475569;margin-top:18px'>— The HaulCheck team</p>"
+            "</div>"
+        )
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [to_email],
+            "reply_to": os.environ.get('CONTACT_RECIPIENT_EMAIL') or 'info@haulcheck.co.uk',
+            "subject": "Re: your HaulCheck feedback", "html": html,
+        })
+    except Exception as e:
+        logging.error(f"Feedback reply email failed: {e}")
+        raise HTTPException(status_code=502, detail="Could not send the reply email")
+    await db.feedback.update_one({"id": fid}, {"$set": {"handled": True, "replied_at": now_iso(), "reply": message}})
     return {"ok": True}
 
 

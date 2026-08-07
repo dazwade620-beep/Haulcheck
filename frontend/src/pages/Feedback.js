@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { MessageSquareHeart, Bug, Lightbulb, MessageSquare, Star, Send, Trash2, Loader2, CheckCircle2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { MessageSquareHeart, Bug, Lightbulb, MessageSquare, Star, Send, Trash2, Loader2, CheckCircle2, CheckCheck, RotateCcw, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -54,6 +55,31 @@ export default function Feedback() {
   const remove = async (id) => {
     try { await api.delete(`/feedback/${id}`); setItems((m) => m.filter((x) => x.id !== id)); }
     catch { toast.error("Could not delete"); }
+  };
+
+  const [replyFor, setReplyFor] = useState(null);
+  const [replyMsg, setReplyMsg] = useState("");
+  const [replyBusy, setReplyBusy] = useState(false);
+
+  const toggleHandled = async (m) => {
+    try {
+      const { data } = await api.patch(`/feedback/${m.id}`, { handled: !m.handled });
+      setItems((list) => list.map((x) => (x.id === m.id ? { ...x, handled: data.handled } : x)));
+    } catch { toast.error("Could not update status"); }
+  };
+
+  const openReply = (m) => { setReplyFor(m); setReplyMsg(""); };
+
+  const sendReply = async () => {
+    if (!replyMsg.trim()) return toast.error("Write a reply first");
+    setReplyBusy(true);
+    try {
+      await api.post(`/feedback/${replyFor.id}/reply`, { message: replyMsg.trim() });
+      setItems((list) => list.map((x) => (x.id === replyFor.id ? { ...x, handled: true } : x)));
+      toast.success(`Reply sent to ${replyFor.email}`);
+      setReplyFor(null);
+    } catch (e) { toast.error(e.response?.data?.detail || "Could not send reply"); }
+    setReplyBusy(false);
   };
 
   return (
@@ -140,6 +166,11 @@ export default function Feedback() {
                       <span className={cn("text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5", (CAT_META[m.category] || CAT_META.general).cls)}>
                         {(CAT_META[m.category] || CAT_META.general).label}
                       </span>
+                      {m.handled && (
+                        <span data-testid="feedback-actioned-badge" className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700">
+                          <CheckCheck size={11} /> Actioned
+                        </span>
+                      )}
                       {m.rating ? (
                         <span className="flex items-center gap-0.5 text-amber-400">
                           {[1, 2, 3, 4, 5].map((n) => <Star key={n} size={12} className={n <= m.rating ? "fill-amber-400" : "text-slate-200"} />)}
@@ -149,6 +180,21 @@ export default function Feedback() {
                     </div>
                     {m.subject && <p className="font-semibold text-slate-900 text-sm mt-2">{m.subject}</p>}
                     <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{m.message}</p>
+                    {user?.is_admin && (
+                      <div className="flex items-center gap-2 mt-3">
+                        <button data-testid="feedback-toggle-handled" onClick={() => toggleHandled(m)}
+                          className={cn("inline-flex items-center gap-1.5 text-xs font-semibold rounded-md px-2.5 py-1.5 transition-colors",
+                            m.handled ? "text-slate-500 hover:bg-slate-100" : "bg-emerald-600 text-white hover:bg-emerald-700")}>
+                          {m.handled ? <><RotateCcw size={13} /> Reopen</> : <><CheckCheck size={13} /> Mark actioned</>}
+                        </button>
+                        {m.email && (
+                          <button data-testid="feedback-reply" onClick={() => openReply(m)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold rounded-md px-2.5 py-1.5 border border-slate-300 text-slate-700 hover:bg-slate-50 transition-colors">
+                            <Mail size={13} /> Reply
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <span className="text-[11px] text-slate-400">{(m.created_at || "").slice(0, 10)}</span>
@@ -160,6 +206,30 @@ export default function Feedback() {
           </div>
         </div>
       )}
+
+      <Dialog open={!!replyFor} onOpenChange={(o) => !o && setReplyFor(null)}>
+        <DialogContent className="max-w-lg" data-testid="feedback-reply-dialog">
+          <DialogHeader>
+            <DialogTitle>Reply to feedback</DialogTitle>
+            <DialogDescription>
+              We'll email {replyFor?.name || "the sender"} at {replyFor?.email}. Their original message is quoted below your reply.
+            </DialogDescription>
+          </DialogHeader>
+          {replyFor?.message && (
+            <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md p-3 whitespace-pre-wrap max-h-28 overflow-y-auto">
+              {replyFor.message}
+            </div>
+          )}
+          <Textarea data-testid="feedback-reply-message" value={replyMsg} onChange={(e) => setReplyMsg(e.target.value)} rows={6}
+            placeholder="Type your reply…" className="mt-1" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReplyFor(null)} data-testid="feedback-reply-cancel">Cancel</Button>
+            <Button onClick={sendReply} disabled={replyBusy} data-testid="feedback-reply-send" className="bg-slate-900 hover:bg-slate-800 gap-2">
+              {replyBusy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} Send reply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

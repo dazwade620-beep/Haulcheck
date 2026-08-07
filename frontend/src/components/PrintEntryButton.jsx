@@ -14,17 +14,22 @@ import {
  * Props:
  *  - kind: entry type key (e.g. "walkaround", "defect", "service")
  *  - id: record id
- *  - hasFiles: show "PDF + attachments" option when the entry has uploads
+ *  - url: optional explicit endpoint (overrides /print/{kind}/{id}) — used for bulk/vehicle packs
+ *  - downloadName: optional download filename
+ *  - filesLabel: label for the include-files option (default "PDF + attachments")
+ *  - hasFiles: show the include-files option
  *  - variant: "button" (default) or "icon"
  *  - label: button label (default "Print")
  */
-export function PrintEntryButton({ kind, id, hasFiles = false, variant = "button", label = "Print", testidPrefix = "" }) {
+export function PrintEntryButton({ kind, id, url, downloadName, filesLabel = "PDF + attachments", hasFiles = false, variant = "button", label = "Print", testidPrefix = "" }) {
   const [busy, setBusy] = useState(false);
   const tp = testidPrefix || `print-${kind}`;
 
   const fetchPdf = async (includeFiles) => {
-    const qs = includeFiles ? "?include_files=true" : "";
-    const res = await api.get(`/print/${kind}/${id}${qs}`, { responseType: "blob" });
+    const base = url || `/print/${kind}/${id}`;
+    const sep = base.includes("?") ? "&" : "?";
+    const full = includeFiles ? `${base}${sep}include_files=true` : base;
+    const res = await api.get(full, { responseType: "blob" });
     return URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
   };
 
@@ -56,7 +61,7 @@ export function PrintEntryButton({ kind, id, hasFiles = false, variant = "button
       const url = await fetchPdf(includeFiles);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${kind}-${id}.pdf`;
+      a.download = downloadName || `${kind}-${id}.pdf`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch { toast.error("Could not download PDF"); }
@@ -87,7 +92,7 @@ export function PrintEntryButton({ kind, id, hasFiles = false, variant = "button
         </DropdownMenuItem>
         {hasFiles && (
           <DropdownMenuItem data-testid={`${tp}-download-files`} onClick={() => doDownload(true)} className="gap-2 cursor-pointer">
-            <Paperclip size={15} /> PDF + attachments
+            <Paperclip size={15} /> {filesLabel}
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

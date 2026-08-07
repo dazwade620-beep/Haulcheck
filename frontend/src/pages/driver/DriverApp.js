@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import {
   Truck, ClipboardCheck, AlertTriangle, IdCard, FileText, ScanSearch, LogOut,
   Check, X, ChevronLeft, Loader2, Camera, ShieldCheck, ChevronRight, Gauge,
-  Download, Share, Plus, CalendarRange, MapPin, Play, StopCircle,
+  Download, Share, Plus, CalendarRange, MapPin, Play, StopCircle, Lock,
 } from "lucide-react";
 
 const STATUS = {
@@ -267,15 +267,26 @@ function DriverHome({ driver, go, logout }) {
           </div>
           <button data-testid="driver-logout-button" onClick={logout} className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center active:scale-95"><LogOut size={18} /></button>
         </div>
-        <button
-          data-testid="driver-switch-vehicle-chip"
-          onClick={() => go("switch")}
-          className="mt-4 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 active:scale-[0.98] transition-transform"
-        >
-          <Truck size={16} className="text-slate-400" />
-          <span className="font-mono font-bold tracking-wide">{driver.assigned_vehicle_reg || "Choose vehicle"}</span>
-          <span className="text-xs font-semibold text-emerald-300 ml-1">Switch</span>
-        </button>
+        {driver.vehicle_locked ? (
+          <div
+            data-testid="driver-vehicle-locked-chip"
+            className="mt-4 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2"
+          >
+            <Truck size={16} className="text-slate-400" />
+            <span className="font-mono font-bold tracking-wide">{driver.assigned_vehicle_reg || "Not assigned"}</span>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-400 ml-1"><Lock size={12} /> Locked</span>
+          </div>
+        ) : (
+          <button
+            data-testid="driver-switch-vehicle-chip"
+            onClick={() => go("switch")}
+            className="mt-4 inline-flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 active:scale-[0.98] transition-transform"
+          >
+            <Truck size={16} className="text-slate-400" />
+            <span className="font-mono font-bold tracking-wide">{driver.assigned_vehicle_reg || "Choose vehicle"}</span>
+            <span className="text-xs font-semibold text-emerald-300 ml-1">Switch</span>
+          </button>
+        )}
       </div>
       <div className="px-4 pb-1"><ShiftTracker driver={driver} /></div>
       <div className="px-4 space-y-3 mt-3">
