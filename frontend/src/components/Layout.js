@@ -32,6 +32,7 @@ export default function Layout({ children }) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [auditOpen, setAuditOpen] = useState(false);
+  const [sharedUnseen, setSharedUnseen] = useState(0);
 
   const handleExitViewAs = async () => {
     await exitViewAs();
@@ -66,6 +67,21 @@ export default function Layout({ children }) {
   useEffect(() => {
     document.title = unread > 0 ? `(${unread}) HaulCheck — Defect alerts` : "HaulCheck";
   }, [unread]);
+
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const { data } = await api.get("/global-docs/unseen-count");
+        if (active) setSharedUnseen(data.count || 0);
+      } catch { /* ignore */ }
+    };
+    poll();
+    const onSeen = () => setSharedUnseen(0);
+    window.addEventListener("shared-docs-seen", onSeen);
+    const t = setInterval(poll, 60000);
+    return () => { active = false; clearInterval(t); window.removeEventListener("shared-docs-seen", onSeen); };
+  }, []);
 
   const RegionSwitcher = () => (
     <div className="px-4 pb-3" data-testid="region-switcher">
@@ -111,6 +127,9 @@ export default function Layout({ children }) {
           {item.label}
           {item.id === "dashboard" && unread > 0 && (
             <span data-testid="nav-alert-badge" className="ml-auto bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{unread}</span>
+          )}
+          {item.id === "office" && sharedUnseen > 0 && (
+            <span data-testid="nav-shared-badge" className="ml-auto bg-red-600 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">{sharedUnseen}</span>
           )}
         </NavLink>
       ))}

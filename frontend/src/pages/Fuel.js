@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Pencil, Fuel as FuelIcon, Gauge, Leaf, PoundSterling, Droplet, FileDown } from "lucide-react";
+import { Trash2, Pencil, Fuel as FuelIcon, Gauge, Leaf, PoundSterling, Droplet, FileDown, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 
@@ -83,6 +83,13 @@ export function FuelPanel() {
   };
 
   const t = summary.totals || {};
+  const ranked = [...(summary.vehicles || [])].sort((a, b) => {
+    const am = a.avg_mpg, bm = b.avg_mpg;
+    if (am == null && bm == null) return 0;
+    if (am == null) return 1;
+    if (bm == null) return -1;
+    return bm - am;
+  });
   const filtered = items.filter((r) => tab === "all" || (r.fill_type || "diesel") === tab);
   const isAdblueForm = form.fill_type === "adblue";
 
@@ -129,22 +136,38 @@ export function FuelPanel() {
         </div>
       </div>
 
-      {summary.vehicles?.length > 0 && (
+      {ranked.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-md overflow-hidden mb-6" data-testid="fuel-league">
-          <div className="px-5 py-3 border-b border-slate-100"><h3 className="font-heading font-bold text-sm tracking-tight">Per-vehicle efficiency ({terms.authority}){(econ.from_date || econ.to_date) ? ` · ${econ.from_date || "start"} → ${econ.to_date || "today"}` : ""}</h3></div>
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+            <Trophy size={16} className="text-amber-500" />
+            <h3 className="font-heading font-bold text-sm tracking-tight">Economy Leaderboard ({terms.authority}){(econ.from_date || econ.to_date) ? ` · ${econ.from_date || "start"} → ${econ.to_date || "today"}` : ""}</h3>
+            <span className="ml-auto text-[11px] text-slate-400 font-semibold uppercase tracking-wider hidden sm:inline">Most efficient first</span>
+          </div>
           <div className="divide-y divide-slate-100">
-            {summary.vehicles.map((v) => (
-              <div key={v.vehicle_reg} data-testid="fuel-vehicle-row" className="flex items-center justify-between px-5 py-2.5 text-sm">
-                <span className="font-semibold text-slate-800">{v.vehicle_reg}</span>
-                <div className="flex items-center gap-5 text-slate-500 text-xs">
-                  <span><b className="text-slate-800 text-sm">{v.avg_mpg ?? "—"}</b> mpg</span>
-                  <span><b className="text-slate-800 text-sm">{v.avg_l_per_100km ?? "—"}</b> L/100km</span>
-                  <span>{v.diesel_litres} L diesel</span>
-                  <span>{v.co2_kg} kg CO₂</span>
-                  <span>{v.cost_per_mile != null ? `${cur}${v.cost_per_mile}/mi` : "—"}</span>
+            {ranked.map((v, i) => {
+              const hasMpg = v.avg_mpg != null;
+              const rank = hasMpg ? i + 1 : null;
+              const medal = rank === 1 ? "bg-amber-100 text-amber-700 border-amber-300"
+                : rank === 2 ? "bg-slate-200 text-slate-700 border-slate-300"
+                : rank === 3 ? "bg-orange-100 text-orange-700 border-orange-300"
+                : "bg-slate-50 text-slate-400 border-slate-200";
+              return (
+                <div key={v.vehicle_reg} data-testid="fuel-vehicle-row" className={`flex items-center justify-between px-5 py-2.5 text-sm ${rank === 1 ? "bg-amber-50/60" : ""}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span data-testid="fuel-rank" className={`inline-flex items-center justify-center w-6 h-6 rounded-full border text-xs font-bold shrink-0 ${medal}`}>{rank ?? "—"}</span>
+                    <span className="font-semibold text-slate-800 truncate">{v.vehicle_reg}</span>
+                    {rank === 1 && <span data-testid="fuel-top-badge" className="text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5 bg-amber-500 text-white hidden sm:inline">Most efficient</span>}
+                  </div>
+                  <div className="flex items-center gap-5 text-slate-500 text-xs">
+                    <span><b className="text-slate-800 text-sm">{v.avg_mpg ?? "—"}</b> mpg</span>
+                    <span><b className="text-slate-800 text-sm">{v.avg_l_per_100km ?? "—"}</b> L/100km</span>
+                    <span>{v.diesel_litres} L diesel</span>
+                    <span>{v.co2_kg} kg CO₂</span>
+                    <span>{v.cost_per_mile != null ? `${cur}${v.cost_per_mile}/mi` : "—"}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

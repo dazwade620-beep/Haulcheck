@@ -34,7 +34,10 @@ function SharedDocs() {
   const [busy, setBusy] = useState(false);
 
   const load = async () => { try { const r = await api.get("/global-docs"); setItems(r.data); } catch { /* ignore */ } };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.post("/global-docs/mark-seen").then(() => window.dispatchEvent(new Event("shared-docs-seen"))).catch(() => {});
+  }, []);
 
   const save = async (e) => {
     e.preventDefault();

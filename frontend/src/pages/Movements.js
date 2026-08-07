@@ -5,11 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ship, Plus, Trash2, Pencil, ExternalLink, ArrowRight, ArrowLeft, MapPin, Truck, User as UserIcon, Anchor } from "lucide-react";
+import { Ship, Plus, Trash2, Pencil, ExternalLink, ArrowRight, ArrowLeft, MapPin, Truck, User as UserIcon, Anchor, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
 import { PrintEntryButton } from "@/components/PrintEntryButton";
+import { downloadPdf } from "@/lib/download";
 
 const HMRC_URL = "https://www.gov.uk/log-in-hmrc-goods-vehicle-movement-service";
 const empty = { movement_date: "", direction: "export", vehicle_reg: "", trailer_ref: "", driver_name: "", gmr_reference: "", route: "", ferry_operator: "", status: "planned", notes: "", attachments: [] };
@@ -28,6 +29,19 @@ export default function Movements() {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(empty);
   const [busy, setBusy] = useState(false);
+  const [packOpen, setPackOpen] = useState(false);
+  const [pack, setPack] = useState({ from_date: "", to_date: "" });
+  const [packing, setPacking] = useState(false);
+
+  const downloadPack = async () => {
+    setPacking(true);
+    const params = new URLSearchParams();
+    if (pack.from_date) params.set("from_date", pack.from_date);
+    if (pack.to_date) params.set("to_date", pack.to_date);
+    const ok = await downloadPdf(`/movements/pack${params.toString() ? `?${params}` : ""}`, "border-movements-pack.pdf");
+    if (ok) { toast.success("Movement pack downloaded"); setPackOpen(false); }
+    setPacking(false);
+  };
 
   const load = async () => {
     const [m, v, d, o] = await Promise.all([
@@ -76,6 +90,9 @@ export default function Movements() {
             className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
             Open HMRC <ExternalLink size={14} />
           </a>
+          {items.length > 0 && (
+            <Button data-testid="movements-pack-button" variant="outline" onClick={() => { setPack({ from_date: "", to_date: "" }); setPackOpen(true); }} className="rounded-md gap-2 border-slate-300"><FileDown size={16} /> Download pack</Button>
+          )}
           <Button data-testid="add-movement-button" onClick={openNew} className="bg-slate-900 hover:bg-slate-800 rounded-md gap-2"><Plus size={16} /> Log movement</Button>
         </div>
       </div>
@@ -187,6 +204,22 @@ export default function Movements() {
             </div>
             <DialogFooter><Button data-testid="save-movement-button" type="submit" disabled={busy} className="bg-slate-900 hover:bg-slate-800">{busy ? "Saving…" : editId ? "Save changes" : "Log movement"}</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={packOpen} onOpenChange={setPackOpen}>
+        <DialogContent className="max-w-md" data-testid="movements-pack-dialog">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Download movement pack</DialogTitle>
+            <DialogDescription>One combined, audit-ready PDF of every border movement. Leave dates blank for all movements, or pick a range.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="From date"><Input data-testid="pack-from" type="date" value={pack.from_date} onChange={(e) => setPack({ ...pack, from_date: e.target.value })} /></Field>
+            <Field label="To date"><Input data-testid="pack-to" type="date" value={pack.to_date} onChange={(e) => setPack({ ...pack, to_date: e.target.value })} /></Field>
+          </div>
+          <DialogFooter>
+            <Button data-testid="pack-download-button" onClick={downloadPack} disabled={packing} className="bg-slate-900 hover:bg-slate-800 gap-2"><FileDown size={16} /> {packing ? "Building…" : "Download PDF"}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

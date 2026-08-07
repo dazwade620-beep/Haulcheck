@@ -1,0 +1,29 @@
+{
+  "summary": "Verified all 3 wired-up features end-to-end (backend + frontend): Movement Pack, Shared Doc Alerts (unseen badge), and Fuel Economy Leaderboard. Backend: 11/11 pytest tests passed. Frontend: Playwright verified data-testids and UI states across /movements, sidebar badge on Office, and Fleet > Fuel & Emissions leaderboard.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Fleet > Fuel & Emissions", "issues": ["Task description says 'Office → Fuel tab' but Fuel & Emissions actually lives under Fleet (Vehicles.js). Just a doc mismatch — feature works correctly."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_movement_pack_shared_docs_fuel.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 6873 lines — should be split into modules per resource for maintainability (existing debt, not from this iteration).",
+    "FuelInput has no strict positivity/coherence validation (e.g. odometer monotonic per vehicle) — currently _enrich_fuel skips MPG when odometer decreases which is safe, but consider surfacing validation errors."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_movement_pack_shared_docs_fuel.py"
+  ],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (all data-testids present, flows work)"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234!",
+  "seed_data_creation": "3 movements (TEST-MV1/2, GMR-T1/T2/T3), 1 admin global-doc (TEST_UIBadge_*, TEST_SharedDoc), 2 vehicles (TEST-FV1/2) and 4 diesel fuel fills seeded via API. Leaderboard shows TEST-FV1 rank 1 (72.7 mpg, Most Efficient badge) and TEST-FV2 rank 2 (18.2 mpg).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 3 features (Movement Pack, Shared Doc Alerts badge, Fuel Economy Leaderboard) fully verified. Backend Fuel input fields are: vehicle_reg, fill_type ('diesel'|'adblue'), fill_date, litres, cost, odometer (miles for UK region). Note: FuelPanel is exported from pages/Fuel.js and rendered inside Vehicles.js under the Fleet route (/vehicles), NOT Office. Sidebar badge uses [data-testid=nav-shared-badge] and clears immediately via window 'shared-docs-seen' event when Compliance Docs tab is opened. Test data prefixed TEST_ remains in DB for future runs."
+}
