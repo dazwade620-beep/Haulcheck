@@ -4841,6 +4841,21 @@ async def download_global_doc_file(file_id: str, request: Request, auth: Optiona
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"'})
 
 
+@api_router.get("/global-docs/unseen-count")
+async def global_docs_unseen(user: User = Depends(get_current_user)):
+    u = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "shared_docs_seen_at": 1}) or {}
+    seen = u.get("shared_docs_seen_at")
+    q = {"created_at": {"$gt": seen}} if seen else {}
+    return {"count": await db.global_docs.count_documents(q)}
+
+
+@api_router.post("/global-docs/mark-seen")
+async def global_docs_mark_seen(user: User = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user.user_id}, {"$set": {"shared_docs_seen_at": now_iso()}})
+    return {"ok": True}
+
+
+
 # ---------- Border Movements / GMR log ----------
 @api_router.get("/movements")
 async def list_movements(user: User = Depends(get_current_user)):
@@ -4872,6 +4887,39 @@ async def update_movement(mid: str, data: BorderMovementInput, user: User = Depe
 async def delete_movement(mid: str, user: User = Depends(get_current_user)):
     await db.movements.delete_one({"id": mid, "user_id": user.user_id})
     return {"ok": True}
+
+
+@api_router.get("/movements/pack")
+async def movements_pack(from_date: Optional[str] = Query(None), to_date: Optional[str] = Query(None),
+                         format: str = Query("pdf"), user: User = Depends(get_current_user)):
+    """One combined branded PDF of all border movements in a date range — audit ready."""
+    docs = await db.movements.find({"user_id": user.user_id}, {"_id": 0}).sort("movement_date", -1).to_list(5000)
+    if from_date:
+        docs = [d for d in docs if (d.get("movement_date") or "") >= from_date]
+    if to_date:
+        docs = [d for d in docs if (d.get("movement_date") or "") <= to_date]
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
+    period = f"{from_date or 'start'} → {to_date or 'today'}"
+    exports = sum(1 for d in docs if d.get("direction") != "import")
+    imports = sum(1 for d in docs if d.get("direction") == "import")
+    completed = sum(1 for d in docs if d.get("status") == "completed")
+    rows = [{"cells": [d.get("movement_date") or "—", (d.get("direction") or "").title(), d.get("gmr_reference") or "—",
+                       d.get("vehicle_reg") or "—", d.get("driver_name") or "—", d.get("route") or "—",
+                       d.get("ferry_operator") or "—", (d.get("status") or "").title()]} for d in docs]
+    if format == "json":
+        return {"count": len(docs), "period": period, "exports": exports, "imports": imports, "completed": completed}
+    sections = [
+        {"heading": "Summary", "type": "kv", "pairs": [
+            ("Period", period), ("Total movements", len(docs)),
+            ("Exports", exports), ("Imports", imports), ("Completed", completed)]},
+        {"heading": "Movements", "columns": ["Date", "Direction", "GMR", "Vehicle", "Driver", "Route", "Ferry", "Status"], "rows": rows},
+    ]
+    full_meta = [("Operator", operator.get("company_name", "")), ("Period", period), ("Movements", len(docs))]
+    pdf = await asyncio.to_thread(build_report_pdf, "Border Movements Pack", period, full_meta, sections,
+                                  await _get_logo_bytes(user.user_id, operator), authority)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="border-movements-pack.pdf"'})
 
 
 @api_router.get("/job-cards")
