@@ -23,6 +23,7 @@ import Tracking from "@/pages/Tracking";
 import Contact from "@/pages/Contact";
 import About from "@/pages/About";
 import Feedback from "@/pages/Feedback";
+import Movements from "@/pages/Movements";
 import { Truck } from "lucide-react";
 
 function Protected({ children }) {
@@ -71,6 +72,7 @@ function AppRouter() {
       <Route path="/documents" element={<Navigate to="/office" replace />} />
       <Route path="/reminders" element={<Protected><Reminders /></Protected>} />
       <Route path="/feedback" element={<Protected><Feedback /></Protected>} />
+      <Route path="/movements" element={<Protected><Movements /></Protected>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

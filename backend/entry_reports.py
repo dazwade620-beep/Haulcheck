@@ -280,6 +280,26 @@ def document(rec, region):
     return title, subtitle, meta, sections
 
 
+def movement(rec, region):
+    title = "Border Movement (GMR)"
+    subtitle = f"{rec.get('vehicle_reg', '—')} · {rec.get('movement_date') or ''}"
+    meta = [("Vehicle", rec.get("vehicle_reg")), ("Direction", (rec.get("direction") or "").title()),
+            ("GMR reference", rec.get("gmr_reference"))]
+    sections = [{"heading": "Movement detail", "type": "kv", "pairs": [
+        ("Movement date", rec.get("movement_date")),
+        ("Direction", (rec.get("direction") or "").title()),
+        ("GMR reference", rec.get("gmr_reference")),
+        ("Vehicle", rec.get("vehicle_reg")),
+        ("Trailer", rec.get("trailer_ref")),
+        ("Driver", rec.get("driver_name")),
+        ("Route / crossing", rec.get("route")),
+        ("Ferry / tunnel operator", rec.get("ferry_operator")),
+        ("Status", (rec.get("status") or "").title()),
+        ("Notes", rec.get("notes")),
+    ]}]
+    return title, subtitle, meta, sections
+
+
 def fuel(rec, region):
     t = _terms(region)
     title = "Fuel / AdBlue Fill"
@@ -312,4 +332,5 @@ ENTRY_SPECS = {
     "compliance-doc": ("compliance_docs", compliance_doc, "compliance-doc"),
     "document": ("documents", document, "document"),
     "fuel": ("fuel", fuel, "fuel"),
+    "movement": ("movements", movement, "border-movement"),
 }

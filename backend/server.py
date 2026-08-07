@@ -975,6 +975,37 @@ class GlobalDocInput(BaseModel):
     attachments: List[Attachment] = []
 
 
+class BorderMovement(BaseModel):
+    id: str = Field(default_factory=lambda: f"mv_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    movement_date: Optional[str] = None
+    direction: str = "export"  # export | import
+    vehicle_reg: str = ""
+    trailer_ref: str = ""
+    driver_name: str = ""
+    gmr_reference: str = ""
+    route: str = ""
+    ferry_operator: str = ""
+    status: str = "planned"  # planned | completed
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class BorderMovementInput(BaseModel):
+    movement_date: Optional[str] = None
+    direction: str = "export"
+    vehicle_reg: str = ""
+    trailer_ref: str = ""
+    driver_name: str = ""
+    gmr_reference: str = ""
+    route: str = ""
+    ferry_operator: str = ""
+    status: str = "planned"
+    notes: str = ""
+    attachments: List[Attachment] = []
+
+
 class RecallRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"rcl_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -4808,6 +4839,39 @@ async def download_global_doc_file(file_id: str, request: Request, auth: Optiona
     data, ct = get_object(rec["storage_path"])
     return Response(content=data, media_type=rec.get("content_type") or ct,
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"'})
+
+
+# ---------- Border Movements / GMR log ----------
+@api_router.get("/movements")
+async def list_movements(user: User = Depends(get_current_user)):
+    return await db.movements.find({"user_id": user.user_id}, {"_id": 0}).sort("movement_date", -1).to_list(2000)
+
+
+@api_router.post("/movements")
+async def create_movement(data: BorderMovementInput, user: User = Depends(get_current_user)):
+    payload = data.model_dump()
+    if not (payload.get("gmr_reference") or "").strip():
+        op = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0, "gmr_reference": 1}) or {}
+        payload["gmr_reference"] = op.get("gmr_reference", "")
+    mv = BorderMovement(**payload, user_id=user.user_id)
+    await db.movements.insert_one(mv.model_dump())
+    return mv.model_dump()
+
+
+@api_router.put("/movements/{mid}")
+async def update_movement(mid: str, data: BorderMovementInput, user: User = Depends(get_current_user)):
+    existing = await db.movements.find_one({"id": mid, "user_id": user.user_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Movement not found")
+    mv = BorderMovement(**data.model_dump(), id=mid, user_id=user.user_id, created_at=existing.get("created_at", now_iso()))
+    await db.movements.replace_one({"id": mid, "user_id": user.user_id}, mv.model_dump())
+    return mv.model_dump()
+
+
+@api_router.delete("/movements/{mid}")
+async def delete_movement(mid: str, user: User = Depends(get_current_user)):
+    await db.movements.delete_one({"id": mid, "user_id": user.user_id})
+    return {"ok": True}
 
 
 @api_router.get("/job-cards")

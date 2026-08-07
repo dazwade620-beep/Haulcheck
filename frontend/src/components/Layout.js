@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye, MapPin, Info, MessageSquareHeart } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye, MapPin, Info, MessageSquareHeart, Ship } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/office", label: "Office", icon: Briefcase, id: "office" },
   { to: "/tacho", label: "Tacho Portal", icon: Gauge, id: "tacho" },
   { to: "/tracking", label: "Tracking", icon: MapPin, id: "tracking", when: (u) => u?.role === "manager" || u?.is_admin },
+  { to: "/movements", label: "Movements", icon: Ship, id: "movements" },
   { to: "/reminders", label: "Reminders", icon: Bell, id: "reminders" },
   { to: "/team", label: "Team", icon: UserPlus, id: "team" },
   { to: "/admin", label: "Admin", icon: ShieldCheck, id: "admin", when: (u) => u?.is_admin, variant: "admin" },
