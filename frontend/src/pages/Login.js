@@ -274,7 +274,8 @@ export default function Login() {
           </>
           )}
           <p className="text-center text-sm text-slate-400 mt-6">
-            Questions?{" "}
+            <a data-testid="about-us-link" href="/about" className="font-semibold text-slate-600 hover:text-slate-900 underline underline-offset-4">About HaulCheck</a>
+            {" · "}
             <a data-testid="contact-us-link" href="/contact" className="font-semibold text-slate-600 hover:text-slate-900 underline underline-offset-4">Contact us</a>
           </p>
           </>

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye, MapPin } from "lucide-react";
+import { LayoutDashboard, Truck, Users, LogOut, Menu, X, CalendarDays, Globe, Gauge, Building2, Bell, Wrench, Briefcase, UserPlus, FileText, Mail, ShieldCheck, Eye, MapPin, Info } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,7 @@ const NAV = [
   { to: "/team", label: "Team", icon: UserPlus, id: "team" },
   { to: "/admin", label: "Admin", icon: ShieldCheck, id: "admin", when: (u) => u?.is_admin, variant: "admin" },
   { to: "/contact", label: "Contact", icon: Mail, id: "contact" },
+  { to: "/about", label: "About", icon: Info, id: "about" },
 ];
 
 export default function Layout({ children }) {

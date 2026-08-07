@@ -52,9 +52,12 @@ export default function Contact() {
             <Truck size={24} />
             <span className="font-heading font-black text-lg tracking-tight">HAULCHECK</span>
           </Link>
-          <Link to={loggedIn ? "/dashboard" : "/login"} className="text-sm font-semibold text-slate-200 hover:text-white" data-testid="contact-signin-link">
-            {loggedIn ? "Back to app" : "Sign in"}
-          </Link>
+          <div className="flex items-center gap-5">
+            <Link to="/about" className="text-sm font-semibold text-slate-300 hover:text-white" data-testid="contact-about-link">About</Link>
+            <Link to={loggedIn ? "/dashboard" : "/login"} className="text-sm font-semibold text-slate-200 hover:text-white" data-testid="contact-signin-link">
+              {loggedIn ? "Back to app" : "Sign in"}
+            </Link>
+          </div>
         </div>
       </header>
 
