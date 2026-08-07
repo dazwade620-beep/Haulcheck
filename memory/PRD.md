@@ -1,3 +1,12 @@
+## Feature (2026-08 fork pt.26 — Everything printable: per-entry branded PDF + Print on every record) — VERIFIED (testing_agent iter 49, 100%)
+- User: "make every entry printable" for a paper trail; wants BOTH branded PDF download AND browser Print; start with daily checks.
+- **Backend**: new `/app/backend/entry_reports.py` with formatters + `ENTRY_SPECS` for 13 kinds (walkaround, defect, service, repair, wheel, training, insurance, tacho, recall, prohibition, compliance-doc, document, fuel). New universal endpoint `GET /api/print/{kind}/{entry_id}?include_files=&format=` in server.py (near `_norm_reg`): fetches record (scoped to user_id), formats via registry, builds branded PDF via `build_report_pdf` (operator name + logo + region authority), optionally merges attachments (`merge_pack`); `format=json` returns structured data; unknown kind/id → 404.
+- **Frontend**: reusable `/app/frontend/src/components/PrintEntryButton.jsx` — dropdown with **Print** (fetches PDF blob → hidden iframe → window.print()), **Download PDF**, and **PDF + attachments** (when hasFiles). Testids `print-{kind}-trigger|print|download|download-files`. Icon variant added next to the delete button on: Walkaround (daily checks), Defects, Service, Repairs, WheelSecurity, Training, Insurance, Tacho, Prohibitions, ComplianceDocs, Documents, Fuel, and RecallCard.
+- Note: PMI inspection sheets, weekly walkaround sheets, job cards, fuel report, timesheets, section reports, vehicle history + full audit pack were ALREADY printable (pre-existing endpoints) — untouched.
+- Verified: iter 49 backend 18/18 pass (kinds w/o seed data skipped — same code path), 404s correct, json/include_files work; all pages render; daily-check menu shows Print + Download PDF.
+- NOTE: PREVIEW verified — live (haulcheck.co.uk) needs Save-to-GitHub → Deploy.
+
+
 ## Feature (2026-08 fork pt.25 — Trip Vehicle Log: which vehicle each driver used per day + swaps in Tracking) — VERIFIED (curl e2e + screenshot)
 - Builds on pt.24 vehicle switching. New collection `driver_vehicle_log` (docs keyed by driver_id+date+registration; fields id/user_id/driver_id/driver_name/registration/date/first_at/last_at). Helper `_log_vehicle_use(user_id, driver_id, name, reg)` upserts (idempotent per driver/date/reg, updates last_at).
 - Logged from driver actions: `POST /driver/active-vehicle` (switch), `/driver/shift/start`, `/driver/walkaround`, `/driver/defect`, `/driver/weekly-walkaround/day`. Multiple regs on one day = a swap.
