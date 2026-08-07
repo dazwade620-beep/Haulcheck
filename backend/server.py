@@ -2157,6 +2157,26 @@ async def raise_job_card_from_alert(aid: str, user: User = Depends(get_current_u
 
 
 # ---------- Driver mobile app (PIN/code auth) ----------
+async def _log_vehicle_use(user_id: str, driver_id: str, driver_name: str, reg: str, when_iso: str = None):
+    """Record that a driver used a given vehicle on a given day (idempotent per driver/date/reg)."""
+    reg = (reg or "").strip()
+    if not reg:
+        return
+    ts = when_iso or now_iso()
+    date = ts[:10]
+    await db.driver_vehicle_log.update_one(
+        {"driver_id": driver_id, "date": date, "registration": reg},
+        {
+            "$setOnInsert": {
+                "id": f"vlog_{uuid.uuid4().hex[:12]}", "user_id": user_id,
+                "driver_id": driver_id, "registration": reg, "date": date, "first_at": ts,
+            },
+            "$set": {"last_at": ts, "driver_name": driver_name or ""},
+        },
+        upsert=True,
+    )
+
+
 def _driver_profile(driver: dict) -> dict:
     return {
         "id": driver["id"], "name": driver.get("name"),
@@ -2237,6 +2257,7 @@ async def driver_set_active_vehicle(payload: dict, driver: dict = Depends(get_cu
         raise HTTPException(status_code=404, detail="That vehicle isn't in your fleet")
     reg = veh["registration"]
     await db.drivers.update_one({"id": driver["id"]}, {"$set": {"assigned_vehicle_reg": reg}})
+    await _log_vehicle_use(driver["user_id"], driver["id"], driver.get("name", ""), reg)
     updated = await db.drivers.find_one({"id": driver["id"]}, {"_id": 0})
     return _driver_profile(updated)
 
@@ -2272,6 +2293,7 @@ async def driver_walkaround(data: WalkaroundInput, driver: dict = Depends(get_cu
         payload["vehicle_reg"] = driver.get("assigned_vehicle_reg", "")
     check = WalkaroundCheck(**payload)
     await db.walkaround_checks.insert_one(check.model_dump())
+    await _log_vehicle_use(driver["user_id"], driver["id"], driver.get("name", ""), check.vehicle_reg)
     if check.result == "defects_found":
         failed = [c.get("item") for c in (check.checklist or []) if not c.get("ok")]
         await create_alert(driver["user_id"], "walkaround_defect", "major",
@@ -2291,6 +2313,7 @@ async def driver_defect(payload: dict, driver: dict = Depends(get_current_driver
         raise HTTPException(status_code=400, detail="Describe the defect")
     d = DefectReport(**{k: v for k, v in payload.items() if k in DefectReport.model_fields})
     await db.defects.insert_one(d.model_dump())
+    await _log_vehicle_use(driver["user_id"], driver["id"], driver.get("name", ""), d.vehicle_reg)
     await create_alert(driver["user_id"], "defect_report", d.severity or "major",
                        f"Defect reported — {d.vehicle_reg}", d.description or "Defect reported by driver",
                        vehicle_reg=d.vehicle_reg, driver_name=d.reported_by, link="/maintenance")
@@ -2474,6 +2497,7 @@ async def driver_shift_start(driver: dict = Depends(get_current_driver)):
     shift = DriverShift(user_id=driver["user_id"], driver_id=driver["id"],
                         driver_name=driver.get("name", ""), vehicle_reg=driver.get("assigned_vehicle_reg", ""))
     await db.driver_shifts.insert_one(shift.model_dump())
+    await _log_vehicle_use(driver["user_id"], driver["id"], driver.get("name", ""), driver.get("assigned_vehicle_reg", ""))
     return shift.model_dump()
 
 
@@ -2511,6 +2535,48 @@ async def require_tracking_view(user: User = Depends(get_current_user)) -> User:
     if user.is_admin or user.role == "manager":
         return user
     raise HTTPException(status_code=403, detail="Only managers and admins can view tracking")
+
+
+@api_router.get("/tracking/vehicle-log")
+async def tracking_vehicle_log(
+    user: User = Depends(require_tracking_view),
+    start: Optional[str] = Query(None), end: Optional[str] = Query(None),
+    driver_id: Optional[str] = Query(None),
+):
+    q = {"user_id": user.user_id}
+    if driver_id:
+        q["driver_id"] = driver_id
+    if start or end:
+        dq = {}
+        if start:
+            dq["$gte"] = start
+        if end:
+            dq["$lte"] = end
+        q["date"] = dq
+    else:
+        cutoff = (datetime.now(timezone.utc).date() - timedelta(days=13)).isoformat()
+        q["date"] = {"$gte": cutoff}
+    entries = await db.driver_vehicle_log.find(q, {"_id": 0}).to_list(5000)
+    groups = {}
+    for e in entries:
+        key = (e["date"], e["driver_id"])
+        g = groups.setdefault(key, {
+            "date": e["date"], "driver_id": e["driver_id"],
+            "driver_name": e.get("driver_name", ""), "vehicles": [],
+        })
+        if e.get("driver_name"):
+            g["driver_name"] = e["driver_name"]
+        g["vehicles"].append({
+            "registration": e["registration"],
+            "first_at": e.get("first_at"), "last_at": e.get("last_at"),
+        })
+    rows = []
+    for g in groups.values():
+        g["vehicles"].sort(key=lambda v: v.get("first_at") or "")
+        g["swap"] = len(g["vehicles"]) > 1
+        rows.append(g)
+    rows.sort(key=lambda r: (r["date"], r["driver_name"]), reverse=True)
+    return {"rows": rows}
 
 
 @api_router.get("/tracking/live")
@@ -4979,6 +5045,7 @@ async def driver_submit_weekly_day(data: WeeklyDayInput, driver: dict = Depends(
     reg = data.vehicle_reg or driver.get("assigned_vehicle_reg", "")
     today = datetime.now(timezone.utc).date()
     dk = WEEK_DAYS[today.weekday()]
+    await _log_vehicle_use(driver["user_id"], driver["id"], driver.get("name", ""), reg)
     rec = await _get_active_weekly(driver["user_id"], reg, driver.get("name", ""))
     days = rec.get("days") or {}
     failed = [c.get("item") for c in data.checklist if not c.get("ok", True)]

@@ -1,3 +1,12 @@
+## Feature (2026-08 fork pt.25 — Trip Vehicle Log: which vehicle each driver used per day + swaps in Tracking) — VERIFIED (curl e2e + screenshot)
+- Builds on pt.24 vehicle switching. New collection `driver_vehicle_log` (docs keyed by driver_id+date+registration; fields id/user_id/driver_id/driver_name/registration/date/first_at/last_at). Helper `_log_vehicle_use(user_id, driver_id, name, reg)` upserts (idempotent per driver/date/reg, updates last_at).
+- Logged from driver actions: `POST /driver/active-vehicle` (switch), `/driver/shift/start`, `/driver/walkaround`, `/driver/defect`, `/driver/weekly-walkaround/day`. Multiple regs on one day = a swap.
+- Manager endpoint `GET /api/tracking/vehicle-log?start=&end=&driver_id=` (require_tracking_view; managers/admins only, staff/viewer 403). Groups entries by (date, driver) → rows `{date, driver_id, driver_name, vehicles:[{registration, first_at, last_at}], swap}` sorted date desc. Defaults to last 14 days.
+- Frontend Tracking.js: new **"Vehicle log"** tab (`tracking-tab-vehiclelog`, `tracking-vehicle-log`) with Driver + date-range filters. Each `vlog-row` shows date, driver, the vehicle chips (with first-seen time) joined by an amber swap arrow, and a `vlog-swap-badge` "Swapped" tag when >1 vehicle that day.
+- Verified: two switches in a day → API returns swap:true with 2 vehicles; UI row shows BX20 XYZ → AB12 CDE + SWAPPED badge.
+- NOTE: PREVIEW verified — live (haulcheck.co.uk) needs Save-to-GitHub → Deploy.
+
+
 ## Feature (2026-08 fork pt.24 — Driver app: switch/pick which vehicle they're driving) — VERIFIED (curl e2e + screenshots)
 - **Problem**: drivers who swap trucks could only see the manager-assigned vehicle; no way to change it in the driver PWA. (Backend already accepted `vehicle_reg` on submissions — this was purely a missing UI + a way to persist the choice.)
 - **Backend** (server.py): `GET /api/driver/vehicles` now returns objects `{registration, make, model, type}` (excludes sold + blank regs, deduped case-insensitively). New `POST /api/driver/active-vehicle {registration}` validates the reg belongs to the account fleet (case-insensitive regex, 404 if not), persists it to `drivers.assigned_vehicle_reg`, and returns the updated `_driver_profile`. Persisting to assigned_vehicle_reg means EVERY downstream driver endpoint (walkaround, defect, weekly sheet, My Vehicle, shift/GPS) automatically follows the switch — no other backend changes.

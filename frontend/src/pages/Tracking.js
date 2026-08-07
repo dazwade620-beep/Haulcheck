@@ -3,7 +3,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download, FileText, Mail } from "lucide-react";
+import { MapPin, Radio, RefreshCw, Route, Truck, ChevronLeft, Navigation, Clock, Play, Pause, Gauge, Ruler, MapPinned, Plus, Trash2, LogIn, LogOut, CalendarClock, Download, FileText, Mail, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 
@@ -141,6 +141,13 @@ export default function Tracking() {
   const [tsTo, setTsTo] = useState("");
   const [tsLoading, setTsLoading] = useState(false);
 
+  // Vehicle log
+  const [vlogRows, setVlogRows] = useState([]);
+  const [vlogDriver, setVlogDriver] = useState("");
+  const [vlogFrom, setVlogFrom] = useState("");
+  const [vlogTo, setVlogTo] = useState("");
+  const [vlogLoading, setVlogLoading] = useState(false);
+
   const loadLive = useCallback(async () => {
     try { const { data } = await api.get("/tracking/live"); setDrivers(data.drivers || []); } catch { /* ignore */ }
     setLoading(false);
@@ -205,6 +212,21 @@ export default function Tracking() {
   }, [tsDriver, tsFrom, tsTo]);
   useEffect(() => { if (tab === "timesheets") loadTimesheet(); }, [tab, loadTimesheet]);
 
+  // Vehicle log
+  const loadVehicleLog = useCallback(async () => {
+    setVlogLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (vlogDriver) qs.set("driver_id", vlogDriver);
+      if (vlogFrom) qs.set("start", vlogFrom);
+      if (vlogTo) qs.set("end", vlogTo);
+      const { data } = await api.get(`/tracking/vehicle-log${qs.toString() ? `?${qs}` : ""}`);
+      setVlogRows(data.rows || []);
+    } catch { toast.error("Could not load vehicle log"); }
+    setVlogLoading(false);
+  }, [vlogDriver, vlogFrom, vlogTo]);
+  useEffect(() => { if (tab === "vehiclelog") loadVehicleLog(); }, [tab, loadVehicleLog]);
+
   const exportCsv = () => {
     const csv = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const head = ["Driver", "Vehicle", "Date", "Start", "End", "Hours", `Distance (${distU})`, `Top speed (${spdU})`, `Avg speed (${spdU})`, "Points"];
@@ -266,6 +288,7 @@ export default function Tracking() {
           <div className="flex bg-slate-100 rounded-md p-1">
             <button data-testid="tracking-tab-map" onClick={() => setTab("map")} className={`px-3 py-1.5 text-sm font-semibold rounded ${tab === "map" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>Map</button>
             <button data-testid="tracking-tab-timesheets" onClick={() => setTab("timesheets")} className={`px-3 py-1.5 text-sm font-semibold rounded ${tab === "timesheets" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>Timesheets</button>
+            <button data-testid="tracking-tab-vehiclelog" onClick={() => setTab("vehiclelog")} className={`px-3 py-1.5 text-sm font-semibold rounded ${tab === "vehiclelog" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>Vehicle log</button>
           </div>
           {tab === "map" && (
             <button data-testid="tracking-refresh" onClick={() => { loadLive(); loadSites(); }} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 border border-slate-300 rounded-md px-3 py-2"><RefreshCw size={15} /> Refresh</button>
@@ -450,6 +473,54 @@ export default function Tracking() {
                 )}
             </div>
           </div>
+        </div>
+      ) : tab === "vehiclelog" ? (
+        /* ---------------- Vehicle log ---------------- */
+        <div className="bg-white border border-slate-200 rounded-md p-5 animate-in-up" data-testid="tracking-vehicle-log">
+          <div className="flex flex-wrap items-end gap-3 mb-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 mb-1 block">Driver</label>
+              <select data-testid="vlog-driver" value={vlogDriver} onChange={(e) => setVlogDriver(e.target.value)} className="border border-slate-300 rounded-md px-2 py-2 text-sm">
+                <option value="">All drivers</option>
+                {drivers.map((d) => <option key={d.driver_id} value={d.driver_id}>{d.driver_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 mb-1 block">From</label>
+              <input data-testid="vlog-from" type="date" value={vlogFrom} onChange={(e) => setVlogFrom(e.target.value)} className="border border-slate-300 rounded-md px-2 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 mb-1 block">To</label>
+              <input data-testid="vlog-to" type="date" value={vlogTo} onChange={(e) => setVlogTo(e.target.value)} className="border border-slate-300 rounded-md px-2 py-2 text-sm" />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mb-4">Which vehicle each driver used each day. A <span className="text-amber-600 font-semibold">Swapped</span> tag means they changed vehicle during the day.</p>
+          {vlogLoading ? <p className="py-8 text-center text-slate-400">Loading…</p>
+            : vlogRows.length === 0 ? <p className="py-8 text-center text-slate-400">No vehicle activity recorded yet. It builds up as drivers start shifts, switch vehicles or submit checks.</p>
+            : (
+              <div className="space-y-2" data-testid="vlog-list">
+                {vlogRows.map((r) => (
+                  <div key={`${r.date}-${r.driver_id}`} data-testid="vlog-row" className="flex flex-wrap items-center gap-x-4 gap-y-2 border border-slate-200 rounded-md px-4 py-3">
+                    <div className="w-36 shrink-0">
+                      <p className="text-sm font-semibold text-slate-900">{fmtDate(r.date)}</p>
+                    </div>
+                    <div className="w-40 shrink-0 flex items-center gap-1.5 text-sm text-slate-700"><Radio size={13} className="text-slate-400" /> {r.driver_name}</div>
+                    <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
+                      {r.vehicles.map((v, i) => (
+                        <span key={v.registration} className="inline-flex items-center gap-2">
+                          {i > 0 && <ArrowRightLeft size={13} className="text-amber-500" />}
+                          <span className="inline-flex items-center gap-1.5 font-mono font-bold text-sm bg-slate-100 text-slate-800 rounded px-2 py-1">
+                            <Truck size={12} className="text-slate-400" />{v.registration}
+                            <span className="font-sans font-normal text-slate-400 text-xs">{fmtTime(v.first_at)}</span>
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                    {r.swap && <span data-testid="vlog-swap-badge" className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 rounded-full px-2 py-0.5 shrink-0">Swapped</span>}
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
       ) : (
         /* ---------------- Timesheets ---------------- */
