@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { AlertOctagon, ExternalLink, Plus, Trash2, Check, RotateCcw, ShieldCheck } from "lucide-react";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { toast } from "sonner";
 
 const OFFICIAL = {
@@ -97,6 +98,7 @@ export function RecallCard() {
                   className={`text-xs font-semibold rounded-md px-2.5 py-1.5 shrink-0 inline-flex items-center gap-1 transition-colors ${r.status === "actioned" ? "text-slate-500 hover:bg-slate-100" : "bg-green-600 text-white hover:bg-green-700"}`}>
                   {r.status === "actioned" ? <><RotateCcw size={13} /> Reopen</> : <><Check size={13} /> Mark sorted</>}
                 </button>
+                <PrintEntryButton kind="recall" id={r.id} hasFiles={r.attachments?.length > 0} variant="icon" />
                 <button data-testid="recall-delete" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
               </div>
             ))}

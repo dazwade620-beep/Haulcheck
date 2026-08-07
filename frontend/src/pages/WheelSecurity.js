@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -71,7 +72,7 @@ export function WheelSecurityPanel({ embedded = false }) {
                 </div>
                 <div className="flex gap-1">
                   <button data-testid="edit-wheel-audit-button" onClick={() => openEdit(a)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                  <button data-testid="delete-wheel-audit-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                  <div className="flex items-center gap-1"><PrintEntryButton kind="wheel" id={a.id} hasFiles={a.attachments?.length > 0} variant="icon" /><button data-testid="delete-wheel-audit-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button></div>
                 </div>
               </div>
               {a.torque_setting && <p className="text-sm text-slate-600">Torque: <span className="font-semibold">{a.torque_setting}</span></p>}

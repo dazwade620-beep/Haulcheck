@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api, { API } from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -120,7 +121,7 @@ export function DocumentsPanel({ embedded = false }) {
                     <button data-testid="regenerate-document-button" onClick={() => openRegen(d)} title="Edit / regenerate" className="text-slate-400 hover:text-slate-900 p-1"><RefreshCw size={15} /></button>
                   )}
                   <button data-testid="edit-document-button" onClick={() => openEdit(d)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                  <button data-testid="delete-document-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                  <div className="flex items-center gap-1"><PrintEntryButton kind="document" id={d.id} hasFiles={d.attachments?.length > 0} variant="icon" /><button data-testid="delete-document-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button></div>
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between">

@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Field, Empty } from "@/pages/Vehicles";
 import { FileUpload, AttachmentThumbs } from "@/components/FileUpload";
 import { RegFolders, matchesReg } from "@/components/RegFolders";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { ReportDownload } from "@/components/ReportDownload";
 
 export const CHECKLIST = [
@@ -84,7 +85,10 @@ export function WalkaroundPanel({ embedded = false }) {
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">{a.check_date || "—"}{a.driver_name ? ` · ${a.driver_name}` : ""}{a.mileage ? ` · ${a.mileage} mi` : ""}</p>
                 </div>
-                <button data-testid="delete-walkaround-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                <div className="flex items-center gap-1">
+                  <PrintEntryButton kind="walkaround" id={a.id} hasFiles={a.attachments?.length > 0} variant="icon" />
+                  <button data-testid="delete-walkaround-button" onClick={() => remove(a.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                </div>
               </div>
               {a.defects_noted && <p className="text-sm text-slate-500 mt-1">{a.defects_noted}</p>}
               {a.checklist?.length > 0 && (

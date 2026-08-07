@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -114,7 +115,7 @@ export function DefectsPanel({ embedded = false }) {
                       <Wrench size={14} /> Mark rectified
                     </Button>
                   )}
-                  <button data-testid="delete-defect-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button>
+                  <div className="flex items-center gap-1"><PrintEntryButton kind="defect" id={d.id} hasFiles={d.attachments?.length > 0} variant="icon" /><button data-testid="delete-defect-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={16} /></button></div>
                 </div>
               </div>
             </div>

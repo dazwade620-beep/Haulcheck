@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -150,7 +151,7 @@ export default function Tacho() {
               </div>
               <div className="flex gap-1 shrink-0">
                 <button data-testid="edit-tacho-button" onClick={() => openEdit(t)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                <button data-testid="delete-tacho-button" onClick={() => remove(t.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                <div className="flex items-center gap-1"><PrintEntryButton kind="tacho" id={t.id} hasFiles={t.attachments?.length > 0} variant="icon" /><button data-testid="delete-tacho-button" onClick={() => remove(t.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button></div>
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between">

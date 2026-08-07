@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { downloadPdf } from "@/lib/download";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +116,7 @@ export function ProhibitionsPanel() {
                   </div>
                   <div className="flex items-center shrink-0">
                     <button data-testid="edit-prohibition-button" onClick={() => openEdit(p)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={15} /></button>
-                    <button data-testid="delete-prohibition-button" onClick={() => remove(p.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={15} /></button>
+                    <div className="flex items-center gap-1"><PrintEntryButton kind="prohibition" id={p.id} hasFiles={p.attachments?.length > 0} variant="icon" /><button data-testid="delete-prohibition-button" onClick={() => remove(p.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={15} /></button></div>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500">

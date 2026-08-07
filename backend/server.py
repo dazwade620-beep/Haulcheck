@@ -24,6 +24,7 @@ from datetime import datetime, timezone, timedelta
 from pdf_export import build_report_pdf, merge_pack, build_letter_pdf, build_pmi_sheet_pdf, concat_pdfs, build_weekly_walkaround_pdf
 from tacho_engine import parse_ddd, parse_ddd_last_timestamp, detect_ddd_infringements, _DDD_EXTS
 import reports
+import entry_reports
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -3400,6 +3401,35 @@ async def download_report(kind: str, include_files: bool = Query(False), format:
 
 def _norm_reg(s):
     return "".join((s or "").split()).upper()
+
+
+@api_router.get("/print/{kind}/{entry_id}")
+async def print_entry(kind: str, entry_id: str, include_files: bool = Query(False),
+                      format: str = Query("pdf"), user: User = Depends(get_current_user)):
+    """Universal single-entry branded PDF — makes EVERY record printable for a paper trail."""
+    spec = entry_reports.ENTRY_SPECS.get(kind)
+    if not spec:
+        raise HTTPException(status_code=404, detail="Unknown entry type")
+    collection, formatter, slug = spec
+    rec = await db[collection].find_one({"id": entry_id, "user_id": user.user_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    title, subtitle, meta_pairs, sections = formatter(rec, user.region)
+    operator = await db.operator.find_one({"user_id": user.user_id}, {"_id": 0}) or {}
+    authority = "RSA (Ireland)" if user.region == "IE" else "EU (Tachograph & Roadworthiness)" if user.region == "EU" else "DVSA (UK)"
+    fids = [a["file_id"] for a in (rec.get("attachments") or []) if a.get("file_id")]
+    if format == "json":
+        return {"title": title, "subtitle": subtitle, "operator": operator.get("company_name", ""),
+                "authority": authority, "generated": datetime.now(timezone.utc).isoformat(),
+                "has_files": bool(fids), "meta": meta_pairs, "sections": sections}
+    full_meta = [("Operator", operator.get("company_name", ""))] + list(meta_pairs)
+    pdf = await asyncio.to_thread(build_report_pdf, title, subtitle, full_meta, sections,
+                                  await _get_logo_bytes(user.user_id, operator), authority)
+    if include_files and fids:
+        pdf = await asyncio.to_thread(merge_pack, pdf, await _collect_files(user.user_id, fids))
+    fname = f"{slug}-{entry_id}.pdf"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
 
 
 @api_router.get("/reports/vehicle/{reg}")

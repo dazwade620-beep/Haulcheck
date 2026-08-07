@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,7 +73,7 @@ export function ServicePanel() {
                 </div>
                 <div className="flex gap-1">
                   <button data-testid="edit-service-button" onClick={() => openEdit(r)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                  <button data-testid="delete-service-button" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                  <div className="flex items-center gap-1"><PrintEntryButton kind="service" id={r.id} hasFiles={r.attachments?.length > 0} variant="icon" /><button data-testid="delete-service-button" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button></div>
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between">

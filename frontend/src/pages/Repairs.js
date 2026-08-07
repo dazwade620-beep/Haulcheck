@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -83,7 +84,7 @@ export function RepairsPanel() {
                   <td className="px-5 py-3 text-slate-600 whitespace-nowrap">{r.cost ? `£${Number(r.cost).toLocaleString()}` : "—"}</td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
                     <button data-testid="edit-repair-button" onClick={() => openEdit(r)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={16} /></button>
-                    <button data-testid="delete-repair-button" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button>
+                    <div className="flex items-center gap-1"><PrintEntryButton kind="repair" id={r.id} hasFiles={r.attachments?.length > 0} variant="icon" /><button data-testid="delete-repair-button" onClick={() => remove(r.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={16} /></button></div>
                   </td>
                 </tr>
               ))}

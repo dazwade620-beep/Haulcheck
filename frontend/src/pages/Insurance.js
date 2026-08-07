@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { useAuth } from "@/context/AuthContext";
 import { getTerms } from "@/lib/terms";
 import { Button } from "@/components/ui/button";
@@ -148,7 +149,7 @@ export function InsurancePanel({ embedded = false }) {
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <button data-testid="edit-insurance-button" onClick={() => openEdit(p)} className="text-slate-400 hover:text-slate-900 p-1"><Pencil size={15} /></button>
-                  <button data-testid="delete-insurance-button" onClick={() => remove(p.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button>
+                  <div className="flex items-center gap-1"><PrintEntryButton kind="insurance" id={p.id} hasFiles={p.attachments?.length > 0} variant="icon" /><button data-testid="delete-insurance-button" onClick={() => remove(p.id)} className="text-slate-400 hover:text-red-600 p-1"><Trash2 size={15} /></button></div>
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { PrintEntryButton } from "@/components/PrintEntryButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -95,7 +96,7 @@ export function ComplianceDocsPanel() {
                   </div>
                   <div className="flex items-center shrink-0">
                     <button data-testid="edit-compliance-doc-button" onClick={() => openEdit(d)} className="text-slate-400 hover:text-slate-900 p-1.5"><Pencil size={15} /></button>
-                    <button data-testid="delete-compliance-doc-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={15} /></button>
+                    <div className="flex items-center gap-1"><PrintEntryButton kind="compliance-doc" id={d.id} hasFiles={d.attachments?.length > 0} variant="icon" /><button data-testid="delete-compliance-doc-button" onClick={() => remove(d.id)} className="text-slate-400 hover:text-red-600 p-1.5"><Trash2 size={15} /></button></div>
                   </div>
                 </div>
 
