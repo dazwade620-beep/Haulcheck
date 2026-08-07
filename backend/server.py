@@ -239,6 +239,8 @@ class Vehicle(BaseModel):
     service_due: Optional[str] = None
     tax_due: Optional[str] = None
     first_use_date: Optional[str] = None
+    purchase_date: Optional[str] = None
+    purchase_odometer: float = 0
     tacho_calibration_due: Optional[str] = None
     speed_limiter_due: Optional[str] = None
     vor: bool = False
@@ -261,6 +263,8 @@ class VehicleInput(BaseModel):
     service_due: Optional[str] = None
     tax_due: Optional[str] = None
     first_use_date: Optional[str] = None
+    purchase_date: Optional[str] = None
+    purchase_odometer: float = 0
     tacho_calibration_due: Optional[str] = None
     speed_limiter_due: Optional[str] = None
     vor: bool = False
@@ -582,6 +586,7 @@ class OperatorInput(BaseModel):
     tm_phone: str = ""
     vat_number: str = ""
     eori_number: str = ""
+    gmr_reference: str = ""
     bank_sort_code: str = ""
     bank_account_number: str = ""
     bank_swift: str = ""
@@ -949,6 +954,25 @@ class FeedbackInput(BaseModel):
     rating: Optional[int] = None
     subject: str = ""
     message: str
+
+
+class GlobalDoc(BaseModel):
+    id: str = Field(default_factory=lambda: f"gdoc_{uuid.uuid4().hex[:10]}")
+    title: str
+    category: str = "Guidance"
+    link_url: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
+    created_by: str = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+class GlobalDocInput(BaseModel):
+    title: str
+    category: str = "Guidance"
+    link_url: str = ""
+    notes: str = ""
+    attachments: List[Attachment] = []
 
 
 class RecallRecord(BaseModel):
@@ -3062,8 +3086,16 @@ LITRES_PER_GALLON = 4.54609
 CO2_PER_LITRE_DIESEL = 2.64
 
 
-def _enrich_fuel(records: list) -> list:
-    """Diesel fills drive MPG/CO2 (miles from odometer between diesel fills). AdBlue fills are usage-only."""
+async def _fuel_baselines(user_id: str) -> dict:
+    """Purchase odometer per reg — seeds MPG so the first fill measures from purchase."""
+    vs = await db.vehicles.find({"user_id": user_id}, {"_id": 0, "registration": 1, "purchase_odometer": 1}).to_list(2000)
+    return {v["registration"]: v["purchase_odometer"] for v in vs if v.get("purchase_odometer")}
+
+
+def _enrich_fuel(records: list, baselines: dict = None) -> list:
+    """Diesel fills drive MPG/CO2 (miles from odometer between diesel fills). AdBlue fills are usage-only.
+    A vehicle's purchase odometer (baselines) seeds the first fill so it also gets miles/MPG."""
+    baselines = baselines or {}
     diesel = [r for r in records if (r.get("fill_type") or "diesel") == "diesel"]
     adblue = [r for r in records if (r.get("fill_type") or "diesel") == "adblue"]
     by_veh = {}
@@ -3072,14 +3104,17 @@ def _enrich_fuel(records: list) -> list:
     out = []
     for reg, recs in by_veh.items():
         recs.sort(key=lambda x: ((x.get("odometer") or 0), x.get("fill_date") or ""))
-        prev_odo = None
+        base = baselines.get(reg) or None
+        prev_odo = float(base) if base else None
         for r in recs:
             odo = r.get("odometer") or 0
             litres = r.get("litres") or 0
             miles = (odo - prev_odo) if (prev_odo is not None and odo and odo > prev_odo) else None
             gallons = litres / LITRES_PER_GALLON if litres else 0
+            km = (miles * 1.60934) if miles is not None else None
             r["miles"] = round(miles, 1) if miles is not None else None
             r["mpg"] = round(miles / gallons, 1) if (miles is not None and gallons) else None
+            r["l_per_100km"] = round(litres * 100 / km, 1) if (km and litres) else None
             r["co2_kg"] = round(litres * CO2_PER_LITRE_DIESEL, 1)
             out.append(r)
             if odo:
@@ -3087,6 +3122,7 @@ def _enrich_fuel(records: list) -> list:
     for r in adblue:
         r["miles"] = None
         r["mpg"] = None
+        r["l_per_100km"] = None
         r["co2_kg"] = 0
         out.append(r)
     out.sort(key=lambda x: (x.get("fill_date") or "", x.get("created_at") or ""), reverse=True)
@@ -3096,12 +3132,21 @@ def _enrich_fuel(records: list) -> list:
 @api_router.get("/fuel")
 async def list_fuel(user: User = Depends(get_current_user)):
     recs = await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000)
-    return _enrich_fuel(recs)
+    return _enrich_fuel(recs, await _fuel_baselines(user.user_id))
 
 
 @api_router.get("/fuel/summary")
-async def fuel_summary(user: User = Depends(get_current_user)):
-    recs = _enrich_fuel(await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000))
+async def fuel_summary(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    user: User = Depends(get_current_user),
+):
+    recs = _enrich_fuel(await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000),
+                        await _fuel_baselines(user.user_id))
+    if from_date:
+        recs = [r for r in recs if (r.get("fill_date") or "") >= from_date]
+    if to_date:
+        recs = [r for r in recs if (r.get("fill_date") or "") <= to_date]
     per_vehicle = {}
     for r in recs:
         reg = r.get("vehicle_reg")
@@ -3126,6 +3171,8 @@ async def fuel_summary(user: User = Depends(get_current_user)):
     for pv in per_vehicle.values():
         gallons = pv["_mpg_litres"] / LITRES_PER_GALLON if pv["_mpg_litres"] else 0
         pv["avg_mpg"] = round(pv["miles"] / gallons, 1) if (pv["miles"] and gallons) else None
+        km = pv["miles"] * 1.60934 if pv["miles"] else 0
+        pv["avg_l_per_100km"] = round(pv["_mpg_litres"] * 100 / km, 1) if (km and pv["_mpg_litres"]) else None
         pv["cost_per_mile"] = round(pv["diesel_cost"] / pv["miles"], 2) if pv["miles"] else None
         fleet_mpg_litres += pv["_mpg_litres"]
         pv.pop("_mpg_litres", None)
@@ -3147,6 +3194,8 @@ async def fuel_summary(user: User = Depends(get_current_user)):
     }
     g = fleet_mpg_litres / LITRES_PER_GALLON if fleet_mpg_litres else 0
     totals["avg_mpg"] = round(totals["miles"] / g, 1) if (totals["miles"] and g) else None
+    tkm = totals["miles"] * 1.60934 if totals["miles"] else 0
+    totals["avg_l_per_100km"] = round(fleet_mpg_litres * 100 / tkm, 1) if (tkm and fleet_mpg_litres) else None
     totals["co2_tonnes"] = round(totals["co2_kg"] / 1000, 2)
     return {"vehicles": vehicles, "totals": totals}
 
@@ -3158,7 +3207,8 @@ async def fuel_report(
     vehicle_reg: Optional[str] = Query(None),
     user: User = Depends(get_current_user),
 ):
-    recs = _enrich_fuel(await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000))
+    recs = _enrich_fuel(await db.fuel.find({"user_id": user.user_id}, {"_id": 0}).to_list(5000),
+                        await _fuel_baselines(user.user_id))
     if vehicle_reg:
         recs = [r for r in recs if r.get("vehicle_reg") == vehicle_reg]
     if from_date:
@@ -3191,10 +3241,13 @@ async def fuel_report(
         pv = per[reg]
         gal = pv["mpg_litres"] / LITRES_PER_GALLON if pv["mpg_litres"] else 0
         mpg = round(pv["miles"] / gal, 1) if (pv["miles"] and gal) else None
+        km = pv["miles"] * 1.60934 if pv["miles"] else 0
+        l100 = round(pv["mpg_litres"] * 100 / km, 1) if (km and pv["mpg_litres"]) else None
         cost = pv["diesel_cost"] + pv["adblue_cost"]
         cpm = round(pv["diesel_cost"] / pv["miles"], 2) if pv["miles"] else None
         veh_rows.append({"cells": [reg, round(pv["diesel"], 1), round(pv["adblue"], 1),
                                    round(pv["miles"], 1), mpg if mpg is not None else "—",
+                                   l100 if l100 is not None else "—",
                                    round(pv["co2"], 1), f"{cur}{round(cost, 2)}",
                                    f"{cur}{cpm}" if cpm is not None else "—"]})
 
@@ -3208,6 +3261,8 @@ async def fuel_report(
     tot_mpg_l = sum(p["mpg_litres"] for p in per.values())
     g = tot_mpg_l / LITRES_PER_GALLON if tot_mpg_l else 0
     fleet_mpg = round(tot_miles / g, 1) if (tot_miles and g) else None
+    tot_km = tot_miles * 1.60934 if tot_miles else 0
+    fleet_l100 = round(tot_mpg_l * 100 / tot_km, 1) if (tot_km and tot_mpg_l) else None
 
     diesel_recs = [r for r in recs if (r.get("fill_type") or "diesel") == "diesel"]
     adblue_recs = [r for r in recs if (r.get("fill_type") or "diesel") == "adblue"]
@@ -3224,11 +3279,12 @@ async def fuel_report(
             ("Diesel used", f"{tot_diesel} L  ({cur}{tot_diesel_cost})"),
             ("AdBlue used", f"{tot_adblue} L  ({cur}{tot_adblue_cost})"),
             ("Distance", f"{tot_miles} miles"), ("Fleet average MPG", fleet_mpg if fleet_mpg is not None else "—"),
+            ("Fleet average L/100km", fleet_l100 if fleet_l100 is not None else "—"),
             ("CO₂ emitted", f"{tot_co2} kg ({round(tot_co2/1000, 2)} t)"),
             ("Total spend", f"{cur}{tot_cost}"),
             ("Fills", f"{len(diesel_recs)} diesel · {len(adblue_recs)} AdBlue"),
         ]},
-        {"heading": "Per-vehicle breakdown", "columns": ["Vehicle", "Diesel (L)", "AdBlue (L)", "Miles", "MPG", "CO₂ (kg)", "Spend", "Cost/mi"], "rows": veh_rows},
+        {"heading": "Per-vehicle breakdown", "columns": ["Vehicle", "Diesel (L)", "AdBlue (L)", "Miles", "MPG", "L/100km", "CO₂ (kg)", "Spend", "Cost/mi"], "rows": veh_rows},
         {"heading": "Diesel fills", "columns": ["Date", "Vehicle", "Litres", "Odo", "Miles", "MPG", "CO₂", "Cost"], "rows": diesel_rows},
         {"heading": "AdBlue fills", "columns": ["Date", "Vehicle", "Litres", "Cost"], "rows": adblue_rows},
     ]
@@ -4711,6 +4767,47 @@ async def reply_feedback(fid: str, payload: dict, admin: User = Depends(require_
         raise HTTPException(status_code=502, detail="Could not send the reply email")
     await db.feedback.update_one({"id": fid}, {"$set": {"handled": True, "replied_at": now_iso(), "reply": message}})
     return {"ok": True}
+
+
+# ---------- Shared compliance library (admin-broadcast to all users) ----------
+@api_router.get("/global-docs")
+async def list_global_docs(user: User = Depends(get_current_user)):
+    return await db.global_docs.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.post("/admin/global-docs")
+async def create_global_doc(data: GlobalDocInput, admin: User = Depends(require_admin)):
+    link = (data.link_url or "").strip()
+    if link and not link.lower().startswith(("http://", "https://")):
+        link = f"https://{link}"
+    doc = GlobalDoc(**{**data.model_dump(), "link_url": link}, created_by=admin.email or admin.user_id)
+    await db.global_docs.insert_one(doc.model_dump())
+    return doc.model_dump()
+
+
+@api_router.delete("/admin/global-docs/{gid}")
+async def delete_global_doc(gid: str, admin: User = Depends(require_admin)):
+    await db.global_docs.delete_one({"id": gid})
+    return {"ok": True}
+
+
+@api_router.get("/global-docs/files/{file_id}")
+async def download_global_doc_file(file_id: str, request: Request, auth: Optional[str] = Query(None)):
+    cookie_token = request.cookies.get("session_token")
+    header_auth = request.headers.get("Authorization")
+    bearer = (header_auth.split(" ", 1)[1] if header_auth and header_auth.startswith("Bearer ") else None) or auth
+    user = await _authenticate(cookie_token, bearer)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    referenced = await db.global_docs.find_one({"attachments.file_id": file_id}, {"_id": 0, "id": 1})
+    if not referenced:
+        raise HTTPException(status_code=404, detail="File not found")
+    rec = await db.files.find_one({"id": file_id, "is_deleted": False}, {"_id": 0})
+    if not rec:
+        raise HTTPException(status_code=404, detail="File not found")
+    data, ct = get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type") or ct,
+                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename", file_id)}"'})
 
 
 @api_router.get("/job-cards")

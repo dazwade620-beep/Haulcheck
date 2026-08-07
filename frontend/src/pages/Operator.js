@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Building2, UserCog, Save, Landmark } from "lucide-react";
+import { Building2, UserCog, Save, Landmark, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Field } from "@/pages/Vehicles";
 import { FileUpload } from "@/components/FileUpload";
@@ -28,7 +28,7 @@ const empty = {
   company_name: "", company_number: "", operator_licence_number: "", licence_type: "Standard National",
   address: "", authorised_vehicles: 0, authorised_trailers: 0,
   tm_name: "", tm_cpc_number: "", tm_email: "", tm_phone: "", notes: "", logo_file_id: "",
-  vat_number: "", eori_number: "", bank_sort_code: "", bank_account_number: "", bank_swift: "", bank_iban: "",
+  vat_number: "", eori_number: "", gmr_reference: "", bank_sort_code: "", bank_account_number: "", bank_swift: "", bank_iban: "",
   website: "", email: "",
 };
 
@@ -106,6 +106,18 @@ export default function Operator() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="VAT Number"><Input data-testid="op-vat" value={form.vat_number} onChange={(e) => setForm({ ...form, vat_number: e.target.value })} placeholder="GB123456789" /></Field>
               <Field label="EORI Number"><Input data-testid="op-eori" value={form.eori_number} onChange={(e) => setForm({ ...form, eori_number: e.target.value })} placeholder="GB123456789000" /></Field>
+              <div className="sm:col-span-2">
+                <Field label="GMR / HMRC reference (GVMS)">
+                  <div className="flex gap-2">
+                    <Input data-testid="op-gmr" value={form.gmr_reference} onChange={(e) => setForm({ ...form, gmr_reference: e.target.value })} placeholder="e.g. GMRA0001ABCD — your Goods Movement Reference" className="flex-1" />
+                    <a data-testid="op-open-hmrc" href="https://www.gov.uk/log-in-hmrc-goods-vehicle-movement-service" target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 shrink-0 rounded-md border border-slate-300 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors">
+                      Open HMRC <ExternalLink size={14} />
+                    </a>
+                  </div>
+                </Field>
+                <p className="text-xs text-slate-400 mt-1">Saved here and pre-filled onto movement records. Use "Open HMRC" to complete the government step on the official GVMS service.</p>
+              </div>
               <Field label="Website"><Input data-testid="op-website" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} placeholder="www.company.co.uk" /></Field>
               <Field label="Company Email"><Input data-testid="op-email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="info@company.co.uk" /></Field>
             </div>
@@ -124,3 +136,4 @@ export default function Operator() {
     </div>
   );
 }
+

@@ -27,14 +27,25 @@ export function FuelPanel() {
   const [reportOpen, setReportOpen] = useState(false);
   const [rpt, setRpt] = useState({ from_date: "", to_date: "", vehicle_reg: "" });
   const [downloading, setDownloading] = useState(false);
+  const [econ, setEcon] = useState({ from_date: "", to_date: "" });
 
   const load = async () => {
-    const [f, s, v, t] = await Promise.all([api.get("/fuel"), api.get("/fuel/summary"), api.get("/vehicles"), api.get("/trailers")]);
-    setItems(f.data); setSummary(s.data);
+    const [f, v, t] = await Promise.all([api.get("/fuel"), api.get("/vehicles"), api.get("/trailers")]);
+    setItems(f.data);
     setAssets([...v.data.map((x) => x.registration), ...t.data.map((x) => x.trailer_number)].filter(Boolean));
+  };
+  const loadSummary = async (range) => {
+    const r = range || econ;
+    const params = new URLSearchParams();
+    if (r.from_date) params.set("from_date", r.from_date);
+    if (r.to_date) params.set("to_date", r.to_date);
+    const s = await api.get(`/fuel/summary${params.toString() ? `?${params}` : ""}`);
+    setSummary(s.data);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadSummary(); }, [econ]);
 
   const openNew = (type) => { setForm({ ...empty, fill_type: type || "diesel" }); setEditId(null); setOpen(true); };
   const openEdit = (r) => { setForm({ ...empty, ...r, fill_date: r.fill_date || "" }); setEditId(r.id); setOpen(true); };
@@ -48,10 +59,10 @@ export function FuelPanel() {
       if (editId) await api.put(`/fuel/${editId}`, payload);
       else await api.post("/fuel", payload);
       toast.success(editId ? "Fill updated" : `${form.fill_type === "adblue" ? "AdBlue" : "Diesel"} fill added`);
-      setOpen(false); load();
+      setOpen(false); load(); loadSummary();
     } catch { toast.error("Could not save fill"); }
   };
-  const remove = async (id) => { await api.delete(`/fuel/${id}`); toast.success("Record removed"); load(); };
+  const remove = async (id) => { await api.delete(`/fuel/${id}`); toast.success("Record removed"); load(); loadSummary(); };
 
   const downloadReport = async () => {
     setDownloading(true);
@@ -94,21 +105,41 @@ export function FuelPanel() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" data-testid="fuel-totals">
         <Stat icon={FuelIcon} label="Diesel used" value={`${t.diesel_litres || 0} L`} sub={`${cur}${t.diesel_cost || 0} · ${t.diesel_fills || 0} fills`} />
         <Stat icon={Droplet} label="AdBlue used" value={`${t.adblue_litres || 0} L`} sub={`${cur}${t.adblue_cost || 0} · ${t.adblue_fills || 0} fills`} />
-        <Stat icon={Gauge} label="Fleet avg MPG" value={t.avg_mpg != null ? `${t.avg_mpg}` : "—"} sub={`${t.miles || 0} mi`} />
+        <Stat icon={Gauge} label="Fleet avg MPG" value={t.avg_mpg != null ? `${t.avg_mpg}` : "—"} sub={`${t.avg_l_per_100km != null ? `${t.avg_l_per_100km} L/100km` : `${t.miles || 0} mi`}`} />
         <Stat icon={Leaf} label="CO₂ emitted" value={`${t.co2_tonnes || 0} t`} sub={`${t.co2_kg || 0} kg`} />
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-md p-4 mb-6 flex flex-wrap items-end gap-3" data-testid="fuel-economy-range">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">Economy period</p>
+          <p className="text-xs text-slate-500">Pick any two dates for a real MPG / L/100km guide per truck</p>
+        </div>
+        <div className="flex items-end gap-2 ml-auto">
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block mb-1">From</label>
+            <Input data-testid="econ-from" type="date" value={econ.from_date} onChange={(e) => setEcon({ ...econ, from_date: e.target.value })} className="h-9 w-40" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block mb-1">To</label>
+            <Input data-testid="econ-to" type="date" value={econ.to_date} onChange={(e) => setEcon({ ...econ, to_date: e.target.value })} className="h-9 w-40" />
+          </div>
+          {(econ.from_date || econ.to_date) && (
+            <Button data-testid="econ-clear" variant="outline" className="h-9 border-slate-300" onClick={() => setEcon({ from_date: "", to_date: "" })}>Clear</Button>
+          )}
+        </div>
       </div>
 
       {summary.vehicles?.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-md overflow-hidden mb-6" data-testid="fuel-league">
-          <div className="px-5 py-3 border-b border-slate-100"><h3 className="font-heading font-bold text-sm tracking-tight">Per-vehicle efficiency ({terms.authority})</h3></div>
+          <div className="px-5 py-3 border-b border-slate-100"><h3 className="font-heading font-bold text-sm tracking-tight">Per-vehicle efficiency ({terms.authority}){(econ.from_date || econ.to_date) ? ` · ${econ.from_date || "start"} → ${econ.to_date || "today"}` : ""}</h3></div>
           <div className="divide-y divide-slate-100">
             {summary.vehicles.map((v) => (
               <div key={v.vehicle_reg} data-testid="fuel-vehicle-row" className="flex items-center justify-between px-5 py-2.5 text-sm">
                 <span className="font-semibold text-slate-800">{v.vehicle_reg}</span>
                 <div className="flex items-center gap-5 text-slate-500 text-xs">
                   <span><b className="text-slate-800 text-sm">{v.avg_mpg ?? "—"}</b> mpg</span>
+                  <span><b className="text-slate-800 text-sm">{v.avg_l_per_100km ?? "—"}</b> L/100km</span>
                   <span>{v.diesel_litres} L diesel</span>
-                  <span>{v.adblue_litres} L AdBlue</span>
                   <span>{v.co2_kg} kg CO₂</span>
                   <span>{v.cost_per_mile != null ? `${cur}${v.cost_per_mile}/mi` : "—"}</span>
                 </div>
@@ -141,6 +172,7 @@ export function FuelPanel() {
                   <KV label="Litres" value={`${r.litres || 0} L`} strong />
                   <KV label="Cost" value={`${cur}${r.cost || 0}`} />
                   {!adblue && <KV label="MPG" value={r.mpg != null ? `${r.mpg}` : "—"} strong />}
+                  {!adblue && <KV label="L/100km" value={r.l_per_100km != null ? `${r.l_per_100km}` : "—"} />}
                   {!adblue && <KV label="CO₂" value={`${r.co2_kg || 0} kg`} />}
                   {!adblue && <KV label="Miles" value={r.miles != null ? `${r.miles}` : "—"} />}
                 </div>

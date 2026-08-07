@@ -19,7 +19,7 @@ import { ProhibitionsPanel } from "@/pages/Prohibitions";
 import { downloadPdf, printPdf } from "@/lib/download";
 
 const VEHICLE_TYPES = ["HGV (Rigid)", "HGV (Artic / Tractor Unit)", "LGV / Van", "Car", "Minibus / PSV", "Other"];
-const empty = { registration: "", make: "", model: "", type: "HGV (Rigid)", mot_due: "", service_due: "", tax_due: "", first_use_date: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
+const empty = { registration: "", make: "", model: "", type: "HGV (Rigid)", mot_due: "", service_due: "", tax_due: "", first_use_date: "", purchase_date: "", purchase_odometer: "", tacho_calibration_due: "", speed_limiter_due: "", vor: false, vor_reason: "", notes: "" };
 
 function VehiclesPanel() {
   const { user } = useAuth();
@@ -49,7 +49,7 @@ function VehiclesPanel() {
 
   const openNew = () => { setForm(empty); setEditId(null); setOpen(true); };
   const openEdit = (v) => {
-    setForm({ ...empty, ...v, mot_due: v.mot_due || "", service_due: v.service_due || "", tax_due: v.tax_due || "", first_use_date: v.first_use_date || "", tacho_calibration_due: v.tacho_calibration_due || "", speed_limiter_due: v.speed_limiter_due || "" });
+    setForm({ ...empty, ...v, mot_due: v.mot_due || "", service_due: v.service_due || "", tax_due: v.tax_due || "", first_use_date: v.first_use_date || "", purchase_date: v.purchase_date || "", purchase_odometer: v.purchase_odometer || "", tacho_calibration_due: v.tacho_calibration_due || "", speed_limiter_due: v.speed_limiter_due || "" });
     setEditId(v.id); setOpen(true);
   };
 
@@ -222,6 +222,10 @@ function VehiclesPanel() {
               <Field label="Speed Limiter Check Due"><Input data-testid="veh-speedlimiter" type="date" value={form.speed_limiter_due} onChange={(e) => setForm({ ...form, speed_limiter_due: e.target.value })} /></Field>
             </div>
             <Field label="Date of First Use"><Input data-testid="veh-firstuse" type="date" value={form.first_use_date} onChange={(e) => setForm({ ...form, first_use_date: e.target.value })} /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Purchase Date"><Input data-testid="veh-purchase-date" type="date" value={form.purchase_date} onChange={(e) => setForm({ ...form, purchase_date: e.target.value })} /></Field>
+              <Field label="Odometer at Purchase (miles)"><Input data-testid="veh-purchase-odometer" type="number" min="0" step="1" value={form.purchase_odometer} onChange={(e) => setForm({ ...form, purchase_odometer: e.target.value })} placeholder="e.g. 100000 — baseline for MPG" /></Field>
+            </div>
             <div className="rounded-md border border-slate-200 p-3">
               <label className="flex items-center gap-2.5 cursor-pointer">
                 <input data-testid="veh-vor" type="checkbox" checked={!!form.vor} onChange={(e) => setForm({ ...form, vor: e.target.checked })} className="h-4 w-4 rounded border-slate-300 accent-red-600" />
@@ -318,3 +322,4 @@ export function Empty({ icon: Icon, text }) {
     </div>
   );
 }
+

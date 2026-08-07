@@ -1,0 +1,30 @@
+{
+  "summary": "Verified 6 new HaulCheck features (purchase odometer, MPG + L/100km, fuel date-range summary, operator GMR/HMRC, shared HaulCheck docs library, global-doc file download). Backend: 11/11 pytest cases pass. Frontend: login, all data-testid targets present and interactive; shared-doc CRUD end-to-end works from the Compliance Docs page as super-admin manager@haulcheck.co.uk; econ date range filter drives the panel header/rows and clears; Open HMRC anchor has correct href https://www.gov.uk/log-in-hmrc-goods-vehicle-movement-service and target=_blank. Vehicle purchase fields render inside the add-vehicle dialog. Fuel tab shows fuel-economy-range with From/To/Clear (Clear is conditional on a date being set, per code — expected). One minor testid deviation: the FileUpload component wraps the file input as `sd-files-drop` / `sd-files-input` / `sd-files-list` instead of a single element with data-testid=`sd-files`; the underlying feature works (upload, save & download) so this is a naming nit, not a functional bug.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Compliance Docs > Shared doc dialog", "issues": ["FileUpload exposes sd-files-drop / sd-files-input / sd-files-list rather than a single sd-files testid. Optional: wrap the FileUpload in a <div data-testid=\"sd-files\"> so external contracts see the exact id promised in the spec."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/new_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Global-doc file download route (GET /api/global-docs/files/{file_id}) correctly gates on user auth AND requires the file_id to be referenced by a GlobalDoc.attachments entry — clean design.",
+    "_enrich_fuel seeds mpg/miles/L100km for the FIRST diesel fill when a vehicle.purchase_odometer baseline exists. Works. Note: baseline is per-registration; if a vehicle is re-registered the mapping would need a re-key.",
+    "econ-clear button is only rendered when a date is set — this is by design but tests looking up the id at initial page-load must set a date first (documented for next agent).",
+    "server.py is now >6.7k lines. Consider splitting fuel + global-docs routers out of server.py — same code-quality note as iteration 49."
+  ],
+  "updated_files": ["/app/backend/tests/test_new_features.py (new)"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% functional; 1 minor testid naming nit"},
+  "test_credentials": "manager@haulcheck.co.uk / Test1234!",
+  "seed_data_creation": "Test file creates+deletes: one vehicle (purchase_odometer=100000) + one diesel fill (odo 100600) to validate first-fill MPG seeding, one operator gmr_reference save (kept), and two global-docs (both deleted). UI test also created 'UI TEST Shared Doc AAA' and deleted it. No leftover records except operator.gmr_reference=GMR-TEST-XYZ-001 (please reset manually if needed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests at /app/backend/tests/test_new_features.py. File upload endpoint is /api/upload (not /api/files). Global file download at GET /api/global-docs/files/{file_id} requires the file_id to be attached to a GlobalDoc. econ-clear button only renders once a date is set. Login testids: email-input, password-input, submit-auth-button. Manager account is also the super-admin (see ADMIN_EMAILS).",
+  "rca of the issue": "N/A — all requested behaviour matches the spec."
+}
