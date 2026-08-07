@@ -1,3 +1,15 @@
+## Feature (2026-08 fork pt.23 — Feedback tab "Help us improve HaulCheck") — VERIFIED (curl + screenshot)
+- New in-app **Feedback** page (`frontend/src/pages/Feedback.js`, protected route `/feedback`, sidebar link between Contact and About). Copy per user request ("Help us improve HaulCheck…"). Form: category (General / Report an issue / Suggest a feature), optional 1-5 star rating, optional subject, message. Shows a success state + a list of feedback (own for managers, ALL for admins).
+- Backend (server.py): `Feedback`/`FeedbackInput` models + `feedback` collection. `POST /api/feedback` (get_current_user — captures submitter name/email/user_id) saves + emails info@haulcheck.co.uk (or CONTACT_RECIPIENT_EMAIL) via Resend with rating stars + category. `GET /api/feedback` (admins see all, others see own). `DELETE /api/feedback/{fid}` (admins any, others own).
+- Verified: POST→{ok:true}+saved, GET returns row, DELETE ok; page renders with 3 category buttons, star rating, list. Test record cleaned up.
+- NOTE: PREVIEW verified — live needs Save-to-GitHub → Deploy.
+
+
+## Feature (2026-08 fork pt.22 — About page /about) — VERIFIED (screenshot)
+- New public **About** page (`frontend/src/pages/About.js`, route `/about`) with the user's full HaulCheck description reorganised into hero + 6 feature cards + tacho/GPS highlight panels + audience chips + closing statement + CTAs. Public header (logo, Contact, Sign in). Links added: sidebar (`Layout.js`, "About"), Login page footer ("About HaulCheck · Contact us"), Contact page header ("About").
+- NOTE: PREVIEW verified — live needs Save-to-GitHub → Deploy.
+
+
 ## Change (2026-08 fork pt.21 — Dashboard layout: Compliance Alerts above roster strip) — VERIFIED (screenshot)
 - Dashboard.js now renders the "Compliance Alerts" feed block (lines ~215-246) ABOVE `<RosterStrip />` (line 248), per user request ("compliance alert above who's off this week"). Order below alerts: RosterStrip → ComplianceTrend → MaintenanceCosts → RecallCard → RetentionCard → DefectAlerts.
 - Verified via screenshot on preview: alerts feed shows first, "Who's off this week" strip renders directly beneath it; no layout/syntax breakage.

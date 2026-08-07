@@ -928,6 +928,26 @@ class ContactInput(BaseModel):
     message: str
 
 
+class Feedback(BaseModel):
+    id: str = Field(default_factory=lambda: f"fb_{uuid.uuid4().hex[:10]}")
+    user_id: str = ""
+    name: str = ""
+    email: str = ""
+    category: str = "general"  # bug | feature | general
+    rating: Optional[int] = None  # 1-5
+    subject: str = ""
+    message: str
+    handled: bool = False
+    created_at: str = Field(default_factory=now_iso)
+
+
+class FeedbackInput(BaseModel):
+    category: str = "general"
+    rating: Optional[int] = None
+    subject: str = ""
+    message: str
+
+
 class RecallRecord(BaseModel):
     id: str = Field(default_factory=lambda: f"rcl_{uuid.uuid4().hex[:10]}")
     user_id: str = ""
@@ -4469,6 +4489,51 @@ async def list_contact_messages(user: User = Depends(get_current_user)):
 @api_router.delete("/contact-messages/{cid}")
 async def delete_contact_message(cid: str, user: User = Depends(get_current_user)):
     await db.contact_messages.delete_one({"id": cid})
+    return {"ok": True}
+
+
+@api_router.post("/feedback")
+async def submit_feedback(data: FeedbackInput, user: User = Depends(get_current_user)):
+    fb = Feedback(
+        **data.model_dump(),
+        user_id=user.user_id, name=user.name or "", email=user.email or "",
+    )
+    await db.feedback.insert_one(fb.model_dump())
+    try:
+        import resend
+        resend.api_key = os.environ['RESEND_API_KEY']
+        stars = ("★" * fb.rating + "☆" * (5 - fb.rating)) if fb.rating else "—"
+        cat_label = {"bug": "Bug / issue", "feature": "Feature suggestion", "general": "General feedback"}.get(fb.category, fb.category)
+        html = (
+            "<div style='font-family:Arial,sans-serif;max-width:560px;margin:auto'>"
+            "<h2 style='color:#0f172a'>New HaulCheck feedback</h2>"
+            f"<p><strong>From:</strong> {fb.name} &lt;{fb.email}&gt;</p>"
+            f"<p><strong>Type:</strong> {cat_label}</p>"
+            f"<p><strong>Rating:</strong> {stars}</p>"
+            f"<p><strong>Subject:</strong> {fb.subject or '—'}</p>"
+            f"<p style='white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px'>{fb.message}</p>"
+            "</div>"
+        )
+        recipient = os.environ.get('CONTACT_RECIPIENT_EMAIL') or 'info@haulcheck.co.uk'
+        await asyncio.to_thread(resend.Emails.send, {
+            "from": os.environ['SENDER_EMAIL'], "to": [recipient],
+            "reply_to": fb.email or None, "subject": f"[Feedback] {cat_label} — {fb.name}", "html": html,
+        })
+    except Exception as e:
+        logging.error(f"Feedback email failed: {e}")
+    return {"ok": True}
+
+
+@api_router.get("/feedback")
+async def list_feedback(user: User = Depends(get_current_user)):
+    query = {} if user.is_admin else {"user_id": user.user_id}
+    return await db.feedback.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api_router.delete("/feedback/{fid}")
+async def delete_feedback(fid: str, user: User = Depends(get_current_user)):
+    query = {"id": fid} if user.is_admin else {"id": fid, "user_id": user.user_id}
+    await db.feedback.delete_one(query)
     return {"ok": True}
 
 
